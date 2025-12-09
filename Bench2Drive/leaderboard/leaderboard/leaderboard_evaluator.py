@@ -84,7 +84,7 @@ class LeaderboardEvaluator(object):
     """
 
     # Tunable parameters
-    client_timeout = 300.0  # in seconds
+    client_timeout = 3600.0  # in seconds (1 hour for slow inference)
     frame_rate = 20.0      # in Hz
 
     def __init__(self, args, statistics_manager):
