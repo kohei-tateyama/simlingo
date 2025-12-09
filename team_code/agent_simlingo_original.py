@@ -58,29 +58,15 @@ def get_entry_point():
     return 'LingoAgent'
 
 
-DEBUG = True # saves images during evaluation # reverse how do thay make the img 
+DEBUG = False # saves images during evaluation
 HD_VIZ = False
 USE_UKF = True
-# DEBUG = int(os.environ.get('DEBUG', '0')) == 1
 
 class LingoAgent(autonomous_agent.AutonomousAgent):
     """
         Main class that runs the agents with the run_step function
         """
 
-    # def __init__(self, host, port, debug=0):
-    #     self.host = host
-    #     self.port = port
-        
-    #     # Use debug flag from leaderboard
-    #     global DEBUG
-    #     DEBUG = bool(debug)  # Convert --debug arg to boolean
-        
-    #     if DEBUG:
-    #         print("[SimLingo Agent] Debug mode ENABLED - images will be saved")
-    #     else:
-    #         print("[SimLingo Agent] Debug mode DISABLED")
-        
     def setup(self, path_to_conf_file, route_index=None):
         """Sets up the agent. route_index is for logging purposes"""
 
@@ -159,8 +145,7 @@ class LingoAgent(autonomous_agent.AutonomousAgent):
         self.route_planner_min_distance = 7.5
 
         #load config from .hydra folder
-        # self.config_load_path = Path(self.config_path).parent.parent.parent / '.hydra' / 'config.yaml'
-        self.config_load_path = Path(self.config_path).parent.parent / '.hydra' / 'config.yaml'
+        self.config_load_path = Path(self.config_path).parent.parent.parent / '.hydra' / 'config.yaml'
         with open(self.config_load_path, 'r') as file:
             cfg = OmegaConf.load(file)
         self.cfg = cfg
@@ -241,7 +226,7 @@ class LingoAgent(autonomous_agent.AutonomousAgent):
                     roi=self.logger_region_of_interest,
             )
         
-        self.debug_save_path = str(self.save_path) + '/debug_viz' + f'/{self.session}/iter_{self.iter}/{route_type}/{route_number}_{time.strftime("%Y_%m_%d_%H_%M_%S")}'
+        self.debug_save_path = self.save_path + '/debug_viz' + f'/{self.session}/iter_{self.iter}/{route_type}/{route_number}_{time.strftime("%Y_%m_%d_%H_%M_%S")}'
         Path(self.debug_save_path).mkdir(parents=True, exist_ok=True)
         self.save_path_metric = self.debug_save_path + '/metric'
         Path(self.save_path_metric).mkdir(parents=True, exist_ok=True)
@@ -694,31 +679,11 @@ class LingoAgent(autonomous_agent.AutonomousAgent):
         # Need to run this every step for GPS filtering
         tick_data = self.tick(input_data)
 
-        # ###############################adding frame skipping##########################
-        
-        # # FRAME SKIPPING: Process every 4th frame to achieve 5 FPS effective rate
-        # # Simulation runs at 20 FPS, so skip 3 frames, process 1 frame
-        # if not hasattr(self, '_frame_skip_counter'):
-        #     self._frame_skip_counter = 0
-        #     self._cached_control = carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
-        
-        # self._frame_skip_counter += 1
-        
-        # # Only run full model inference every 4th frame
-        # if self._frame_skip_counter % 4 != 0:
-        #     # Reuse cached control from last inference
-        #     return self._cached_control
-
-        # ###############################################################################
-        
-        
         # initialize DrivingInput with dict self.DrivingInput
         model_input = DrivingInput(**self.DrivingInput)
         pred_speed_wps, pred_route, language = self.model(model_input)
         pred_speed_wps = pred_speed_wps.float() if pred_speed_wps is not None else None
         pred_route = pred_route.float() if pred_route is not None else None
-
-        ## understand how they plots the wwaypoints
 
         # prepare velocity input
         gt_velocity = tick_data['speed']
@@ -823,9 +788,6 @@ class LingoAgent(autonomous_agent.AutonomousAgent):
             self.control = carla.VehicleControl(0.0, 0.0, 1.0)
         else:
             self.control = control
-        
-        # # Cache control for frame skipping
-        # self._cached_control = self.control
             
         metric_info = self.get_metric_info()
         self.metric_info[self.step] = metric_info
