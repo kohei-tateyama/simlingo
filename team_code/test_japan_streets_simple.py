@@ -89,30 +89,13 @@ class JapaneseStreetsInference:
         return img
     
     @torch.inference_mode()
-    def infer_single(self, image_path):
-        """Run inference on a single Japanese street image
-        
-        Args: image_path: Path to input image
-        Returns: dict with control outputs (steer, throttle, brake, etc.)
-        """
+    def infer_single_basic(self, image_path):
         img = self.preprocess_image(image_path)
-        
-        # # Prepare input in format expected by LingoAgent
-
-        # input_data = {
-        #     'rgb_0': (0, img),             # Real img from Japanese street
-        #     'imu': (0, [0.0]),             # Dummy compass/heading pointing north (0.0 radians = east in CARLA), scalar 
-        #     'gps': (0, [0.0, 0.0, 0.0]),   # Dummy GPS at origin (x, y, z)
-        #     'speed': (0, {'speed': 5.0}),  # Dummy speed of 5 m/s
-        # }
-
-        metadata = {}  # {'image_001.png': {'imu': [0.1], 'gps': [1.2, 3.4, 0.0], 'speed': {'speed': 4.5}}}
-        meta = metadata.get(Path(image_path).name, {})
         input_data = {
-            'rgb_0': (0, img),
-            'imu': (0, meta.get('imu', [0.0])),
-            'gps': (0, meta.get('gps', [0.0, 0.0, 0.0])),   
-            'speed': (0, meta.get('speed', {'speed': 5.0})),
+            'rgb_0': (0, img),             # Real img from Japanese street
+            'imu': (0, [0.0]),             # Dummy compass/heading pointing north (0.0 radians = east in CARLA), scalar 
+            'gps': (0, [0.0, 0.0, 0.0]),   # Dummy GPS at origin (x, y, z)
+            'speed': (0, {'speed': 5.0}),  # Dummy speed of 5 m/s
         }
                 
         # Run inference step-wise
@@ -123,6 +106,98 @@ class JapaneseStreetsInference:
         print(f"[INFO]: Run Step done in {duration:.3f}s")
                 
         return control
+
+
+    @torch.inference_mode()
+    def infer_single(self, image_path):
+        """
+        Run inference on a single Japanese street image.
+        Builds input_data dict, runs a warmup pass, times one inference pass
+        (with CUDA synchronization if available) and prints timing stats.
+        Returns whatever the underlying agent/run_step returns (control).
+        """
+        from statistics import mean, median, pstdev
+        import json
+        # preprocess the image
+        img = self.preprocess_image(image_path)
+
+        # try to load per-image metadata if a dict is available on self,
+        # otherwise fall back to empty metadata.
+        metadata = getattr(self, "metadata", {})
+        # allow an external metadata JSON file path via attribute or env var
+        if not metadata:
+            md_path = getattr(self, "metadata_path", os.environ.get("TEST_METADATA", ""))
+            if md_path and os.path.isfile(md_path):
+                try:
+                    with open(md_path, "r") as f:
+                        metadata = json.load(f)
+                except Exception:
+                    metadata = {}
+
+        meta = metadata.get(Path(image_path).name, {}) if isinstance(metadata, dict) else {}
+
+        # build input_data with correct types / shapes expected by LingoAgent
+        input_data = {
+            "rgb_0": (0, img),
+            "imu": (0, meta.get("imu", [0.0])),                             # list with 1 float
+            "gps": (0, meta.get("gps", [0.0, 0.0, 0.0])),                  # list with 3 floats
+            # ensure speed is a dict with 'speed' float
+            "speed": (0, meta.get("speed", {"speed": 5.0}) if isinstance(meta.get("speed", None), dict) else {"speed": float(meta.get("speed", 5.0))}),
+        }
+                
+        # Run inference step-wise
+        timestamp = 0.0
+        # Choose underlying inference entrypoint (self.agent.run_step if present, else self.run_step)
+        runner = None
+        if hasattr(self, "agent") and callable(getattr(self.agent, "run_step", None)):
+            runner = lambda d, t: self.agent.run_step(d, t)
+        elif callable(getattr(self, "run_step", None)):
+            runner = lambda d, t: self.run_step(d, t)
+        else:
+            raise RuntimeError("No inference runner found (no self.agent.run_step or self.run_step)")
+
+        # Warmup run to avoid measuring one-time initialization/first-call overhead
+        try:
+            _ = runner(input_data, timestamp)
+        except Exception:
+            # ignore warmup errors but continue to timed run
+            pass
+
+        # Timed single inference with CUDA sync when available
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        control = runner(input_data, timestamp)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        single_elapsed = t1 - t0
+        print(f"[TIMING] single inference for {Path(image_path).name}: {single_elapsed:.6f} s")
+
+        # Optional small repeated benchmark to get stable numbers (configurable via attribute)
+        repeat_runs = int(getattr(self, "timing_repeat_runs", 5))
+        if repeat_runs > 0:
+            times = []
+            for _ in range(repeat_runs):
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                t0 = time.perf_counter()
+                _ = runner(input_data, timestamp)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                t1 = time.perf_counter()
+                times.append(t1 - t0)
+            mean_t = mean(times)
+            median_t = median(times)
+            std_t = pstdev(times) if len(times) > 1 else 0.0
+            print(f"[TIMING] repeat {repeat_runs} runs: mean={mean_t:.6f}s median={median_t:.6f}s std={std_t:.6f}s")
+
+        return control
+
+                
+        
+
+
     
     def infer_directory(self, image_dir, output_file=None):
         """Run inference on all images in a directory

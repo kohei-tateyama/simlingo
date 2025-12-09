@@ -383,3 +383,125 @@ if __name__ == '__main__':
     images_dir = 'japanese_street'
     out_dir = 'japanese_street/japanese_street_test'
     annotate_results(json_path, images_dir, out_dir)
+
+
+
+
+
+# # from the agent_simlingo.py up to lino 800
+
+# @torch.no_grad()
+#     def run_step(self, input_data, timestamp, sensors=None):  # pylint: disable=locally-disabled, unused-argument
+#         self.step += 1
+
+#         if not self.initialized:
+#             self._init()
+#             control = carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
+#             self.control = control
+#             tick_data = self.tick(input_data)
+#             return control
+
+#         # Need to run this every step for GPS filtering
+#         tick_data = self.tick(input_data)
+
+#         # ###############################adding frame skipping##########################
+        
+#         # # FRAME SKIPPING: Process every 4th frame to achieve 5 FPS effective rate
+#         # # Simulation runs at 20 FPS, so skip 3 frames, process 1 frame
+#         # if not hasattr(self, '_frame_skip_counter'):
+#         #     self._frame_skip_counter = 0
+#         #     self._cached_control = carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
+        
+#         # self._frame_skip_counter += 1
+        
+#         # # Only run full model inference every 4th frame
+#         # if self._frame_skip_counter % 4 != 0:
+#         #     # Reuse cached control from last inference
+#         #     return self._cached_control
+
+#         # ###############################################################################
+        
+        
+#         # initialize DrivingInput with dict self.DrivingInput
+#         model_input = DrivingInput(**self.DrivingInput)
+#         pred_speed_wps, pred_route, language = self.model(model_input)
+#         pred_speed_wps = pred_speed_wps.float() if pred_speed_wps is not None else None
+#         pred_route = pred_route.float() if pred_route is not None else None
+
+#         ## understand how they plots the wwaypoints
+
+#         gt_velocity = tick_data['speed']
+
+#         if DEBUG and self.step%5 == 0:
+#             tvec = None
+#             rvec = None
+
+#             if HD_VIZ:
+#                 self.camera_for_viz = self.hd_cam_for_viz
+#                 tvec = np.array([[0.0, 3.5, 5.5]], np.float32)
+
+#                 cam_rots = [0.0, -15.0, 0.0]
+#                 rot_matrix = get_rotation_matrix(-cam_rots[0], -cam_rots[1], cam_rots[2])
+#                 rvec = cv2.Rodrigues(rot_matrix[:3, :3])[0].flatten()
+
+#             W=self.camera_for_viz.shape[1]
+#             H=self.camera_for_viz.shape[0]
+#             camera_intrinsics = np.asarray(get_camera_intrinsics(W,H,110))
+
+#             # bgr to rgb
+#             self.camera_for_viz = cv2.cvtColor(self.camera_for_viz, cv2.COLOR_BGR2RGB)
+
+#             # draw the predicted waypoints
+#             image = Image.fromarray(self.camera_for_viz)
+#             draw = ImageDraw.Draw(image)
+
+#             if self.target_points is not None:
+#                 target_point_img_coords = project_points(self.target_points, camera_intrinsics, tvec=tvec, rvec=rvec)
+#                 for points_2d in target_point_img_coords:
+#                     # in blue
+#                     draw.ellipse((points_2d[0]-4, points_2d[1]-4, points_2d[0]+4, points_2d[1]+4), fill=(0, 0, 255, 255))
+
+#             if pred_route is not None:
+#                 pred_route_img_coords = project_points(pred_route[0].detach().cpu().numpy(), camera_intrinsics, tvec=tvec, rvec=rvec)
+#                 for points_2d in pred_route_img_coords:
+#                         draw.ellipse((points_2d[0]-3, points_2d[1]-3, points_2d[0]+3, points_2d[1]+3), fill=(255, 0, 0, 255))
+            
+#             if pred_speed_wps is not None:
+#                 pred_speed_wps_img_coords = project_points(pred_speed_wps[0].detach().cpu().numpy(), camera_intrinsics, tvec=tvec, rvec=rvec)
+#                 for points_2d in pred_speed_wps_img_coords:
+#                         draw.ellipse((points_2d[0]-2, points_2d[1]-2, points_2d[0]+2, points_2d[1]+2), fill=(0, 255, 0, 255))
+
+#             if language is not None:
+#                 # write the language to the bottom of the image
+#                 black_box = Image.new('RGBA', (W, 400), (0, 0, 0, 255))
+#                 # concatenate the images
+#                 image_all = Image.new('RGBA', (W, H+400))
+#                 image_all.paste(image, (0, 0))
+#                 image_all.paste(black_box, (0, H))
+#                 image = image_all
+#                 draw = ImageDraw.Draw(image)
+
+#                 if HD_VIZ:
+#                     font_size = 50
+#                     line_width = 60
+#                     y_dist = 60
+#                     y_start = H + 20
+#                 else:
+#                     font_size = 20
+#                     line_width = 100
+#                     y_dist = 30
+#                     y_start = H + 20
+#                 font = ImageFont.truetype("arial.ttf", font_size)
+#                 import textwrap
+#                 lines = textwrap.wrap(f"Prompt: {self.prompt}", width=line_width)
+#                 for idx, line in enumerate(lines):
+#                         draw.text((10, y_start + y_dist*(idx)), line, font=font, fill=(255, 255, 255, 255))
+                
+#                 y_start = H + 20 + y_dist*(idx+1)
+
+#                 lines = textwrap.wrap(f"Answer: {language[0]}", width=line_width)
+#                 for idx, line in enumerate(lines):
+#                         draw.text((10, y_start + y_dist*(idx)), line, font=font, fill=(255, 255, 255, 255))
+
+#             # save
+#             image.save(f"{self.save_path_img}/{self.step}.png")
