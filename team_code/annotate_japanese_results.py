@@ -14,7 +14,6 @@ import numpy as np
 import sys
 import textwrap
 
-
 def get_camera_intrinsics(w, h, fov):
     """
     Get camera intrinsics matrix from width, height and fov.
@@ -34,13 +33,19 @@ def project_points_simple(points_3d, camera_intrinsics, tvec=None, rvec=None):
     Project 3D CARLA waypoints to 2D image coordinates using cv2.projectPoints.
     Matches the projection logic from agent_simlingo.py / simlingo_utils.py
     
+    This projects AGENT-GENERATED waypoints (pred_route), not target/ground-truth waypoints.
+    
     points_3d: numpy array of shape [N, 2] or [N, 3] in CARLA coordinates (x=forward, y=lateral)
     camera_intrinsics: numpy array [3, 3]
+    tvec: translation vector for projection (NOT the camera mount position)
+    rvec: rotation vector for projection
     Returns: list of (px, py) tuples
     """
     all_points_2d = []
     
     # Default camera transformation parameters (from simlingo_utils.py)
+    # Note: tvec is the projection transform, not the camera physical mount position
+    # Camera mount is at [-1.5, 0.0, 2.0] in config, but tvec is [0.0, 2.0, 1.5] for projection
     if rvec is None:
         rvec_new = np.zeros((3, 1), np.float32)
     else:
@@ -61,61 +66,6 @@ def project_points_simple(points_3d, camera_intrinsics, tvec=None, rvec=None):
             pos_3d,
             rvec=rvec_new,
             tvec=tvec,
-            cameraMatrix=camera_intrinsics,
-            distCoeffs=dist_coeffs
-        )
-        all_points_2d.append(points_2d[0][0])
-    
-    return all_points_2d
-
-
-def project_points_simple2(points_3d, camera_intrinsics, camera_pos=None, camera_rot=None):
-    """
-    Project 3D CARLA waypoints using actual camera configuration.
-    Camera config from agent_simlingo.py line 748:
-        position: x=1.3, y=0.0, z=2.3
-        rotation: roll=0.0, pitch=0.0, yaw=0.0
-    
-    points_3d: numpy array of shape [N, 2] or [N, 3] in CARLA coordinates (x=forward, y=lateral)
-    camera_intrinsics: numpy array [3, 3]
-    Returns: list of (px, py) tuples
-    """
-    all_points_2d = []
-    
-    # Camera position from config (x=forward, y=lateral, z=up)
-    if camera_pos is None:
-        camera_pos = np.array([1.3, 0.0, 2.3], dtype=np.float32)
-    
-    # Camera rotation (roll, pitch, yaw in degrees)
-    if camera_rot is None:
-        camera_rot = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-    
-    # Convert rotation to radians and create rotation vector
-    rvec = np.radians(camera_rot).reshape(3, 1).astype(np.float32)
-    
-    # Translation vector (camera position)
-    tvec = camera_pos.reshape(3, 1).astype(np.float32)
-    
-    dist_coeffs = np.zeros((5, 1), np.float32)
-    
-    for point in points_3d:
-        # CARLA waypoint in world coordinates: [x_forward, y_lateral, z_up]
-        # Add z=0 if not provided
-        if len(point) == 2:
-            pos_3d = np.array([point[0], point[1], 0.0], dtype=np.float32)
-        else:
-            pos_3d = np.array([point[0], point[1], point[2]], dtype=np.float32)
-        
-        # Transform to camera coordinates
-        # CARLA coordinate system: x=forward, y=right, z=up
-        # Camera looks along +x axis
-        pos_cam = pos_3d - camera_pos
-        
-        # Use cv2.projectPoints
-        points_2d, _ = cv2.projectPoints(
-            pos_cam.reshape(1, 3),
-            rvec=rvec,
-            tvec=np.zeros((3, 1), np.float32),  # Already transformed
             cameraMatrix=camera_intrinsics,
             distCoeffs=dist_coeffs
         )
@@ -346,15 +296,14 @@ def draw_brake_x(img, brake_value, origin=None, color=(0, 0, 255), thickness=THI
     cv2.putText(img, text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, fontScale, color, lineWidth, cv2.LINE_AA)
 
 
-def overlay_waypoints_and_text(img, pred_route=None, pred_speed_wps=None, language=None, prompt=None, max_width=80, use_camera_config=False):
+def overlay_waypoints_and_text(img, pred_route=None, pred_speed_wps=None, language=None, prompt=None, max_width=80):
     """
     Return a copy of `img` with predicted route (list of 2D or 3D points) drawn and optional
     language/text rendered in a black panel at the bottom. Supports input as:
-      - pred_route: list of [x,y] or [x,y,z] in CARLA coordinates (will project 3D->2D)
+      - pred_route: list of [x,y] or [x,y,z] in CARLA coordinates - AGENT-GENERATED waypoints
       - pred_speed_wps: list of floats (optional)
       - language: str or list/tuple of strings (model answer)
       - prompt: str (user prompt sent to model)
-      - use_camera_config: if True, use project_points_simple2 with actual camera config
 
     The function is defensive: if pred_route is not in a recognized format it will
     still render the language text.
@@ -408,14 +357,8 @@ def overlay_waypoints_and_text(img, pred_route=None, pred_speed_wps=None, langua
                 
                 if len(route_3d) > 0:
                     route_3d_np = np.array(route_3d, dtype=np.float32)
-                    # Project using cv2.projectPoints
-                    if use_camera_config:
-                        pass
-                        # Use actual camera config: x=1.3, y=0.0, z=2.3
-                        # pts_2d = project_points_simple2(route_3d_np, camera_intrinsics)
-                    else:
-                        # Use simlingo_utils.py projection
-                        pts_2d = project_points_simple(route_3d_np, camera_intrinsics, tvec=None, rvec=None)
+                    # Project using the same method as agent visualization (simlingo_utils.py)
+                    pts_2d = project_points_simple(route_3d_np, camera_intrinsics, tvec=None, rvec=None)
                     pts = [(int(px), int(py)) for px, py in pts_2d]
             else:
                 # 2D points in image coordinates or normalized [0..1]
@@ -672,25 +615,16 @@ def annotate_results(json_path, images_dir, out_dir=None, suffix="_tested"):
         # Always create a SimLingo overlay image (may be identical to annotated image
         # when no predicted route or language is provided). This ensures the
         # `<out_dir>_simlingo` folder contains one file per input image.
+        # NOTE: pred_route contains AGENT-GENERATED waypoints, not ground-truth target waypoints
+        # Use original img (not out_img) to avoid control panel overlays - only show waypoints and text
         try:
-            wp_img = overlay_waypoints_and_text(out_img, pred_route=pred_route, pred_speed_wps=pred_speed_wps, language=language, prompt=prompt)
+            wp_img = overlay_waypoints_and_text(img, pred_route=pred_route, pred_speed_wps=pred_speed_wps, language=language, prompt=prompt)
             wp_name = Path(img_path.stem + suffix + "_wp" + img_path.suffix)
             wp_path = simlingo_out_dir / wp_name
             cv2.imwrite(str(wp_path), wp_img)
             print(f"[INFO]: Saved waypoint/text overlay: {wp_path}")
         except Exception as e:
             print(f"[WARN]: Failed to overlay waypoints/text: {e}")
-        
-        use_camera_config_hard=False
-        if use_camera_config_hard:
-            try:
-                wp_img2 = overlay_waypoints_and_text(out_img, pred_route=pred_route, pred_speed_wps=pred_speed_wps, language=language, prompt=prompt, use_camera_config=use_camera_config_hard)
-                wp_name2 = Path(img_path.stem + suffix + "_wp_2" + img_path.suffix)
-                wp_path2 = simlingo_out_dir / wp_name2
-                cv2.imwrite(str(wp_path2), wp_img2)
-                print(f"[INFO]: Saved waypoint/text overlay (camera config): {wp_path2}")
-            except Exception as e:
-                print(f"[WARN]: Failed to overlay waypoints/text (camera config): {e}")
 
 
 if __name__ == '__main__':
@@ -708,122 +642,3 @@ if __name__ == '__main__':
     out_dir = 'japanese_street/japanese_street_test'
     annotate_results(json_path, images_dir, out_dir)
 
-
-
-# # from the agent_simlingo.py up to lino 800
-
-# @torch.no_grad()
-#     def run_step(self, input_data, timestamp, sensors=None):  # pylint: disable=locally-disabled, unused-argument
-#         self.step += 1
-
-#         if not self.initialized:
-#             self._init()
-#             control = carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
-#             self.control = control
-#             tick_data = self.tick(input_data)
-#             return control
-
-#         # Need to run this every step for GPS filtering
-#         tick_data = self.tick(input_data)
-
-#         # ###############################adding frame skipping##########################
-        
-#         # # FRAME SKIPPING: Process every 4th frame to achieve 5 FPS effective rate
-#         # # Simulation runs at 20 FPS, so skip 3 frames, process 1 frame
-#         # if not hasattr(self, '_frame_skip_counter'):
-#         #     self._frame_skip_counter = 0
-#         #     self._cached_control = carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
-        
-#         # self._frame_skip_counter += 1
-        
-#         # # Only run full model inference every 4th frame
-#         # if self._frame_skip_counter % 4 != 0:
-#         #     # Reuse cached control from last inference
-#         #     return self._cached_control
-
-#         # ###############################################################################
-        
-        
-#         # initialize DrivingInput with dict self.DrivingInput
-#         model_input = DrivingInput(**self.DrivingInput)
-#         pred_speed_wps, pred_route, language = self.model(model_input)
-#         pred_speed_wps = pred_speed_wps.float() if pred_speed_wps is not None else None
-#         pred_route = pred_route.float() if pred_route is not None else None
-
-#         ## understand how they plots the wwaypoints
-
-#         gt_velocity = tick_data['speed']
-
-#         if DEBUG and self.step%5 == 0:
-#             tvec = None
-#             rvec = None
-
-#             if HD_VIZ:
-#                 self.camera_for_viz = self.hd_cam_for_viz
-#                 tvec = np.array([[0.0, 3.5, 5.5]], np.float32)
-
-#                 cam_rots = [0.0, -15.0, 0.0]
-#                 rot_matrix = get_rotation_matrix(-cam_rots[0], -cam_rots[1], cam_rots[2])
-#                 rvec = cv2.Rodrigues(rot_matrix[:3, :3])[0].flatten()
-
-#             W=self.camera_for_viz.shape[1]
-#             H=self.camera_for_viz.shape[0]
-#             camera_intrinsics = np.asarray(get_camera_intrinsics(W,H,110))
-
-#             # bgr to rgb
-#             self.camera_for_viz = cv2.cvtColor(self.camera_for_viz, cv2.COLOR_BGR2RGB)
-
-#             # draw the predicted waypoints
-#             image = Image.fromarray(self.camera_for_viz)
-#             draw = ImageDraw.Draw(image)
-
-#             if self.target_points is not None:
-#                 target_point_img_coords = project_points(self.target_points, camera_intrinsics, tvec=tvec, rvec=rvec)
-#                 for points_2d in target_point_img_coords:
-#                     # in blue
-#                     draw.ellipse((points_2d[0]-4, points_2d[1]-4, points_2d[0]+4, points_2d[1]+4), fill=(0, 0, 255, 255))
-
-#             if pred_route is not None:
-#                 pred_route_img_coords = project_points(pred_route[0].detach().cpu().numpy(), camera_intrinsics, tvec=tvec, rvec=rvec)
-#                 for points_2d in pred_route_img_coords:
-#                         draw.ellipse((points_2d[0]-3, points_2d[1]-3, points_2d[0]+3, points_2d[1]+3), fill=(255, 0, 0, 255))
-            
-#             if pred_speed_wps is not None:
-#                 pred_speed_wps_img_coords = project_points(pred_speed_wps[0].detach().cpu().numpy(), camera_intrinsics, tvec=tvec, rvec=rvec)
-#                 for points_2d in pred_speed_wps_img_coords:
-#                         draw.ellipse((points_2d[0]-2, points_2d[1]-2, points_2d[0]+2, points_2d[1]+2), fill=(0, 255, 0, 255))
-
-#             if language is not None:
-#                 # write the language to the bottom of the image
-#                 black_box = Image.new('RGBA', (W, 400), (0, 0, 0, 255))
-#                 # concatenate the images
-#                 image_all = Image.new('RGBA', (W, H+400))
-#                 image_all.paste(image, (0, 0))
-#                 image_all.paste(black_box, (0, H))
-#                 image = image_all
-#                 draw = ImageDraw.Draw(image)
-
-#                 if HD_VIZ:
-#                     font_size = 50
-#                     line_width = 60
-#                     y_dist = 60
-#                     y_start = H + 20
-#                 else:
-#                     font_size = 20
-#                     line_width = 100
-#                     y_dist = 30
-#                     y_start = H + 20
-#                 font = ImageFont.truetype("arial.ttf", font_size)
-#                 import textwrap
-#                 lines = textwrap.wrap(f"Prompt: {self.prompt}", width=line_width)
-#                 for idx, line in enumerate(lines):
-#                         draw.text((10, y_start + y_dist*(idx)), line, font=font, fill=(255, 255, 255, 255))
-                
-#                 y_start = H + 20 + y_dist*(idx+1)
-
-#                 lines = textwrap.wrap(f"Answer: {language[0]}", width=line_width)
-#                 for idx, line in enumerate(lines):
-#                         draw.text((10, y_start + y_dist*(idx)), line, font=font, fill=(255, 255, 255, 255))
-
-#             # save
-#             image.save(f"{self.save_path_img}/{self.step}.png")
