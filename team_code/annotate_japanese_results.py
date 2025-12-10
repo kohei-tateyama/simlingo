@@ -628,6 +628,7 @@ def annotate_results(json_path, images_dir, out_dir=None, suffix="_tested"):
 
 
 if __name__ == '__main__':
+
     # if len(sys.argv) < 3:
     #     print("Usage: python team_code/annotate_japanese_results.py <json_path> <images_dir> [out_dir]")
     #     sys.exit(1)
@@ -636,9 +637,23 @@ if __name__ == '__main__':
     # out_dir = sys.argv[3] if len(sys.argv) > 3 else None
     # annotate_results(json_path, images_dir, out_dir)
 
-    # Hardcoded quick testing
-    json_path = '/tmp/japanese_results.json'
-    images_dir = 'japanese_street'
-    out_dir = 'japanese_street/japanese_street_test'
+    #######################################
+    
+    # Hardcoded quick testing 
+
+    ## japanse_street
+    # json_path = '/tmp/japanese_results.json'
+    # images_dir = 'japanese_street'
+    # out_dir = 'japanese_street/japanese_street_test'
+
+    ## japanse_street/testride
+    json_path = 'japanese_street/testride/testride_results.json'
+    images_dir = 'japanese_street/testride'
+    out_dir = 'japanese_street/testride/japanese_street_test'
+
     annotate_results(json_path, images_dir, out_dir)
 
+
+
+# python team_code/test_japan_streets_simple.py --image-dir japanese_street/testride --output japanese_street/testride/testride_results.json
+# python team_code/annotate_japanese_results.py

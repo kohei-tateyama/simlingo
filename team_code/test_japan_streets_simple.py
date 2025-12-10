@@ -195,11 +195,6 @@ class JapaneseStreetsInference:
 
         return control
 
-                
-        
-
-
-    
     def infer_directory(self, image_dir, output_file=None):
         """Run inference on all images in a directory
         
@@ -252,21 +247,6 @@ class JapaneseStreetsInference:
                     except Exception:
                         pass
 
-                # Capture planner-provided target points (if any) and serialize to lists
-                target_points_list = None
-                target_points = getattr(self.agent, 'target_points', None)
-                if target_points is not None:
-                    try:
-                        # target_points is typically a python list of [x,y] pairs
-                        # convert to plain Python lists for JSON
-                        target_points_list = np.array(target_points).tolist()
-                    except Exception:
-                        try:
-                            # fallback: try to coerce elements to floats
-                            target_points_list = [[float(p[0]), float(p[1])] for p in target_points]
-                        except Exception:
-                            target_points_list = None
-
                 language_str = None
                 if language is not None:
                     try:
@@ -288,7 +268,6 @@ class JapaneseStreetsInference:
                     },
                     'pred_route': pred_route_list,
                     'pred_speed_wps': pred_speed_wps_list,
-                    'target_points': target_points_list,
                     'language': language_str,
                     'prompt': prompt
                 }
@@ -323,6 +302,8 @@ def main():
     parser.add_argument('--image', help='Single image path')
     parser.add_argument('--image-dir', help='Directory of images')
     parser.add_argument('--output', help='Output JSON file for results')
+    parser.add_argument('--repeat-runs', type=int, default=0,
+                        help='Number of repeated inference runs for timing (0 disables timing repeats).')
     
     args = parser.parse_args()
     
@@ -333,6 +314,8 @@ def main():
     inference = JapaneseStreetsInference(config_path, checkpoint_path)
 
     inference.setup()
+    # Configure timing repeat runs (0 disables the additional repeated benchmark)
+    inference.timing_repeat_runs = int(args.repeat_runs)
     
     # Run inference
     if args.image:
