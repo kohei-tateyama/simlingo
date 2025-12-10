@@ -171,3 +171,10 @@ cython_debug/
 .DS_Store
 */data/
 */japanese_street/
+
+
+# Ignore specific generated dataset and test output folders
+japanese_street/
+japanese_street/japanese_street_test/
+japanese_street/japanese_street_test_simlingo/
+data/augmented_templates/
