@@ -110,30 +110,50 @@ def create_video_from_images(image_dir, output_video=None, fps=20):
 
 
 if __name__ == "__main__":
-    # Default directory
-    default_dir = "/workspace/simlingo/outputs/test_run_port2003/RouteScenario_0_rep0_Town13_ParkingExit_1_6_12_09_16_56_55/debug_viz/simlingo2/iter_013.ckpt/_2025_12_09_16_58_28/images"
+    # Default directory pattern (supports wildcards)
+    default_pattern = "/workspace/simlingo/outputs/test_run_port2003/RouteScenario_1711_rep0_Town12_ParkingCutIn_1_15_12_09_18_09_57/debug_viz/simlingo2/iter_013.ckpt/*/images"
     
     # Parse command line arguments
     if len(sys.argv) > 1:
-        image_dir = sys.argv[1]
+        image_dir_pattern = sys.argv[1]
     else:
-        image_dir = default_dir
+        image_dir_pattern = default_pattern
     
     if len(sys.argv) > 2:
-        output_video = sys.argv[2]
-    else:
-        output_video = None
-    
-    if len(sys.argv) > 3:
-        fps = int(sys.argv[3])
+        fps = int(sys.argv[2])
     else:
         fps = 20  # Default to 20 FPS (CARLA frame rate)
     
-    print("="*60)
-    print("Creating video from images")
-    print("="*60)
-    print(f"Input directory: {image_dir}")
+    # Find all matching directories
+    matching_dirs = glob.glob(image_dir_pattern)
     
-    success = create_video_from_images(image_dir, output_video, fps)
+    if not matching_dirs:
+        # If no wildcard match, treat as single directory
+        matching_dirs = [image_dir_pattern]
     
-    sys.exit(0 if success else 1)
+    print("="*60)
+    print("Creating videos from images")
+    print("="*60)
+    print(f"Pattern: {image_dir_pattern}")
+    print(f"Found {len(matching_dirs)} matching director{'y' if len(matching_dirs) == 1 else 'ies'}")
+    print()
+    
+    success_count = 0
+    fail_count = 0
+    
+    for idx, image_dir in enumerate(matching_dirs, 1):
+        print(f"\n[{idx}/{len(matching_dirs)}] Processing: {image_dir}")
+        print("-" * 60)
+        
+        success = create_video_from_images(image_dir, output_video=None, fps=fps)
+        
+        if success:
+            success_count += 1
+        else:
+            fail_count += 1
+    
+    print("\n" + "="*60)
+    print(f"Summary: {success_count} succeeded, {fail_count} failed")
+    print("="*60)
+    
+    sys.exit(0 if fail_count == 0 else 1)

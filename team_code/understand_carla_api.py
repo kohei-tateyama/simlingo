@@ -194,7 +194,7 @@ def save_plots():
     steer_scale_deg = 21 
 
     throttle_scale_ms2 = 0.5633837
-    brake_sclae_ms2 = -4.952399
+    brake_scale_ms2 = -4.952399
     
     # Plot trajectory (2D top-down view)
     if positions:

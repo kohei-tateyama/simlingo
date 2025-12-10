@@ -5,8 +5,11 @@ export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
-export SAVE_PATH=/workspace/simlingo/outputs/test_run/
+export SAVE_PATH=/workspace/simlingo/outputs/test_run2/
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
+export DEBUG=1
+
+
 
 # Activate conda environment
 conda activate simlingo
@@ -14,6 +17,10 @@ conda activate simlingo
 # Kill any existing CARLA instances - IMPROVED CLEANUP
 echo "Cleaning up existing CARLA instances..."
 pkill -9 CarlaUE4 || true
+
+# Free up port 2001
+echo "Freeing port 2001..."
+lsof -ti:2001 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 
 # Force remove the container even if stopped
 docker rm -f carla-server 2>/dev/null || true
@@ -53,11 +60,11 @@ docker run -d \
     --env=NVIDIA_DRIVER_CAPABILITIES=all \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     carla-bench2drive:0.9.15 \
-    ./CarlaUE4.sh -nosound -world-port=2000
+    ./CarlaUE4.sh -nosound -world-port=2001
 
 
-echo "Waiting for CARLA to start (60s)..."
-sleep 60
+echo "Waiting for CARLA to start (30s)..."
+sleep 30
 
 # Test CARLA connection and verify Town13
 echo "Testing CARLA connection and verifying Town13..."
@@ -67,7 +74,7 @@ import carla
 import sys
 
 try:
-    client = carla.Client('localhost', 2000)
+    client = carla.Client('localhost', 2001)
     client.set_timeout(10.0)
     world = client.get_world()
     maps = client.get_available_maps()
@@ -103,17 +110,18 @@ echo ""
 echo "Starting SimLingo agent evaluation..."
 cd /workspace/simlingo
 
+
 python Bench2Drive/leaderboard/leaderboard/leaderboard_evaluator.py \
-    --routes Bench2Drive/leaderboard/data/routes_validation.xml \
+    --routes Bench2Drive/leaderboard/data/bench2drive220.xml \
     --repetitions 1 \
     --track SENSORS \
     --agent /workspace/simlingo/team_code/agent_simlingo.py \
     --agent-config outputs/simlingo2/checkpoints/epoch=013.ckpt/pytorch_model.pt \
-    --checkpoint outputs/test_run/results.json \
+    --checkpoint outputs/test_run2/results.json \
     --debug 1 \
     --resume True \
-    --port 2000 \
-    --traffic-manager-port 8000 \
+    --port 2001 \
+    --traffic-manager-port 8001 \
     --traffic-manager-seed 0 \
     --gpu-rank 0
 

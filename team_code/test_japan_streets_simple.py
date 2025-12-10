@@ -172,7 +172,8 @@ class JapaneseStreetsInference:
             torch.cuda.synchronize()
         t1 = time.perf_counter()
         single_elapsed = t1 - t0
-        print(f"[TIMING] single inference for {Path(image_path).name}: {single_elapsed:.6f} s")
+        # record last single inference elapsed for external reporting
+        self._last_single_elapsed = single_elapsed
 
         # Optional small repeated benchmark to get stable numbers (configurable via attribute)
         repeat_runs = int(getattr(self, "timing_repeat_runs", 5))
@@ -219,11 +220,47 @@ class JapaneseStreetsInference:
         
         for img_path in image_files:
             try:
+                # Print header and run inference
                 print(f"Processing: {img_path.name}...", end=" ")
-                t0 = time.time()
                 control = self.infer_single(img_path)
-                duration = time.time() - t0
-                print(f"[INFO]: Inference done in {duration:.3f}s")
+
+                # Prefer the precise single-inference timing recorded by infer_single
+                single_elapsed = getattr(self, '_last_single_elapsed', None)
+                timing_str = f"[TIMING] single inference for {img_path.name}: {single_elapsed:.6f} s" if single_elapsed is not None else ""
+
+                # Capture predictions from agent if available
+                pred_route = getattr(self.agent, 'pred_route', None)
+                pred_speed_wps = getattr(self.agent, 'pred_speed_wps', None)
+                language = getattr(self.agent, 'language', None)
+                prompt = getattr(self.agent, 'prompt', None)
+
+                # Convert tensors to lists for JSON serialization
+                pred_route_list = None
+                if pred_route is not None:
+                    try:
+                        # pred_route is [batch, num_waypoints, 3] (x, y, z)
+                        pred_route_np = pred_route[0].detach().cpu().numpy().tolist()
+                        pred_route_list = pred_route_np
+                    except Exception:
+                        pass
+
+                pred_speed_wps_list = None
+                if pred_speed_wps is not None:
+                    try:
+                        pred_speed_wps_np = pred_speed_wps[0].detach().cpu().numpy().tolist()
+                        pred_speed_wps_list = pred_speed_wps_np
+                    except Exception:
+                        pass
+
+                language_str = None
+                if language is not None:
+                    try:
+                        if isinstance(language, (list, tuple)):
+                            language_str = language[0] if len(language) > 0 else None
+                        else:
+                            language_str = str(language)
+                    except Exception:
+                        pass
 
                 result = {
                     'image': str(img_path),
@@ -233,10 +270,16 @@ class JapaneseStreetsInference:
                         'brake': float(control.brake),
                         'hand_brake': bool(control.hand_brake),
                         'reverse': bool(control.reverse)
-                    }
+                    },
+                    'pred_route': pred_route_list,
+                    'pred_speed_wps': pred_speed_wps_list,
+                    'language': language_str,
+                    'prompt': prompt
                 }
                 results.append(result)
-                print(f"steer={control.steer:.3f}, throttle={control.throttle:.3f}, brake={control.brake:.3f}")
+
+                # Print timing and control on one line for easier grepping
+                print(f"{timing_str} ✓ steer={control.steer:.3f}, throttle={control.throttle:.3f}, brake={control.brake:.3f}")
                 
             except Exception as e:
                 print(f"Error: {e}")

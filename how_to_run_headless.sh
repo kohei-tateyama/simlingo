@@ -5,78 +5,12 @@ export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
-export SAVE_PATH=/workspace/simlingo/outputs/test_run/
+export SAVE_PATH=/workspace/simlingo/outputs/test_run2/
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # Fix conda activation for non-interactive scripts
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
-
-echo "========================================="
-echo "Cleaning up existing CARLA instances..."
-echo "========================================="
-
-# Kill all CARLA processes on host
-pkill -9 -f CarlaUE4 || true
-killall -9 CarlaUE4 2>/dev/null || true
-
-# Kill processes using CARLA ports
-echo "Freeing ports 2000-2010..."
-for port in {2000..2010}; do
-    pids=$(lsof -ti:$port 2>/dev/null)
-    if [ ! -z "$pids" ]; then
-        echo "  Killing processes on port $port: $pids"
-        kill -9 $pids 2>/dev/null || true
-    fi
-done
-
-# Remove all CARLA Docker containers
-echo "Removing CARLA Docker containers..."
-docker rm -f carla-server 2>/dev/null || true
-docker ps -a --filter "name=carla" -q | xargs -r docker rm -f 2>/dev/null || true
-
-# Wait for cleanup to complete
-sleep 5
-
-# Verify port 2000 is free
-if lsof -ti:2000 &>/dev/null; then
-    echo "ERROR: Port 2000 is still in use!"
-    echo "Processes using port 2000:"
-    lsof -i:2000
-    echo ""
-    echo "Force killing processes on port 2000..."
-    kill -9 $(lsof -ti:2000) 2>/dev/null || true
-    sleep 2
-    
-    # Check again
-    if lsof -ti:2000 &>/dev/null; then
-        echo "ERROR: Still cannot free port 2000. Please reboot."
-        exit 1
-    fi
-fi
-
-echo "✓ Port 2000 is free"
-
-mkdir -p ${SAVE_PATH}
-
-echo ""
-echo "CARLA_ROOT: $CARLA_ROOT"
-echo "SAVE_PATH: $SAVE_PATH"
-
-# Verify custom CARLA 0.9.15 image with Bench2Drive maps exists
-echo ""
-echo "Checking for custom CARLA image..."
-if ! docker images | grep -q "carla-bench2drive.*0.9.15"; then
-    echo "ERROR: Custom CARLA image 'carla-bench2drive:0.9.15' not found!"
-    echo "Building it now..."
-    bash /workspace/simlingo/build_carla_bench2drive_docker.sh
-fi
-
-echo "✓ Using carla-bench2drive:0.9.15"
-echo ""
-echo "========================================="
-echo "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS"
-echo "========================================="
 
 # Start CARLA in headless mode
 docker run -d \
@@ -168,7 +102,7 @@ python Bench2Drive/leaderboard/leaderboard/leaderboard_evaluator.py \
     --track SENSORS \
     --agent /workspace/simlingo/team_code/agent_simlingo.py \
     --agent-config outputs/simlingo2/checkpoints/epoch=013.ckpt/pytorch_model.pt \
-    --checkpoint outputs/test_run/results.json \
+    --checkpoint outputs/test_run2/results.json \
     --debug 1 \
     --resume True \
     --port 2000 \

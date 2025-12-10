@@ -718,6 +718,11 @@ class LingoAgent(autonomous_agent.AutonomousAgent):
         pred_speed_wps = pred_speed_wps.float() if pred_speed_wps is not None else None
         pred_route = pred_route.float() if pred_route is not None else None
 
+        # Store predictions as instance attributes for external access
+        self.pred_route = pred_route
+        self.pred_speed_wps = pred_speed_wps
+        self.language = language
+
         ## understand how they plots the wwaypoints
 
         # prepare velocity input
