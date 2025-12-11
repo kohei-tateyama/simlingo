@@ -22,7 +22,7 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, town='Town13'):
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
         # Allow longer timeouts for slower hosts
@@ -30,6 +30,7 @@ class JapaneseStyleAutopilot:
         self.client.set_timeout(self.client_timout_carla)
         self.print_length = 70
         self.sleep_interval = 0.05 # 20 Hz
+        self.town = town
 
         print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
 
@@ -38,7 +39,7 @@ class JapaneseStyleAutopilot:
             current_world = self.client.get_world()
             current_map_name = getattr(current_world.get_map(), 'name', '')
             if current_map_name:
-                print(f"  Server already has map loaded: {current_map_name} — using it")
+                print(f"[INFO]: Server already has map loaded: {current_map_name} — using it")
                 self.world = current_world
                 time.sleep(1)
                 skip_load = True
@@ -50,7 +51,6 @@ class JapaneseStyleAutopilot:
         # If user explicitly wants to force a map load, set FORCE_LOAD env var or pass --force-load
         FORCE_LOAD = False
 
-        # If skip_load is False, attempt to load Town13 or fall back to server-reported maps
         if not skip_load and not FORCE_LOAD:
             try:
                 available_maps = self.client.get_available_maps()
@@ -59,19 +59,19 @@ class JapaneseStyleAutopilot:
 
             preferred_map = None
             for m in available_maps:
-                if 'Town13' in m:
+                if self.tow in m:
                     preferred_map = m
                     break
 
             if preferred_map is not None:
                 map_to_load = preferred_map
-                print(f"  Found server map: {preferred_map} — will attempt to load it")
+                print(f"[INFO]: Found server map: {preferred_map} — will attempt to load it")
             elif len(available_maps) > 0:
                 map_to_load = available_maps[0]
-                print(f"  Town13 not found on server — would load {map_to_load} if needed")
+                print(f"[INFO]: {self.town} not found on server — would load {map_to_load} if needed")
             else:
-                map_to_load = 'Town13'
-                print("  No maps reported by server; would try short name 'Town13' if forced")
+                map_to_load = self.town
+                print(f"[WARNING]: No maps reported by server; would try short name '{self.town}' if forced")
 
             # We will not call load_world by default to avoid crashes — prefer using current world.
             # If no world was set above, fall back to attempting load with retries.
@@ -131,7 +131,7 @@ class JapaneseStyleAutopilot:
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
-        print("Configuring Japanese-style (left-hand) traffic...")
+        # print("Configuring Japanese-style (left-hand) traffic...")
         
         self.traffic_manager.set_global_distance_to_leading_vehicle(2.5)
         self.traffic_manager.global_lane_offset = -1.5
@@ -416,7 +416,7 @@ class JapaneseStyleAutopilot:
         blueprint_library = self.world.get_blueprint_library()
         spawn_points = self.world.get_map().get_spawn_points()
         
-        print(f"Spawning {num_vehicles} NPC vehicles...")
+        print(f"[INFO]: Spawning {num_vehicles} NPC vehicles...")
         
         for i, spawn_point in enumerate(spawn_points[:num_vehicles]):
             vehicle_bp = blueprint_library.filter('vehicle.*')[i % 20]
@@ -438,14 +438,14 @@ class JapaneseStyleAutopilot:
         # print("NPC vehicles spawned!")
         
     def get_predefined_route(self):
-        """Get predefined waypoints for different route types in Town13"""
+        """Get predefined waypoints for different route types in self.town"""
         """[THIS NEEDS TO BE IMPROVED]"""
         map = self.world.get_map()
         spawn_points = map.get_spawn_points()
         
         routes = {
             'highway': {
-                'description': 'Highway loop in Town13',
+                'description': f'Highway loop in {self.town}',
                 'start_idx': 50,
                 'waypoints': [
                     carla.Location(x=-150.0, y=50.0, z=0.5),
@@ -459,7 +459,7 @@ class JapaneseStyleAutopilot:
                 ]
             },
             'urban': {
-                'description': 'Urban streets in Town13',
+                'description': f'Urban streets in {self.town}',
                 'start_idx': 10,
                 'waypoints': [
                     carla.Location(x=-50.0, y=20.0, z=0.5),
@@ -521,14 +521,14 @@ class JapaneseStyleAutopilot:
                 self.traffic_manager.set_path(self.player_vehicle, 
                                              [wp.transform.location for wp in route_waypoints])
             
-            print("Autopilot enabled (Japanese-style left-hand traffic)")
+            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
             # Attach optional camera sensor to player vehicle
             try:
                 self.setup_camera()
             except Exception as e:
                 print(f"Failed to setup camera sensor: {e}")
         else:
-            print("Manual control mode (run japanese_driving_town13.py instead)")
+            raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
             
     def record_data(self):
         """Record vehicle data in training format (measurements + boxes)"""
@@ -661,7 +661,7 @@ class JapaneseStyleAutopilot:
                 filename = os.path.join(folderpath, filename)
         
         root = ET.Element('DrivingSession')
-        root.set('map', 'Town13')
+        root.set('map', self.town)
         root.set('traffic_style', 'Japanese (Left-hand)')
         root.set('mode', 'Autopilot' if self.autopilot else 'Manual')
         root.set('route_type', self.route_type)
@@ -731,7 +731,7 @@ class JapaneseStyleAutopilot:
         records = {
             'meta_data': {
                 'index': self.foldername,
-                'town': f'Carla/Maps/Town13/Town13'
+                'town': f'Carla/Maps/{self.town}/{self.town}'
             },
             'states': [],
             'lights': [],
@@ -812,7 +812,7 @@ class JapaneseStyleAutopilot:
             print("\n" + "=" * self.print_length)
             print("[INFO]: AUTOPILOT MODE - Japanese-Style Driving")
             print("="*self.print_length)
-            print(f"Map       : Town13")
+            print(f"Map       : {self.town}")
             print(f"Route     : {self.route_type}")
             print(f"Duration  : {self.duration} seconds")
             print(f"Recording : Enabled")
@@ -828,7 +828,7 @@ class JapaneseStyleAutopilot:
                     try:
                         self.world.tick()
                     except Exception as e:
-                        print(f"[WARN]: world.tick() failed, switching to async sleep: {e}")
+                        print(f"[WARNING]: world.tick() failed, switching to async sleep: {e}")
                         sync_enabled = False
                         time.sleep(self.sleep_interval)
                 else:
@@ -856,13 +856,12 @@ class JapaneseStyleAutopilot:
             self.save_training_format()
             
         finally:
-            # Restore original settings if we changed them
             try:
                 if original_settings is not None:
                     self.world.apply_settings(original_settings)
                     print("[INFO]: Restored original world settings (synchronous mode off)")
             except Exception as e:
-                print(f"[WARN]: Failed to restore world settings: {e}")
+                print(f"[WARNING]: Failed to restore world settings: {e}")
 
             self.cleanup()
             
@@ -888,7 +887,7 @@ class JapaneseStyleAutopilot:
 
 def main():
     print('\n')
-    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA Town13')
+    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA')
     parser.add_argument('--autopilot', action='store_true', 
                        help='Enable autopilot mode (default: False)')
     parser.add_argument('--duration', type=int, default=60,

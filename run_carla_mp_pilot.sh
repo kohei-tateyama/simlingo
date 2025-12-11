@@ -223,7 +223,6 @@ start_carla() {
     fi
 
     info "Using carla-bench2drive:0.9.15"
-    echo ""
     sep
     info "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS on port 2000"
     sep
