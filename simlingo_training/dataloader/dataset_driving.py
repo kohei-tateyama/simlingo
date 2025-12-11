@@ -339,7 +339,8 @@ if __name__ == "__main__":
     cfg = compose(config_name="config")
     
     cfg.data_module.base_dataset.use_commentary = True
-    cfg.data_module.base_dataset.use_qa = True
+    # cfg.data_module.base_dataset.use_qa = True
+    cfg.data_module.base_dataset.use_qa = False
     cfg.data_module.base_dataset.img_shift_augmentation = False
 
     print('Test Dataset')

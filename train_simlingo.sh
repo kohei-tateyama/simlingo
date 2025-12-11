@@ -1,6 +1,7 @@
 #!/bin/bash
 
 source ~/.bashrc
+conda activate simlingo
 
 pwd
 export PYTHONPATH="${CARLA_ROOT}/PythonAPI/carla/":${PYTHONPATH}
@@ -12,4 +13,5 @@ export NCCL_DEBUG=INFO
 
 export OMP_NUM_THREADS=64 # Limits pytorch to spawn at most num cpus cores threads
 export OPENBLAS_NUM_THREADS=1  # Shuts off numpy multithreading, to avoid threads spawning other threads.
-WANDB__SERVICE_WAIT=10 python simlingo_training/train.py experiment=simlingo_seed1 data_module.batch_size=8 gpus=1 name=simlingo_seed1
+export HYDRA_FULL_ERROR=1  # To get full stack traces on hydra errors
+WANDB__SERVICE_WAIT=100 python simlingo_training/train.py experiment=simlingo_seed1 data_module.batch_size=8 gpus=1 name=simlingo_seed1
