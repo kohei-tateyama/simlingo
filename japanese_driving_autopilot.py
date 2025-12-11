@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from datetime import datetime
 import time
+import json
 import argparse
 import os
 
@@ -15,17 +16,21 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 # python japanese_driving_autopilot.py --autopilot --route urban
 # # Simple straight path
 # python japanese_driving_autopilot.py --autopilot --route simple
-
 # python japanese_driving_autopilot.py --autopilot --duration 300 --route highway
 
-class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway'):
-        # Connect to CARLA
-        self.client = carla.Client('localhost', 2000)
-        # Allow longer timeouts for slower hosts
-        self.client.set_timeout(30.0)
 
-        print("Selecting world on server (prefer current world; use --force-load to override)...")
+
+class JapaneseStyleAutopilot:
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000):
+        # Connect to CARLA
+        self.client = carla.Client('localhost', port_localhost)
+        # Allow longer timeouts for slower hosts
+        self.client_timout_carla = 30.0
+        self.client.set_timeout(self.client_timout_carla)
+        self.print_length = 70
+        self.sleep_interval = 0.05 # 20 Hz
+
+        print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
 
         # If a world is already loaded on the server, prefer using it to avoid heavy reloads
         try:
@@ -105,6 +110,20 @@ class JapaneseStyleAutopilot:
         
         # Recording data
         self.recording_data = []
+        # Prepare per-run artifact folders so sensors can write images
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.foldername = f"autopilot_japanese_{self.route_type}_{timestamp}"
+        self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
+        os.makedirs(self.folderpath, exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'img'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'text'), exist_ok=True)
+        self.last_image_filename = None
+        self.sensors = []
+        self.image_size_x = 800
+        self.image_size_y = 600
+        self.last_seg_meta = None
+        # NDJSON file path for frame-level metadata
+        self.ndjson_path = os.path.join(self.folderpath, 'text', 'frames.ndjson')
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
@@ -115,6 +134,143 @@ class JapaneseStyleAutopilot:
         
         # Spawn NPC vehicles
         self.spawn_npc_vehicles(num_vehicles=30)
+
+    def setup_camera(self):
+        """Attach an RGB camera to the player vehicle and save images to the run folder."""
+        if not self.player_vehicle:
+            raise RuntimeError("Player vehicle not spawned yet")
+
+        blueprint_library = self.world.get_blueprint_library()
+        cam_bp = blueprint_library.find('sensor.camera.rgb')
+        cam_bp.set_attribute('image_size_x', str(self.image_size_x))
+        cam_bp.set_attribute('image_size_y', str(self.image_size_y))
+        cam_bp.set_attribute('fov', '90')
+
+        # Place the camera slightly above the vehicle
+        cam_transform = carla.Transform(carla.Location(x=1.5, z=2.0))
+        camera = self.world.spawn_actor(cam_bp, cam_transform, attach_to=self.player_vehicle)
+
+        def _on_image(image):
+            try:
+                # Use CARLA frame id when available for deterministic pairing
+                if hasattr(image, 'frame'):
+                    base = f"frame_{image.frame:08d}"
+                else:
+                    base = datetime.now().strftime('frame_%Y%m%d_%H%M%S_%f')
+
+                fname = f"{base}_rgb.png"
+                path = os.path.join(self.folderpath, 'img', fname)
+                image.save_to_disk(path)
+                self.last_image_filename = os.path.join('img', fname)
+                # append minimal rgb entry to NDJSON for traceability
+                try:
+                    with open(self.ndjson_path, 'a') as f:
+                        f.write(json.dumps({'type': 'rgb', 'base': base, 'rgb': self.last_image_filename, 'timestamp': image.timestamp if hasattr(image, 'timestamp') else time.time()}) + '\n')
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"Error saving camera image: {e}")
+
+        camera.listen(_on_image)
+        self.sensors.append(camera)
+        # Also spawn semantic segmentation camera (separate sensor)
+        try:
+            self.setup_semantic_camera()
+        except Exception:
+            pass
+
+    def setup_semantic_camera(self):
+        """Attach a semantic segmentation camera and save mask + metadata per frame."""
+        if not self.player_vehicle:
+            raise RuntimeError("Player vehicle not spawned yet")
+
+        blueprint_library = self.world.get_blueprint_library()
+        sem_bp = blueprint_library.find('sensor.camera.semantic_segmentation')
+        sem_bp.set_attribute('image_size_x', str(self.image_size_x))
+        sem_bp.set_attribute('image_size_y', str(self.image_size_y))
+        sem_bp.set_attribute('fov', '90')
+        # sample at same rate as RGB (use sensor_tick to throttle if needed)
+        sem_bp.set_attribute('sensor_tick', '0.05')
+
+        sem_transform = carla.Transform(carla.Location(x=1.5, z=2.0))
+        sem_cam = self.world.spawn_actor(sem_bp, sem_transform, attach_to=self.player_vehicle)
+
+        def _on_semantic(image):
+            try:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                color_fname = f"seg_color_{timestamp}.png"
+                color_path = os.path.join(self.folderpath, 'img', color_fname)
+                # save a human-view color image using CityScapes palette
+                # Use frame id for deterministic pairing when available
+                if hasattr(image, 'frame'):
+                    base = f"frame_{image.frame:08d}"
+                else:
+                    base = datetime.now().strftime('frame_%Y%m%d_%H%M%S_%f')
+
+                # save semantic color image into img/ with same base
+                color_fname = f"{base}_seg_color.png"
+                color_path = os.path.join(self.folderpath, 'img', color_fname)
+                try:
+                    image.save_to_disk(color_path, carla.ColorConverter.CityScapesPalette)
+                except Exception:
+                    image.save_to_disk(color_path)
+
+                # Extract class ids from raw_data reliably: use uint32 view and mask low byte
+                arr32 = np.frombuffer(image.raw_data, dtype=np.uint32)
+                try:
+                    arr32 = arr32.reshape((image.height, image.width))
+                    mask = (arr32 & 0xFF).astype(np.uint16)
+                except Exception:
+                    # fallback to byte view if reshape fails
+                    arr = np.frombuffer(image.raw_data, dtype=np.uint8).reshape((image.height, image.width, 4))
+                    mask = arr[:, :, 2].astype(np.uint16)
+
+                # Save mask into img/ with same base
+                mask_fname = f"{base}_seg_mask.png"
+                mask_path = os.path.join(self.folderpath, 'img', mask_fname)
+                saved_mask_path = None
+                try:
+                    from PIL import Image
+                    Image.fromarray(mask).save(mask_path)
+                    saved_mask_path = os.path.join('img', mask_fname)
+                except Exception:
+                    # fallback to npz
+                    npz_fname = f"{base}_seg_mask.npz"
+                    np.savez_compressed(os.path.join(self.folderpath, 'img', npz_fname), mask=mask)
+                    saved_mask_path = os.path.join('img', npz_fname)
+
+                # Build mapping of present indices and counts
+                unique, counts = np.unique(mask, return_counts=True)
+                counts_map = {int(u): int(c) for u, c in zip(unique, counts)}
+
+                meta = {
+                    'base': base,
+                    'timestamp': timestamp,
+                    'color_image': os.path.join('img', color_fname),
+                    'mask_image': saved_mask_path,
+                    'present_indices': counts_map,
+                }
+
+                # write paired metadata JSON into img/ using same base
+                meta_fname = f"{base}.json"
+                meta_path = os.path.join(self.folderpath, 'img', meta_fname)
+                with open(meta_path, 'w') as f:
+                    json.dump(meta, f, indent=2)
+
+                # append to NDJSON log in text/ for session-level records
+                try:
+                    with open(self.ndjson_path, 'a') as f:
+                        f.write(json.dumps({'type': 'segmentation', **meta}) + '\n')
+                except Exception:
+                    pass
+
+                # store latest segmentation meta for main loop to attach to frame records
+                self.last_seg_meta = meta
+            except Exception as e:
+                print(f"Error in semantic callback: {e}")
+
+        sem_cam.listen(_on_semantic)
+        self.sensors.append(sem_cam)
         
     def spawn_npc_vehicles(self, num_vehicles=30):
         """Spawn NPC vehicles following Japanese traffic rules"""
@@ -225,9 +381,14 @@ class JapaneseStyleAutopilot:
                 self.traffic_manager.set_path(self.player_vehicle, 
                                              [wp.transform.location for wp in route_waypoints])
             
-            print("🤖 Autopilot enabled (Japanese-style left-hand traffic)")
+            print("Autopilot enabled (Japanese-style left-hand traffic)")
+            # Attach optional camera sensor to player vehicle
+            try:
+                self.setup_camera()
+            except Exception as e:
+                print(f"Failed to setup camera sensor: {e}")
         else:
-            print("⚠️  Manual control mode (run japanese_driving_town13.py instead)")
+            print("Manual control mode (run japanese_driving_town13.py instead)")
             
     def record_data(self):
         """Record vehicle data for XML export"""
@@ -237,7 +398,25 @@ class JapaneseStyleAutopilot:
         transform = self.player_vehicle.get_transform()
         velocity = self.player_vehicle.get_velocity()
         control = self.player_vehicle.get_control()
-        
+        # Attempt to detect collision state if available (best-effort; may require a CollisionSensor)
+        collision_info = {
+            'is_colliding': False,
+            'note': 'unknown'
+        }
+        try:
+            # Some setups attach collision history or sensors to the vehicle; check safely
+            if hasattr(self.player_vehicle, 'get_collision_history'):
+                hist = self.player_vehicle.get_collision_history()
+                collision_info['is_colliding'] = bool(hist)
+                collision_info['note'] = 'from get_collision_history()'
+            else:
+                # No sensor attached — leave as False/unknown
+                collision_info['is_colliding'] = False
+                collision_info['note'] = 'no sensor'
+        except Exception:
+            collision_info['is_colliding'] = False
+            collision_info['note'] = 'error_checking'
+
         data_point = {
             'timestamp': time.time(),
             'location': {
@@ -265,6 +444,25 @@ class JapaneseStyleAutopilot:
             }
         }
         
+        # Waypoint information (nearest waypoint to current location)
+        try:
+            wp = self.world.get_map().get_waypoint(transform.location)
+            waypoint_info = {
+                'x': wp.transform.location.x,
+                'y': wp.transform.location.y,
+                'z': wp.transform.location.z,
+                'lane_id': getattr(wp, 'lane_id', None),
+                'road_id': getattr(wp, 'road_id', None),
+                'is_junction': getattr(wp, 'is_junction', False)
+            }
+        except Exception:
+            waypoint_info = None
+
+        data_point['collision'] = collision_info
+        data_point['waypoint'] = waypoint_info
+        # Record latest image filename if available
+        data_point['image'] = self.last_image_filename
+        
         self.recording_data.append(data_point)
         
     def save_to_xml(self, filename=None):
@@ -272,16 +470,22 @@ class JapaneseStyleAutopilot:
         if not self.recording_data:
             print("No data to save!")
             return
-        # Ensure output directory exists
+        # Ensure base recording dir exists (per-run folder created at init)
         os.makedirs(RECORDING_OUTPUT_DIR, exist_ok=True)
 
+        # Use the run-specific folder created in __init__ (keeps names consistent)
+        foldername = getattr(self, 'foldername', f"autopilot_japanese_{self.route_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        folderpath = getattr(self, 'folderpath', os.path.join(RECORDING_OUTPUT_DIR, foldername))
+        os.makedirs(folderpath, exist_ok=True)
+        os.makedirs(os.path.join(folderpath, 'img'), exist_ok=True)
+        os.makedirs(os.path.join(folderpath, 'text'), exist_ok=True)
+
         if filename is None:
-            filename = f"autopilot_japanese_{self.route_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
-            filename = os.path.join(RECORDING_OUTPUT_DIR, filename)
+            filename = os.path.join(folderpath, foldername + ".xml")
         else:
-            # If a relative filename is provided, place it into the recording dir
+            # If a relative filename is provided, place it into the run folder
             if not os.path.isabs(filename):
-                filename = os.path.join(RECORDING_OUTPUT_DIR, filename)
+                filename = os.path.join(folderpath, filename)
         
         root = ET.Element('DrivingSession')
         root.set('map', 'Town13')
@@ -290,6 +494,7 @@ class JapaneseStyleAutopilot:
         root.set('route_type', self.route_type)
         root.set('total_frames', str(len(self.recording_data)))
         root.set('duration_seconds', str(self.duration))
+        root.set('artifact_folder', foldername)
         
         for i, data in enumerate(self.recording_data):
             frame = ET.SubElement(root, 'Frame')
@@ -318,65 +523,126 @@ class JapaneseStyleAutopilot:
             control.set('brake', str(data['control']['brake']))
             control.set('hand_brake', str(data['control']['hand_brake']))
             control.set('reverse', str(data['control']['reverse']))
+            
+            # Collision info
+            collision = ET.SubElement(frame, 'Collision')
+            coll = data.get('collision', {})
+            collision.set('is_colliding', str(coll.get('is_colliding', False)))
+            collision.set('note', str(coll.get('note', '')))
+
+            # Waypoint info
+            wp = data.get('waypoint')
+            if wp:
+                waypoint = ET.SubElement(frame, 'Waypoint')
+                waypoint.set('x', str(wp.get('x', 0)))
+                waypoint.set('y', str(wp.get('y', 0)))
+                waypoint.set('z', str(wp.get('z', 0)))
+                waypoint.set('lane_id', str(wp.get('lane_id', '')))
+                waypoint.set('road_id', str(wp.get('road_id', '')))
+                waypoint.set('is_junction', str(wp.get('is_junction', False)))
         
         xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
         
         with open(filename, 'w') as f:
             f.write(xml_str)
             
-        print(f"Data saved to {filename} ({len(self.recording_data)} frames)")
+        print(f"[INFO]: Data saved to {filename}")
         
     def run(self):
         """Run autopilot simulation"""
         try:
+            # Try to enable synchronous mode for deterministic sensor pairing
+            original_settings = None
+            sync_enabled = False
+            try:
+                original_settings = self.world.get_settings()
+                new_settings = self.world.get_settings()
+                new_settings.synchronous_mode = True
+                new_settings.fixed_delta_seconds = self.sleep_interval
+                self.world.apply_settings(new_settings)
+                sync_enabled = True
+                print(f"[INFO]: Enabled synchronous mode (dt={self.sleep_interval}s)")
+            except Exception as e:
+                print(f"[WARN]: Could not enable synchronous mode, falling back to async: {e}")
+
             self.spawn_player_vehicle()
             
-            print("\n" + "="*60)
-            print("AUTOPILOT MODE - Japanese-Style Driving")
-            print("="*60)
-            print(f"Map: Town13")
-            print(f"Route: {self.route_type}")
-            print(f"Duration: {self.duration} seconds")
-            print(f"Recording: Enabled")
-            print("="*60 + "\n")
+            print("\n" + "=" * self.print_length)
+            print("[INFO]: AUTOPILOT MODE - Japanese-Style Driving")
+            print("="*self.print_length)
+            print(f"Map       : Town13")
+            print(f"Route     : {self.route_type}")
+            print(f"Duration  : {self.duration} seconds")
+            print(f"Recording : Enabled")
+            print("="*self.print_length + "\n")
             
             start_time = time.time()
             frame_count = 0
-            
+
             # Main loop
             while (time.time() - start_time) < self.duration:
-                # Record data at 20 Hz
-                if frame_count % 3 == 0:  # ~20 FPS from 60 Hz server
+                # Advance simulator deterministically if possible
+                if sync_enabled:
+                    try:
+                        self.world.tick()
+                    except Exception as e:
+                        print(f"[WARN]: world.tick() failed, switching to async sleep: {e}")
+                        sync_enabled = False
+                        time.sleep(self.sleep_interval)
+                else:
+                    time.sleep(self.sleep_interval)
+
+                # Record data at ~20 Hz (chosen from server 60Hz)
+                if frame_count % 3 == 0:
                     self.record_data()
-                
+
                 # Print progress every 5 seconds
                 elapsed = time.time() - start_time
                 if int(elapsed) % 5 == 0 and frame_count % 100 == 0:
                     speed = self.recording_data[-1]['velocity']['speed'] if self.recording_data else 0
-                    print(f"{int(elapsed)}s / {self.duration}s | "
-                          f"Frames: {len(self.recording_data)} | "
-                          f"Speed: {speed:.1f} km/h")
-                
+                    print(f"[INFO]: {int(elapsed):2d}s / {int(self.duration):2d}s | "
+                          f"Frames: {len(self.recording_data):4d} | "
+                          f"Speed: {speed:5.1f} km/h")
+
                 frame_count += 1
-                time.sleep(0.05)  # 20 Hz
-                
-            print(f"\nSimulation completed!")
-            print(f"Total frames recorded: {len(self.recording_data)}")
+            print("\n" + "=" * self.print_length)  
+            print(f"[INFO]: Simulation completed!")
+            print(f"[INFO]: Total frames recorded: {len(self.recording_data)}")
+            print("=" * self.print_length + "\n")
             
             # Save data
             self.save_to_xml()
             
         finally:
+            # Restore original settings if we changed them
+            try:
+                if original_settings is not None:
+                    self.world.apply_settings(original_settings)
+                    print("[INFO]: Restored original world settings (synchronous mode off)")
+            except Exception as e:
+                print(f"[WARN]: Failed to restore world settings: {e}")
+
             self.cleanup()
             
     def cleanup(self):
         """Clean up resources"""
-        print("\nCleaning up...")
+        print("\n[INFO]: Cleaning up...")
         
         if self.player_vehicle:
             self.player_vehicle.destroy()
+        # Destroy sensors
+        for s in list(self.sensors):
+            try:
+                s.stop()
+            except Exception:
+                pass
+            try:
+                s.destroy()
+            except Exception:
+                pass
+        self.sensors = []
             
-        print("Done!")
+        print("[INFO]: Done!")
 
 def main():
     parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA Town13')
