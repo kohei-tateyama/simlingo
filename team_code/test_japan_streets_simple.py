@@ -195,11 +195,6 @@ class JapaneseStreetsInference:
 
         return control
 
-                
-        
-
-
-    
     def infer_directory(self, image_dir, output_file=None):
         """Run inference on all images in a directory
         
@@ -307,6 +302,8 @@ def main():
     parser.add_argument('--image', help='Single image path')
     parser.add_argument('--image-dir', help='Directory of images')
     parser.add_argument('--output', help='Output JSON file for results')
+    parser.add_argument('--repeat-runs', type=int, default=0,
+                        help='Number of repeated inference runs for timing (0 disables timing repeats).')
     
     args = parser.parse_args()
     
@@ -317,6 +314,8 @@ def main():
     inference = JapaneseStreetsInference(config_path, checkpoint_path)
 
     inference.setup()
+    # Configure timing repeat runs (0 disables the additional repeated benchmark)
+    inference.timing_repeat_runs = int(args.repeat_runs)
     
     # Run inference
     if args.image:

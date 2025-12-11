@@ -1,0 +1,22 @@
+{
+    // 1. Core VS Code Watcher (Standard)
+    "files.watcherExclude": {
+        "**/database/**": true
+    },
+
+    // 2. Search Indexer (Standard)
+    "search.exclude": {
+        "**/database": true
+    },
+
+    // 3. PYTHON PYLANCE EXCLUSION (CRITICAL)
+    // This stops the Python extension from analyzing the dataset
+    "python.analysis.exclude": [
+        "**/database"
+    ],
+
+    // 4. File Explorer Hiding (Optional, but safe)
+    "files.exclude": {
+        "**/database": true
+    }
+}

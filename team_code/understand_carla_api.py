@@ -25,6 +25,10 @@ except Exception:
     carla = None  
 
 import matplotlib.pyplot as plt
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
 base_output_dir = "/workspace/simlingo/team_code/routes_validation_xml"
 if os.path.exists(base_output_dir):
@@ -174,7 +178,59 @@ def parse_args(argv=None):
     p.add_argument("--headless", action="store_true", help="Quiet output mode (equivalent to --json).")
     p.add_argument("--json", action="store_true", help="Emit one JSON object per line.")
     p.add_argument("--timeout", type=float, default=5.0, help="CARLA client timeout (s).")
+
     return p.parse_args(argv)
+
+
+def create_video_from_images(images_dir: str, out_file: str, fps: float = 10.0):
+    """
+    Create a video from images in `images_dir` saved to `out_file` at `fps` frames per second.
+    Images are read in lexicographic order and must be common image formats (png/jpg/jpeg).
+    Requires OpenCV (`cv2`).
+    """
+    if cv2 is None:
+        raise RuntimeError("OpenCV (cv2) is required to create videos. Install via `pip install opencv-python`.")
+
+    if not os.path.isdir(images_dir):
+        raise RuntimeError(f"images_dir does not exist or is not a directory: {images_dir}")
+
+    exts = (".png", ".jpg", ".jpeg", ".bmp")
+    files = [f for f in sorted(os.listdir(images_dir)) if f.lower().endswith(exts)]
+    if not files:
+        raise RuntimeError(f"No image files found in {images_dir} (supported: {exts})")
+
+    first = os.path.join(images_dir, files[0])
+    img = cv2.imread(first)
+    if img is None:
+        raise RuntimeError(f"Failed to read first image: {first}")
+
+    height, width = img.shape[:2]
+    # Ensure output directory exists
+    out_dir = os.path.dirname(out_file)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_file, fourcc, float(fps), (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to open VideoWriter for {out_file}")
+
+    print(f"[INFO] Creating video {out_file} from {len(files)} frames at {fps} FPS")
+    for idx, fn in enumerate(files, start=1):
+        path = os.path.join(images_dir, fn)
+        frame = cv2.imread(path)
+        if frame is None:
+            print(f"[WARN] Skipping unreadable frame: {path}")
+            continue
+        # Resize if frame size differs from first image
+        if frame.shape[0] != height or frame.shape[1] != width:
+            frame = cv2.resize(frame, (width, height))
+        writer.write(frame)
+        if idx % 50 == 0:
+            print(f"[INFO] Written {idx}/{len(files)} frames...")
+
+    writer.release()
+    print(f"[INFO] Video saved to: {out_file}")
 
 # Update save_plots to print where the plots are saved
 def save_plots():
@@ -339,6 +395,32 @@ def main(argv=None):
 
     return 0
 
+def main_video(images_dir: str, out_file: str, fps: float = 10.0):
+    create_video_from_images(images_dir, out_file, fps)
 
 if __name__ == "__main__":
-    sys.exit(main())
+
+    print('+++ THIS SCRIPT CAN RUN THE DEBUG-LIKE OF CARLA CREATE VIDEOS FROM INFERENCE IMAGES +++')
+
+    CARLAS_DEBUG = True
+
+    if CARLAS_DEBUG:
+        print('[INFO]: RUNNING CARLA DEBUGGING MODE...')
+        ## dummy debugging carla 
+        sys.exit(main())
+    else:
+        print('[INFO]: RUNNING VIDEO CREATION FROM IMAGES SEQUENCE...')
+        ## dummy video main
+        # These frames where extracted from /workspace/simlingo/japanese_street/testride/IMG_0006.mov 
+        # using /workspace/simlingo/japanese_street/testride/extract_video_frames.py.
+        # We can chenge the fps and re run these
+        fps = 0.2 # 30 fps --> 1 frame each 5 secs 
+
+        images_dir = "/workspace/simlingo/japanese_street/testride/"
+        out_file = "/workspace/simlingo/japanese_street/testride/video_tested.mp4"
+        main_video(images_dir=images_dir, out_file=out_file, fps=fps)
+
+        images_dir = "/workspace/simlingo/japanese_street/testride/japanese_street_test_simlingo"
+        out_file = "/workspace/simlingo/japanese_street/testride/video_simlingo.mp4"
+        main_video(images_dir=images_dir, out_file=out_file, fps=fps)
+

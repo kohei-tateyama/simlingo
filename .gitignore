@@ -178,3 +178,8 @@ japanese_street/
 japanese_street/japanese_street_test/
 japanese_street/japanese_street_test_simlingo/
 data/augmented_templates/
+# plot to debug the utils of carla api understanding
+routes_validation_xml_20251209_164532/
+# debug to understand the running of the carla api
+recording_japan_xml/ 
+how_to_run_headless.sh
