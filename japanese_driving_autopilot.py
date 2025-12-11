@@ -19,7 +19,6 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 # python japanese_driving_autopilot.py --autopilot --duration 300 --route highway
 
 
-
 class JapaneseStyleAutopilot:
     def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000):
         # Connect to CARLA
@@ -215,15 +214,48 @@ class JapaneseStyleAutopilot:
                 except Exception:
                     image.save_to_disk(color_path)
 
-                # Extract class ids from raw_data reliably: use uint32 view and mask low byte
-                arr32 = np.frombuffer(image.raw_data, dtype=np.uint32)
+                # Robust extraction of class ids from raw_data.
+                # CARLA sometimes stores the class id in the low byte of a uint32 per-pixel,
+                # or in one of the BGRA bytes. Try multiple strategies and pick the one with
+                # meaningful (non-zero) distribution.
+                mask = None
                 try:
+                    arr32 = np.frombuffer(image.raw_data, dtype=np.uint32)
                     arr32 = arr32.reshape((image.height, image.width))
-                    mask = (arr32 & 0xFF).astype(np.uint16)
+                    mask_candidate = (arr32 & 0xFF).astype(np.int32)
+                    # accept candidate if it has >1 unique value or many non-zero pixels
+                    u, c = np.unique(mask_candidate, return_counts=True)
+                    if (len(u) > 1) or (int((mask_candidate != 0).sum()) > 10):
+                        mask = mask_candidate
                 except Exception:
-                    # fallback to byte view if reshape fails
-                    arr = np.frombuffer(image.raw_data, dtype=np.uint8).reshape((image.height, image.width, 4))
-                    mask = arr[:, :, 2].astype(np.uint16)
+                    mask = None
+
+                if mask is None:
+                    try:
+                        arr = np.frombuffer(image.raw_data, dtype=np.uint8).reshape((image.height, image.width, 4))
+                        # check each channel (B,G,R,A) for meaningful values
+                        channel_scores = []
+                        for ch in range(4):
+                            chvals = arr[:, :, ch]
+                            nz = int((chvals != 0).sum())
+                            channel_scores.append(nz)
+                        best_ch = int(np.argmax(channel_scores))
+                        mask_candidate = arr[:, :, best_ch].astype(np.int32)
+                        u, c = np.unique(mask_candidate, return_counts=True)
+                        if (len(u) > 1) or (int((mask_candidate != 0).sum()) > 10):
+                            mask = mask_candidate
+                    except Exception:
+                        mask = None
+
+                # If still None, fall back to low-byte of uint32 without checks
+                if mask is None:
+                    try:
+                        arr32 = np.frombuffer(image.raw_data, dtype=np.uint32)
+                        arr32 = arr32.reshape((image.height, image.width))
+                        mask = (arr32 & 0xFF).astype(np.int32)
+                    except Exception:
+                        # last resort: zeros
+                        mask = np.zeros((image.height, image.width), dtype=np.int32)
 
                 # Save mask into img/ with same base
                 mask_fname = f"{base}_seg_mask.png"
@@ -231,10 +263,17 @@ class JapaneseStyleAutopilot:
                 saved_mask_path = None
                 try:
                     from PIL import Image
-                    Image.fromarray(mask).save(mask_path)
+                    # Ensure mask fits into 8-bit for PNG viewers; if max class id exceeds 255,
+                    # scale down with clipping (most use-cases have <256 classes).
+                    mmax = int(mask.max()) if mask.size else 0
+                    if mmax > 255:
+                        scaled = (mask.astype(np.float32) / float(mmax) * 255.0).astype(np.uint8)
+                    else:
+                        scaled = mask.astype(np.uint8)
+                    Image.fromarray(scaled).save(mask_path)
                     saved_mask_path = os.path.join('img', mask_fname)
                 except Exception:
-                    # fallback to npz
+                    # fallback to npz if saving as PNG fails
                     npz_fname = f"{base}_seg_mask.npz"
                     np.savez_compressed(os.path.join(self.folderpath, 'img', npz_fname), mask=mask)
                     saved_mask_path = os.path.join('img', npz_fname)
@@ -242,6 +281,98 @@ class JapaneseStyleAutopilot:
                 # Build mapping of present indices and counts
                 unique, counts = np.unique(mask, return_counts=True)
                 counts_map = {int(u): int(c) for u, c in zip(unique, counts)}
+
+                # Build detailed mapping with a sample RGB for each class (written here during collection)
+                present_detailed = {}
+                try:
+                    from PIL import Image
+                    # load the saved color image to sample RGB values (ensure consistent saved path)
+                    color_arr = None
+                    try:
+                        color_arr = np.array(Image.open(color_path).convert('RGB'))
+                    except Exception:
+                        color_arr = None
+
+                    for u, c in zip(unique, counts):
+                        ui = int(u)
+                        sample_rgb = [0, 0, 0]
+                        if color_arr is not None:
+                            ys, xs = np.where(mask == ui)
+                            if ys.size > 0:
+                                idx = len(ys) // 2
+                                y = ys[idx]
+                                x = xs[idx]
+                                sample_rgb = [int(v) for v in color_arr[y, x, :3]]
+                        present_detailed[str(ui)] = {'count': int(c), 'sample_rgb': sample_rgb}
+                except Exception:
+                    # fallback to counts only
+                    present_detailed = {str(int(u)): {'count': int(c), 'sample_rgb': [0, 0, 0]} for u, c in zip(unique, counts)}
+
+                meta = {
+                    'base': base,
+                    'timestamp': timestamp,
+                    'color_image': os.path.join('img', color_fname),
+                    'mask_image': saved_mask_path,
+                    'present_indices': counts_map,
+                    'present_indices_detailed': present_detailed,
+                }
+
+                # Create a bright, human-friendly visualization of the mask.
+                try:
+                    from PIL import Image
+                    import colorsys
+
+                    mask_arr = mask.astype(np.int32)
+                    unique_vals = np.unique(mask_arr)
+
+                    def gen_palette(n):
+                        pal = []
+                        for i in range(n):
+                            # golden-ratio step in hue gives well-separated colors
+                            h = (i * 0.618033988749895) % 1.0
+                            s = 0.65
+                            v = 0.95
+                            r, g, b = colorsys.hsv_to_rgb(h, s, v)
+                            pal.append((int(r * 255), int(g * 255), int(b * 255)))
+                        return pal
+
+                    # Assign bright colors: reserve index 0 for background as light gray
+                    color_map = {}
+                    nonzero_vals = [int(v) for v in unique_vals if int(v) != 0]
+                    palette = gen_palette(max(1, len(nonzero_vals)))
+                    for i, v in enumerate(nonzero_vals):
+                        color_map[v] = palette[i]
+                    if 0 in unique_vals:
+                        color_map[0] = (200, 200, 200)
+
+                    h, w = mask_arr.shape
+                    color_img = np.zeros((h, w, 3), dtype=np.uint8)
+                    for v, col in color_map.items():
+                        color_img[mask_arr == int(v)] = col
+
+                    color_pil = Image.fromarray(color_img)
+
+                    # If a recent RGB exists, blend to produce a more natural overlay
+                    if self.last_image_filename:
+                        rgb_full = os.path.join(self.folderpath, self.last_image_filename)
+                        try:
+                            if os.path.exists(rgb_full):
+                                rgb_im = Image.open(rgb_full).convert('RGB')
+                                if rgb_im.size != color_pil.size:
+                                    rgb_im = rgb_im.resize(color_pil.size)
+                                color_pil = Image.blend(rgb_im, color_pil, alpha=0.45)
+                        except Exception:
+                            pass
+
+                    viz_fname = f"{base}_seg_mask_viz.png"
+                    viz_path = os.path.join(self.folderpath, 'img', viz_fname)
+                    try:
+                        color_pil.save(viz_path)
+                        meta['mask_viz'] = os.path.join('img', viz_fname)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
 
                 meta = {
                     'base': base,
@@ -296,10 +427,11 @@ class JapaneseStyleAutopilot:
             except RuntimeError as e:
                 continue
                 
-        print("NPC vehicles spawned!")
+        # print("NPC vehicles spawned!")
         
     def get_predefined_route(self):
         """Get predefined waypoints for different route types in Town13"""
+        """[THIS NEEDS TO BE IMPROVED]"""
         map = self.world.get_map()
         spawn_points = map.get_spawn_points()
         
@@ -344,7 +476,7 @@ class JapaneseStyleAutopilot:
         }
         
         route_config = routes.get(self.route_type, routes['simple'])
-        print(f"Route: {route_config['description']}")
+        print(f"[INFO]: Route: {route_config['description']}")
         
         # Convert locations to waypoints
         waypoints = []
@@ -368,7 +500,7 @@ class JapaneseStyleAutopilot:
         spawn_point = spawn_points[start_idx] if start_idx < len(spawn_points) else spawn_points[0]
         
         self.player_vehicle = self.world.spawn_actor(vehicle_bp, spawn_point)
-        print(f"Player vehicle spawned at {spawn_point.location}")
+        print(f"[INFO]: Player vehicle spawned at {spawn_point.location}")
         
         if self.autopilot:
             # Enable autopilot with Japanese traffic settings
@@ -645,6 +777,7 @@ class JapaneseStyleAutopilot:
         print("[INFO]: Done!")
 
 def main():
+    print('\n')
     parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA Town13')
     parser.add_argument('--autopilot', action='store_true', 
                        help='Enable autopilot mode (default: False)')
