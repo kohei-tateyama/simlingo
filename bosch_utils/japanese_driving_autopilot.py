@@ -7,6 +7,8 @@ import time
 import json
 import argparse
 import os
+import gzip
+from PIL import Image as PILImage
 
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
@@ -109,20 +111,23 @@ class JapaneseStyleAutopilot:
         
         # Recording data
         self.recording_data = []
-        # Prepare per-run artifact folders so sensors can write images
+        # Prepare per-run artifact folders matching training format
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.foldername = f"autopilot_japanese_{self.route_type}_{timestamp}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         os.makedirs(self.folderpath, exist_ok=True)
-        os.makedirs(os.path.join(self.folderpath, 'img'), exist_ok=True)
-        os.makedirs(os.path.join(self.folderpath, 'text'), exist_ok=True)
+        # Create training-format subfolders
+        os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
         self.last_image_filename = None
         self.sensors = []
-        self.image_size_x = 800
-        self.image_size_y = 600
+        # Match training data image size: 1024x512
+        self.image_size_x = 1024
+        self.image_size_y = 512
         self.last_seg_meta = None
-        # NDJSON file path for frame-level metadata
-        self.ndjson_path = os.path.join(self.folderpath, 'text', 'frames.ndjson')
+        # Frame counter for sequential naming (0000, 0001, ...)
+        self.frame_counter = 0
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
@@ -151,32 +156,35 @@ class JapaneseStyleAutopilot:
 
         def _on_image(image):
             try:
-                # Use CARLA frame id when available for deterministic pairing
-                if hasattr(image, 'frame'):
-                    base = f"frame_{image.frame:08d}"
-                else:
-                    base = datetime.now().strftime('frame_%Y%m%d_%H%M%S_%f')
-
-                fname = f"{base}_rgb.png"
-                path = os.path.join(self.folderpath, 'img', fname)
-                image.save_to_disk(path)
-                self.last_image_filename = os.path.join('img', fname)
-                # append minimal rgb entry to NDJSON for traceability
+                # Use sequential frame counter (matches training format)
+                frame_num = self.frame_counter
+                fname = f"{frame_num:04d}.jpg"
+                path = os.path.join(self.folderpath, 'rgb', fname)
+                
+                # Convert CARLA image to PIL and save as JPG
                 try:
-                    with open(self.ndjson_path, 'a') as f:
-                        f.write(json.dumps({'type': 'rgb', 'base': base, 'rgb': self.last_image_filename, 'timestamp': image.timestamp if hasattr(image, 'timestamp') else time.time()}) + '\n')
-                except Exception:
-                    pass
+                    img_array = np.frombuffer(image.raw_data, dtype=np.uint8)
+                    img_array = img_array.reshape((image.height, image.width, 4))  # BGRA
+                    img_rgb = img_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
+                    pil_img = PILImage.fromarray(img_rgb)
+                    pil_img.save(path, 'JPEG', quality=95)
+                    self.last_image_filename = os.path.join('rgb', fname)
+                except Exception as e:
+                    # Fallback to CARLA save_to_disk
+                    image.save_to_disk(path)
+                    self.last_image_filename = os.path.join('rgb', fname)
             except Exception as e:
                 print(f"Error saving camera image: {e}")
 
         camera.listen(_on_image)
         self.sensors.append(camera)
-        # Also spawn semantic segmentation camera (separate sensor)
-        try:
-            self.setup_semantic_camera()
-        except Exception:
-            pass
+        
+        # Semantic segmentation camera (DISABLED for training format compatibility)
+        # Uncomment below to enable semantic segmentation recording
+        # try:
+        #     self.setup_semantic_camera()
+        # except Exception as e:
+        #     print(f"Failed to setup semantic camera: {e}")
 
     def setup_semantic_camera(self):
         """Attach a semantic segmentation camera and save mask + metadata per frame."""
@@ -523,79 +531,112 @@ class JapaneseStyleAutopilot:
             print("Manual control mode (run japanese_driving_town13.py instead)")
             
     def record_data(self):
-        """Record vehicle data for XML export"""
+        """Record vehicle data in training format (measurements + boxes)"""
         if not self.player_vehicle:
             return
             
         transform = self.player_vehicle.get_transform()
         velocity = self.player_vehicle.get_velocity()
         control = self.player_vehicle.get_control()
-        # Attempt to detect collision state if available (best-effort; may require a CollisionSensor)
-        collision_info = {
-            'is_colliding': False,
-            'note': 'unknown'
-        }
-        try:
-            # Some setups attach collision history or sensors to the vehicle; check safely
-            if hasattr(self.player_vehicle, 'get_collision_history'):
-                hist = self.player_vehicle.get_collision_history()
-                collision_info['is_colliding'] = bool(hist)
-                collision_info['note'] = 'from get_collision_history()'
-            else:
-                # No sensor attached — leave as False/unknown
-                collision_info['is_colliding'] = False
-                collision_info['note'] = 'no sensor'
-        except Exception:
-            collision_info['is_colliding'] = False
-            collision_info['note'] = 'error_checking'
-
-        data_point = {
-            'timestamp': time.time(),
-            'location': {
-                'x': transform.location.x,
-                'y': transform.location.y,
-                'z': transform.location.z
-            },
-            'rotation': {
-                'pitch': transform.rotation.pitch,
-                'yaw': transform.rotation.yaw,
-                'roll': transform.rotation.roll
-            },
-            'velocity': {
-                'x': velocity.x,
-                'y': velocity.y,
-                'z': velocity.z,
-                'speed': np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2) * 3.6
-            },
-            'control': {
-                'throttle': control.throttle,
-                'steer': control.steer,
-                'brake': control.brake,
-                'hand_brake': control.hand_brake,
-                'reverse': control.reverse
-            }
-        }
         
-        # Waypoint information (nearest waypoint to current location)
+        frame_num = self.frame_counter
+        
+        # Build measurements JSON (matching training format)
+        speed = np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+        
+        # Get waypoint for route/command info
         try:
             wp = self.world.get_map().get_waypoint(transform.location)
-            waypoint_info = {
-                'x': wp.transform.location.x,
-                'y': wp.transform.location.y,
-                'z': wp.transform.location.z,
-                'lane_id': getattr(wp, 'lane_id', None),
-                'road_id': getattr(wp, 'road_id', None),
-                'is_junction': getattr(wp, 'is_junction', False)
-            }
+            next_wps = wp.next(10.0)
+            target_wp = next_wps[0] if next_wps else wp
+            target_loc = target_wp.transform.location
+            target_point = [
+                target_loc.x - transform.location.x,
+                target_loc.y - transform.location.y
+            ]
         except Exception:
-            waypoint_info = None
-
-        data_point['collision'] = collision_info
-        data_point['waypoint'] = waypoint_info
-        # Record latest image filename if available
-        data_point['image'] = self.last_image_filename
+            target_point = [0.0, 0.0]
         
+        measurements = {
+            'pos_global': [transform.location.x, transform.location.y],
+            'theta': np.radians(transform.rotation.yaw),
+            'speed': speed,
+            'target_speed': 15.0,  # Placeholder
+            'speed_limit': 22.22,  # Placeholder (80 km/h)
+            'target_point': target_point,
+            'target_point_next': target_point,  # Simplified
+            'command': 4,  # LANE_FOLLOW
+            'next_command': 4,
+            'aim_wp': target_point,
+            'route': []  # Simplified - would need route planner
+        }
+        
+        # Save measurements as gzipped JSON
+        measurements_path = os.path.join(self.folderpath, 'measurements', f'{frame_num:04d}.json.gz')
+        try:
+            with gzip.open(measurements_path, 'wt', encoding='utf-8') as f:
+                json.dump(measurements, f)
+        except Exception as e:
+            print(f"Error saving measurements: {e}")
+        
+        # Build boxes JSON (ego car + weather)
+        ego_extent = self.player_vehicle.bounding_box.extent
+        weather = self.world.get_weather()
+        
+        boxes_data = [
+            {
+                'class': 'ego_car',
+                'extent': [ego_extent.x, ego_extent.y, ego_extent.z],
+                'position': [0.0, 0.0, 0.0],
+                'yaw': 0.0,
+                'num_points': -1,
+                'distance': -1,
+                'speed': speed,
+                'brake': control.brake,
+                'id': self.player_vehicle.id,
+                'matrix': [
+                    [1.0, 0.0, 0.0, transform.location.x],
+                    [0.0, 1.0, 0.0, transform.location.y],
+                    [0.0, 0.0, 1.0, transform.location.z],
+                    [0.0, 0.0, 0.0, 1.0]
+                ]
+            },
+            {
+                'class': 'weather',
+                'cloudiness': weather.cloudiness,
+                'dust_storm': weather.dust_storm,
+                'fog_density': weather.fog_density,
+                'fog_distance': weather.fog_distance,
+                'fog_falloff': weather.fog_falloff,
+                'mie_scattering_scale': weather.mie_scattering_scale,
+                'precipitation': weather.precipitation,
+                'precipitation_deposits': weather.precipitation_deposits,
+                'rayleigh_scattering_scale': weather.rayleigh_scattering_scale,
+                'scattering_intensity': weather.scattering_intensity,
+                'sun_altitude_angle': weather.sun_altitude_angle,
+                'sun_azimuth_angle': weather.sun_azimuth_angle
+            }
+        ]
+        
+        # Save boxes as gzipped JSON
+        boxes_path = os.path.join(self.folderpath, 'boxes', f'{frame_num:04d}.json.gz')
+        try:
+            with gzip.open(boxes_path, 'wt', encoding='utf-8') as f:
+                json.dump(boxes_data, f)
+        except Exception as e:
+            print(f"Error saving boxes: {e}")
+        
+        # Store minimal info for summary
+        data_point = {
+            'frame': frame_num,
+            'timestamp': time.time(),
+            'location': [transform.location.x, transform.location.y, transform.location.z],
+            'speed': speed * 3.6  # km/h
+        }
         self.recording_data.append(data_point)
+        
+        # Increment frame counter
+        self.frame_counter += 1
         
     def save_to_xml(self, filename=None):
         """Save recorded data to XML file"""
@@ -679,6 +720,75 @@ class JapaneseStyleAutopilot:
             f.write(xml_str)
             
         print(f"[INFO]: Data saved to {filename}")
+    
+    def save_training_format(self):
+        """Save records.json.gz and results.json.gz matching training format"""
+        if not self.recording_data:
+            print("[WARN]: No data to save!")
+            return
+        
+        # Save records.json.gz
+        records = {
+            'meta_data': {
+                'index': self.foldername,
+                'town': f'Carla/Maps/Town13/Town13'
+            },
+            'states': [],
+            'lights': [],
+            'route': [],
+            'ego_actions': [],
+            'adv_actions': []
+        }
+        
+        records_path = os.path.join(self.folderpath, 'records.json.gz')
+        try:
+            with gzip.open(records_path, 'wt', encoding='utf-8') as f:
+                json.dump(records, f)
+            print(f"[INFO]: Saved records.json.gz")
+        except Exception as e:
+            print(f"[ERROR]: Failed to save records.json.gz: {e}")
+        
+        # Save results.json.gz
+        results = {
+            'timestamp': self.foldername,
+            'index': 0,
+            'route_id': f'{self.route_type}_route',
+            'status': 'Completed',
+            'num_infractions': 0,
+            'infractions': {
+                'collisions_layout': [],
+                'collisions_pedestrian': [],
+                'collisions_vehicle': [],
+                'red_light': [],
+                'stop_infraction': [],
+                'outside_route_lanes': [],
+                'min_speed_infractions': [],
+                'yield_emergency_vehicle_infractions': [],
+                'scenario_timeouts': [],
+                'route_dev': [],
+                'vehicle_blocked': [],
+                'route_timeout': []
+            },
+            'scores': {
+                'score_route': 100,
+                'score_penalty': 1.0,
+                'score_composed': 100.0
+            },
+            'meta': {
+                'route_length': 0.0,  # Would need route calculation
+                'duration_game': self.duration,
+                'duration_system': self.duration
+            }
+        }
+        
+        results_path = os.path.join(self.folderpath, 'results.json.gz')
+        try:
+            with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                json.dump(results, f, indent=2)
+            print(f"[INFO]: Saved results.json.gz")
+            print(f"[INFO]: All training-format data saved to {self.folderpath}")
+        except Exception as e:
+            print(f"[ERROR]: Failed to save results.json.gz: {e}")
         
     def run(self):
         """Run autopilot simulation"""
@@ -731,7 +841,7 @@ class JapaneseStyleAutopilot:
                 # Print progress every 5 seconds
                 elapsed = time.time() - start_time
                 if int(elapsed) % 5 == 0 and frame_count % 100 == 0:
-                    speed = self.recording_data[-1]['velocity']['speed'] if self.recording_data else 0
+                    speed = self.recording_data[-1]['speed'] if self.recording_data else 0
                     print(f"[INFO]: {int(elapsed):2d}s / {int(self.duration):2d}s | "
                           f"Frames: {len(self.recording_data):4d} | "
                           f"Speed: {speed:5.1f} km/h")
@@ -742,8 +852,8 @@ class JapaneseStyleAutopilot:
             print(f"[INFO]: Total frames recorded: {len(self.recording_data)}")
             print("=" * self.print_length + "\n")
             
-            # Save data
-            self.save_to_xml()
+            # Save data in training format
+            self.save_training_format()
             
         finally:
             # Restore original settings if we changed them

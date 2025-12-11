@@ -183,7 +183,7 @@ cleanup_carla() {
         fi
     fi
 
-    info "Port 2000 is free ✓"
+    info "Port 2000 is free"
 }
 
 # ============================================================================
@@ -194,7 +194,7 @@ start_carla() {
 
     echo ""
     info "CARLA_ROOT: $CARLA_ROOT"
-    info "SAVE_PATH: $SAVE_PATH"
+    info "SAVE_PATH : $SAVE_PATH"
 
     # Verify custom CARLA 0.9.15 image with Bench2Drive maps exists
     echo ""
@@ -205,14 +205,13 @@ start_carla() {
         bash /workspace/simlingo/build_carla_bench2drive_docker.sh
     fi
 
-    info "Using carla-bench2drive:0.9.15 ✓"
+    info "Using carla-bench2drive:0.9.15"
     echo ""
     sep
     info "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS on port 2000"
     sep
 
     # Start CARLA in headless mode - FORCE port 2000
-    # Ensure host log dir exists and mount it into container for persistent engine logs
     mkdir -p ${WORK_DIR}/carla_logs
 
     docker run -d \
@@ -251,6 +250,7 @@ start_carla() {
     info "Testing CARLA connection on port 2000..."
     sep
     cd /workspace/simlingo
+
     python << 'EOF'
 import carla
 import sys
@@ -262,26 +262,25 @@ try:
     version = client.get_server_version()
     maps = client.get_available_maps()
     
-    print(f'✓ CARLA connection successful on port 2000')
-    print(f'  Server version: {version}')
-    print(f'  Total maps available: {len(maps)}')
+    print(f'[INFO]: CARLA connection successful on port 2000')
+    print(f'[INFO]: Server version  : {version}')
+    print(f'[INFO]: Total maps      : {len(maps)}')
     
-    # Verify correct version
     if version != '0.9.15':
-        print(f'  ✗ ERROR: Expected CARLA 0.9.15, got {version}')
+        print(f'[ERROR]: Expected CARLA 0.9.15, got {version}')
         sys.exit(1)
     
     # Check for Town13
     town13_maps = [m for m in maps if 'Town13' in m]
     if town13_maps:
-        print(f'  ✓ Town13 found: {town13_maps}')
+        print(f'[INFO]: Town13 found: {town13_maps}')
     else:
-        print(f'  ✗ WARNING: Town13 NOT found!')
-        print(f'  Available maps: {[m.split("/")[-1] for m in maps[:10]]}')
+        print(f'[WARNING]: Town13 NOT found!')
+        print(f'Available maps: {[m.split("/")[-1] for m in maps[:10]]}')
         sys.exit(1)
         
 except Exception as e:
-    print(f'✗ CARLA connection failed on port 2000: {e}')
+    print(f'[ERROR]: CARLA connection failed on port 2000: {e}')
     sys.exit(1)
 EOF
 
@@ -296,7 +295,7 @@ EOF
         exit 1
     fi
 
-    info "CARLA connection verified on port 2000 ✓"
+    info "CARLA connection verified on port 2000"
 }
 
 # ============================================================================
@@ -371,7 +370,7 @@ run_autopilot() {
     echo ""
     sep
     if [ $AUTOPILOT_EXIT_CODE -eq 0 ]; then
-        info "Autopilot completed successfully! ✓"
+        info "Autopilot completed successfully!"
     else
         err "Autopilot encountered errors (exit code: $AUTOPILOT_EXIT_CODE)"
     fi
@@ -403,7 +402,7 @@ run_all_autopilot_variations() {
     run_autopilot 30 simple
     
     sep
-    info "All autopilot variations completed! ✓"
+    info "All autopilot variations completed!"
     sep
 }
 
@@ -473,9 +472,9 @@ stop_carla
 echo ""
 sep
 if [ $EXIT_CODE -eq 0 ]; then
-    info "✓ All tasks completed successfully!"
+    info "All tasks completed successfully!"
 else
-    err "✗ Some tasks encountered errors (exit code: $EXIT_CODE)"
+    err "Some tasks encountered errors (exit code: $EXIT_CODE)"
 fi
 sep
 
