@@ -34,6 +34,8 @@ sudo chmod 755 /workspace/simlingo/mp_push_simple.sh \
 	/workspace/simlingo/japanese_driving_autopilot.py
 ```
 `sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore`
+`sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py`
+
   
 
 ## Japanese Traffic Management (left-hand driving)
@@ -83,7 +85,22 @@ PY
 ```
 
 
+## How to manage multiple images?
 
-next thin gto tun tomorrow friday 12/12
-`cd /workspace/simlingo && bash run_carla_mp_pilot.sh --mode autopilot --duration 20 --route highway --multicamera 2>&1 | tail -20`
-eveything works, just we need to wait (this code should already solve this) the fact that the first folder rbg/0000 has some black images.
+In out pipeline, we need somethig that takes one imgs as input --> training. 
+In other words, the **output** of this processing (before the training) has to be **one img**.
+
+We have two approaches: 
+A) Fusing the imgs into one.
+B) Threat N-imgs independent. 
+
+These approaches A) and B) have options:
+
+Option A)
+A.1) Spatial-Aware Independent Processing + Attention Fusion
+A.2) Gaussina splattering to reconstrctut the whole scene 
+A.3) Attention Fusion Strategy
+
+Option B): 
+B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
+B.2) Camera + Posiiton ordering strategy (rule based)
