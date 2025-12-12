@@ -1,22 +1,22 @@
 {
     // 1. Core VS Code Watcher (Standard)
     "files.watcherExclude": {
-        "**/database/**": true
+        "**/database/simlingo_v2_2025_01_10/**": true
     },
 
     // 2. Search Indexer (Standard)
     "search.exclude": {
-        "**/database": true
+        "**/database/simlingo_v2_2025_01_10/**": true
     },
 
     // 3. PYTHON PYLANCE EXCLUSION (CRITICAL)
     // This stops the Python extension from analyzing the dataset
     "python.analysis.exclude": [
-        "**/database"
+        "**/database/simlingo_v2_2025_01_10/**"
     ],
 
     // 4. File Explorer Hiding (Optional, but safe)
     "files.exclude": {
-        "**/database": true
+        "**/database/simlingo_v2_2025_01_10/**": true
     }
 }
