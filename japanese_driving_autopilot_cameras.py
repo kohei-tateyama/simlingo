@@ -4,6 +4,9 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from datetime import datetime
 import time
+import threading
+import queue
+import traceback
 import json
 import argparse
 import os
@@ -113,7 +116,7 @@ class JapaneseStyleAutopilot:
         self.recording_data = []
         # Prepare per-run artifact folders matching training format
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.foldername = f"autopilot_japanese_{self.route_type}_{timestamp}"
+        self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         os.makedirs(self.folderpath, exist_ok=True)
         # Create training-format subfolders
@@ -135,6 +138,47 @@ class JapaneseStyleAutopilot:
         # Warmup: skip first N frames to let cameras stabilize
         self._warmup_frames = 5
         self._ready_to_record = False
+        # Per-camera priming: require each camera to produce a valid image before recording
+        self._camera_primed = { 'F': False, 'B': False, 'RF': False, 'LF': False, 'RB': False, 'LB': False }
+        # Max time to wait for priming (seconds) before falling back
+        self._priming_timeout = 3.0
+        # Buffer for images: frame_num -> {camera_name: ndarray}
+        self._image_buffer = {}
+        self._buffer_lock = threading.Lock()
+        # Event signaled when we have seen and written a full 6-camera frame
+        self._complete_frame_event = threading.Event()
+        # Count how many full frames have been observed (writer increments)
+        self._complete_frame_count = 0
+        # How many full frames to wait for before enabling autopilot
+        self._required_full_frames = 1
+        # Track last seen time per frame to implement timeout flush
+        self._last_frame_seen_time = {}
+        self._buffer_timeout = 0.5  # seconds
+        # Writer thread
+        self._writer_thread = threading.Thread(target=self._buffer_writer, daemon=True)
+        self._writer_thread.start()
+        # Debug log file for runtime diagnostic messages
+        try:
+            self._debug_log_path = os.path.join(self.folderpath, 'debug.log')
+            with open(self._debug_log_path, 'a') as _:
+                pass
+        except Exception:
+            self._debug_log_path = None
+
+    def _log_debug(self, msg):
+        try:
+            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            out = f"[{ts}] {msg}\n"
+            if getattr(self, '_debug_log_path', None):
+                try:
+                    with open(self._debug_log_path, 'a') as f:
+                        f.write(out)
+                except Exception:
+                    pass
+            # also print to stdout for live observation
+            print(out, end='')
+        except Exception:
+            pass
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
@@ -234,73 +278,47 @@ class JapaneseStyleAutopilot:
                     # Skip if shutting down
                     if getattr(self, '_stopping', False):
                         return
-                    
+
                     try:
-                        # Prefer CARLA-provided frame id for deterministic per-frame folders
-                        if hasattr(image, 'frame') and isinstance(image.frame, int):
-                            # Establish an offset mapping on first observed frame to align to 0-based counters
-                            if not hasattr(self, 'first_image_frame'):
-                                # Map first observed image.frame to current self.frame_counter
-                                self.first_image_frame = int(image.frame)
-                                self.first_frame_counter = int(self.frame_counter)
-
-                            frame_num = int(image.frame) - int(self.first_image_frame) + int(self.first_frame_counter)
-                            if frame_num < 0:
-                                frame_num = int(self.frame_counter)
-                        else:
-                            # Fallback: use internal sequential counter
+                        # Always use internal frame_counter for consistent numbering with record_data()
+                        # (image.frame is the simulator's global frame number, often very high like 20000+)
+                        with self._buffer_lock:
                             frame_num = int(self.frame_counter)
-                        
-                        # Skip if not ready to record yet (warmup period)
-                        if not getattr(self, '_ready_to_record', False):
-                            return
-                        
-                        # Additional safety: skip frames below warmup threshold
-                        # (in case buffered images from warmup period arrive late)
-                        warmup_threshold = getattr(self, '_warmup_frames', 5)
-                        if frame_num < warmup_threshold:
-                            return
 
-                        frame_folder = f"{frame_num:04d}"
-
-                        # Convert CARLA image and validate BEFORE creating directories
+                        # Convert CARLA image and push into in-memory buffer for coordinated writing
                         try:
                             img_array = np.frombuffer(image.raw_data, dtype=np.uint8)
                             img_array = img_array.reshape((image.height, image.width, 4))  # BGRA
                             img_rgb = img_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
-                            
+
                             # Validate image is not all black (common during startup/shutdown)
-                            max_pixel = img_rgb.max()
-                            if max_pixel < 5:  # Nearly all-black threshold
-                                # Don't log during shutdown to avoid spam
-                                if not getattr(self, '_stopping', False) and frame_num < 10:
-                                    pass  # Silently skip black images
-                                return  # Skip saving all-black images
-                            
-                            # Only create directories and save if image is valid
-                            frame_dir = os.path.join(self.folderpath, 'rgb', frame_folder)
-                            os.makedirs(frame_dir, exist_ok=True)
-                            
-                            fname = f"{camera_name}.png"
-                            path = os.path.join(frame_dir, fname)
-                            
-                            pil_img = PILImage.fromarray(img_rgb)
-                            pil_img.save(path, 'PNG')
+                            im_max = int(img_rgb.max())
+                            self._log_debug(f"callback {camera_name} frame={frame_num} max={im_max}")
+                            if im_max < 5:
+                                return
 
-                            # Track last image for Front camera
-                            if camera_name == 'F':
-                                self.last_image_filename = os.path.join(frame_folder, fname)
-
-                            # Record that this camera produced an image for this frame
+                            # Mark this camera as primed (saw first valid image)
                             try:
-                                s = self.frame_camera_counts.setdefault(frame_num, set())
-                                s.add(camera_name)
+                                self._camera_primed[camera_name] = True
                             except Exception:
                                 pass
+
+                            # Push into buffer so writer can detect complete frames even before _ready_to_record
+                            with self._buffer_lock:
+                                frame_dict = self._image_buffer.setdefault(frame_num, {})
+                                # store a copy to avoid referencing shared memory
+                                frame_dict[camera_name] = img_rgb.copy()
+                                self._last_frame_seen_time[frame_num] = time.time()
+                                # update camera counts for diagnostics
+                                try:
+                                    s = self.frame_camera_counts.setdefault(frame_num, set())
+                                    s.add(camera_name)
+                                except Exception:
+                                    pass
                         except Exception as e:
-                            # Log conversion errors but don't save invalid images
                             if not getattr(self, '_stopping', False):
                                 print(f"[WARN] Failed to process {camera_name} image: {e}")
+                                traceback.print_exc()
                     except Exception as e:
                         if not getattr(self, '_stopping', False):
                             print(f"[ERROR] Camera callback error for {camera_name}: {e}")
@@ -645,21 +663,61 @@ class JapaneseStyleAutopilot:
         
         if self.autopilot:
             # Enable autopilot with Japanese traffic settings
-            self.player_vehicle.set_autopilot(True, self.traffic_manager.get_port())
-            self.traffic_manager.vehicle_lane_offset(self.player_vehicle, -1.5)
-            self.traffic_manager.ignore_lights_percentage(self.player_vehicle, 0)
-            
-            # Optional: Set destination for route following
-            if route_waypoints:
-                self.traffic_manager.set_path(self.player_vehicle, 
-                                             [wp.transform.location for wp in route_waypoints])
-            
-            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
-            # Attach optional camera sensor to player vehicle
+            # Attach cameras first so we can prime sensors before motion
             try:
                 self.setup_camera()
             except Exception as e:
                 print(f"Failed to setup camera sensor: {e}")
+
+            # Wait until all cameras have produced at least one valid image (priming),
+            # Prefer to wait for the first complete 6-camera frame to be written.
+            # This ensures we start motion only after a fully populated frame exists on disk.
+            priming_start = time.time()
+            priming_timeout = getattr(self, '_priming_timeout', 3.0)
+            required = max(1, getattr(self, '_required_full_frames', 1))
+            got_required = False
+            while (time.time() - priming_start) < priming_timeout:
+                # If running in synchronous mode, the world needs ticks to deliver sensor callbacks.
+                try:
+                    settings = self.world.get_settings()
+                    if getattr(settings, 'synchronous_mode', False):
+                        try:
+                            self.world.tick()
+                        except Exception:
+                            # ignore tick failures here; we'll sleep instead
+                            time.sleep(0.02)
+                    else:
+                        # in async mode, sleep briefly to let callbacks run
+                        time.sleep(0.02)
+                except Exception:
+                    time.sleep(0.02)
+
+                if self._complete_frame_count >= required:
+                    got_required = True
+                    break
+
+            priming_elapsed = time.time() - priming_start
+            if got_required:
+                print(f"[INFO]: Observed {required} complete 6-camera frame(s) after {priming_elapsed:.2f}s, enabling autopilot...")
+            else:
+                # Fallback: if we didn't see a full frame, fall back to per-camera priming flags
+                primed_ok = all(self._camera_primed.values())
+                if primed_ok:
+                    print(f"[INFO]: Per-camera priming satisfied after {priming_elapsed:.2f}s, enabling autopilot...")
+                else:
+                    print(f"[WARN]: Camera priming incomplete after {priming_elapsed:.2f}s, enabling autopilot anyway")
+
+            # Now enable autopilot/motion
+            self.player_vehicle.set_autopilot(True, self.traffic_manager.get_port())
+            self.traffic_manager.vehicle_lane_offset(self.player_vehicle, -1.5)
+            self.traffic_manager.ignore_lights_percentage(self.player_vehicle, 0)
+
+            # Optional: Set destination for route following
+            if route_waypoints:
+                self.traffic_manager.set_path(self.player_vehicle, 
+                                             [wp.transform.location for wp in route_waypoints])
+
+            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
         else:
             raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
             
@@ -976,19 +1034,27 @@ class JapaneseStyleAutopilot:
             print(f"Recording : Enabled")
             print("="*self.print_length + "\n")
             
+            # Start time should be measured after the vehicle is spawned and autopilot enabled
             start_time = time.time()
             frame_count = 0
             warmup_done = False
 
             # Main loop
             while (time.time() - start_time) < self.duration:
-                # Enable recording after warmup period
+                # Enable recording after warmup period and after cameras have been primed
                 if not warmup_done and frame_count >= self._warmup_frames:
-                    self._ready_to_record = True
-                    # Reset frame counter to 0 when recording starts
-                    self.frame_counter = 0
-                    warmup_done = True
-                    print(f"[INFO]: Warmup complete ({self._warmup_frames} frames skipped), recording started")
+                    primed_ok = all(self._camera_primed.values())
+                    priming_elapsed = time.time() - start_time
+                    if primed_ok or (priming_elapsed >= self._priming_timeout):
+                        # Drop any buffered warmup frames to avoid writing placeholders
+                        with self._buffer_lock:
+                            self._image_buffer.clear()
+                            self._last_frame_seen_time.clear()
+                        self._ready_to_record = True
+                        # Reset frame counter to 0 when recording starts
+                        self.frame_counter = 0
+                        warmup_done = True
+                        print(f"[INFO]: Warmup complete ({self._warmup_frames} frames skipped), recording started (primed_ok={primed_ok}, priming_elapsed={priming_elapsed:.2f}s)")
                 
                 # Advance simulator deterministically if possible
                 if sync_enabled:
@@ -1002,8 +1068,10 @@ class JapaneseStyleAutopilot:
                     time.sleep(self.sleep_interval)
 
                 # Record data at ~20 Hz (chosen from server 60Hz)
-                if frame_count % 3 == 0:
-                    self.record_data()
+                # Only start recording once cameras are ready to avoid creating placeholder images
+                if getattr(self, '_ready_to_record', False):
+                    if frame_count % 3 == 0:
+                        self.record_data()
 
                 # Print progress every 5 seconds
                 elapsed = time.time() - start_time
@@ -1064,7 +1132,77 @@ class JapaneseStyleAutopilot:
             except Exception:
                 pass
             
+        # Wait for writer thread to flush buffer
+        try:
+            # signal writer thread via stopping flag and join
+            if hasattr(self, '_writer_thread') and self._writer_thread.is_alive():
+                self._writer_thread.join(timeout=2.0)
+        except Exception:
+            pass
+
         print("[INFO]: Done!")
+
+    def _buffer_writer(self):
+        """Background thread: flush image buffer to disk when complete or on timeout
+
+        Behavior:
+        - Wait for all 6 cameras to be present for a frame, then write files.
+        - If only a subset arrives and `self._buffer_timeout` elapsed since first sighting, write whatever valid images exist (to avoid stalls), but prefer complete frames.
+        """
+        CAMS = {'F', 'B', 'RF', 'LF', 'RB', 'LB'}
+        while not getattr(self, '_stopping', False):
+            now = time.time()
+            to_write = []
+            with self._buffer_lock:
+                for frame_num, cam_dict in list(self._image_buffer.items()):
+                    cams_present = set(cam_dict.keys())
+                    if cams_present >= CAMS:
+                        # mark that we observed a complete frame and increment counter
+                        try:
+                            self._complete_frame_event.set()
+                            self._complete_frame_count += 1
+                        except Exception:
+                            pass
+
+                        # If we haven't started recording yet, drop buffered frames to avoid
+                        # writing files with simulator frame ids (they'd be large numbers like 19343).
+                        if not getattr(self, '_ready_to_record', False) and not getattr(self, '_stopping', False):
+                            # just discard this buffered full frame; spawn will be signalled via the event
+                            del self._image_buffer[frame_num]
+                            self._last_frame_seen_time.pop(frame_num, None)
+                        else:
+                            to_write.append((frame_num, dict(cam_dict)))
+                            del self._image_buffer[frame_num]
+                            self._last_frame_seen_time.pop(frame_num, None)
+                    else:
+                        first_seen = self._last_frame_seen_time.get(frame_num, now)
+                        if (now - first_seen) >= self._buffer_timeout:
+                            # flush partial frame after timeout, but only if we're recording or stopping
+                            if getattr(self, '_ready_to_record', False) or getattr(self, '_stopping', False):
+                                to_write.append((frame_num, dict(cam_dict)))
+                            # in any case, remove from buffer to avoid indefinite growth
+                            del self._image_buffer[frame_num]
+                            self._last_frame_seen_time.pop(frame_num, None)
+            # perform writes outside lock
+            for frame_num, cam_dict in to_write:
+                frame_folder = f"{frame_num:04d}"
+                frame_dir = os.path.join(self.folderpath, 'rgb', frame_folder)
+                os.makedirs(frame_dir, exist_ok=True)
+                # log what we are writing
+                try:
+                    cams_written = list(cam_dict.keys())
+                    max_vals = {c: int(arr.max()) for c, arr in cam_dict.items()}
+                    self._log_debug(f"writer flush frame={frame_num} cams={cams_written} max_vals={max_vals}")
+                except Exception:
+                    pass
+                for cam_name, arr in cam_dict.items():
+                    try:
+                        pil_img = PILImage.fromarray(arr)
+                        pil_img.save(os.path.join(frame_dir, f"{cam_name}.png"), 'PNG')
+                    except Exception as e:
+                        if not getattr(self, '_stopping', False):
+                            print(f"[WARN] Failed to write image for frame {frame_num} cam {cam_name}: {e}")
+            time.sleep(0.05)
 
 def main():
     print('\n')
