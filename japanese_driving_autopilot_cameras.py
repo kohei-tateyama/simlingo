@@ -25,16 +25,21 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, town='Town13'):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, town='Town13', fps=60.0, callback_debug=False):
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
         # Allow longer timeouts for slower hosts
         self.client_timout_carla = 30.0
         self.client.set_timeout(self.client_timout_carla)
         self.print_length = 70
-        self.sleep_interval = 0.05 # 20 Hz
+        self.fps = fps
+        # self.sleep_interval = 0.05 # 20 Hz
+        self.sleep_interval = 1.0 / self.fps
+        # Enable or disable per-callback debug logging (can be noisy at high FPS)
+        self._callback_debug = bool(callback_debug)
         self.town = town
 
+        print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s')
         print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
 
         # If a world is already loaded on the server, prefer using it to avoid heavy reloads
@@ -164,6 +169,8 @@ class JapaneseStyleAutopilot:
                 pass
         except Exception:
             self._debug_log_path = None
+        # By default do not print debug lines to stdout (can be enabled)
+        self._print_debug = False
 
     def _log_debug(self, msg):
         try:
@@ -175,8 +182,9 @@ class JapaneseStyleAutopilot:
                         f.write(out)
                 except Exception:
                     pass
-            # also print to stdout for live observation
-            print(out, end='')
+            # Optionally print to stdout for live observation when enabled
+            if getattr(self, '_print_debug', False):
+                print(out, end='')
         except Exception:
             pass
         
@@ -275,7 +283,6 @@ class JapaneseStyleAutopilot:
             
             def make_callback(camera_name):
                 def _on_image(image):
-                    # Skip if shutting down
                     if getattr(self, '_stopping', False):
                         return
 
@@ -293,7 +300,9 @@ class JapaneseStyleAutopilot:
 
                             # Validate image is not all black (common during startup/shutdown)
                             im_max = int(img_rgb.max())
-                            self._log_debug(f"callback {camera_name} frame={frame_num} max={im_max}")
+                            # Only emit verbose per-callback debug lines when explicitly enabled
+                            if getattr(self, '_callback_debug', False):
+                                self._log_debug(f"callback {camera_name} frame={frame_num} max={im_max}")
                             if im_max < 5:
                                 return
 
@@ -557,7 +566,7 @@ class JapaneseStyleAutopilot:
                 # store latest segmentation meta for main loop to attach to frame records
                 self.last_seg_meta = meta
             except Exception as e:
-                print(f"Error in semantic callback: {e}")
+                print(f"[ERROR]: error in semantic callback: {e}")
 
         sem_cam.listen(_on_semantic)
         self.sensors.append(sem_cam)
@@ -815,7 +824,7 @@ class JapaneseStyleAutopilot:
             with gzip.open(boxes_path, 'wt', encoding='utf-8') as f:
                 json.dump(boxes_data, f)
         except Exception as e:
-            print(f"Error saving boxes: {e}")
+            print(f"[ERROR]: Error saving boxes: {e}")
         
         # Store minimal info for summary
         data_point = {
@@ -851,8 +860,9 @@ class JapaneseStyleAutopilot:
                 except Exception as e:
                     print(f"[ERROR]: Failed to write placeholder for missing camera {cam_name} at frame {frame_num}: {e}")
 
-        # Increment frame counter
-        self.frame_counter += 1
+        # Increment frame counter atomically with buffer lock to avoid races
+        with self._buffer_lock:
+            self.frame_counter += 1
         
     def save_to_xml(self, filename=None):
         """Save recorded data to XML file"""
@@ -1051,8 +1061,9 @@ class JapaneseStyleAutopilot:
                             self._image_buffer.clear()
                             self._last_frame_seen_time.clear()
                         self._ready_to_record = True
-                        # Reset frame counter to 0 when recording starts
-                        self.frame_counter = 0
+                        # Reset frame counter to 0 when recording starts (under lock to avoid races)
+                        with self._buffer_lock:
+                            self.frame_counter = 0
                         warmup_done = True
                         print(f"[INFO]: Warmup complete ({self._warmup_frames} frames skipped), recording started (primed_ok={primed_ok}, priming_elapsed={priming_elapsed:.2f}s)")
                 
@@ -1067,11 +1078,12 @@ class JapaneseStyleAutopilot:
                 else:
                     time.sleep(self.sleep_interval)
 
-                # Record data at ~20 Hz (chosen from server 60Hz)
-                # Only start recording once cameras are ready to avoid creating placeholder images
+                # if getattr(self, '_ready_to_record', False):
+                #     if frame_count % 3 == 0:
+                #         self.record_data()
+
                 if getattr(self, '_ready_to_record', False):
-                    if frame_count % 3 == 0:
-                        self.record_data()
+                    self.record_data()
 
                 # Print progress every 5 seconds
                 elapsed = time.time() - start_time
@@ -1106,7 +1118,6 @@ class JapaneseStyleAutopilot:
         
         # Signal all callbacks to stop
         self._stopping = True
-        
         # Give callbacks time to finish current work
         time.sleep(0.3)
         
