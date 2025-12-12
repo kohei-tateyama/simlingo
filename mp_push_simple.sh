@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple push helper: stage all, commit, push to myfork
 # Usage: ./mp_push_simple.sh "Commit message"
 
 MSG=${1:-"Update from workspace"}
