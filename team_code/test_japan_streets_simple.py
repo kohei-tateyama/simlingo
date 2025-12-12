@@ -172,7 +172,6 @@ class JapaneseStreetsInference:
             torch.cuda.synchronize()
         t1 = time.perf_counter()
         single_elapsed = t1 - t0
-        # record last single inference elapsed for external reporting
         self._last_single_elapsed = single_elapsed
 
         # Optional small repeated benchmark to get stable numbers (configurable via attribute)
@@ -277,7 +276,7 @@ class JapaneseStreetsInference:
                 print(f"{timing_str} ✓ steer={control.steer:.3f}, throttle={control.throttle:.3f}, brake={control.brake:.3f}")
                 
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"[Error]: {e}")
                 results.append({
                     'image': str(img_path),
                     'error': str(e)
@@ -329,7 +328,7 @@ def main():
         print(f"\nProcessed {len(results)} images")
         
     else:
-        print("Error: Provide either --image or --image-dir")
+        print("[Error]: Provide either --image or --image-dir")
         sys.exit(1)
 
 
