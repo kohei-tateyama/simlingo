@@ -107,6 +107,7 @@ EOF
 }
 
 RUN_ALL_AUTOPILOT=false
+AUTOPILOT_FPS=60
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -136,6 +137,10 @@ while [[ $# -gt 0 ]]; do
         --no-multicamera)
             MULTICAMERA=false
             shift
+            ;;
+        --fps)
+            AUTOPILOT_FPS="$2"
+            shift 2
             ;;
         *)
             err "Unknown option: $1"

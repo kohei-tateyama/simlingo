@@ -8,9 +8,11 @@ Use the checklist below to track progress on finishing `japanese_driving_autopil
 
 - [x] Change the per-frame JSON output format to match training dataset (gzipped per-frame files `measurements/0000.json.gz` and `boxes/0000.json.gz`, plus top-level `records.json.gz` and `results.json.gz`).
 - [x] Save up to 6 images per timestep into `rgb/` (names `0000.jpg` .. `0007.jpg`), and merge those implement multiple cameras producing those images.
+- [ ] Move all the `.sh` into a folder `scripts/`
+- [ ] Create multiple autonomous path to collect data from CARLA. 
 - [ ] Think of a way to insert a `prompt` or `text` field to per-frame measurements and document how to set it.
 - [ ] Run an end-to-end recording (using keyboard) and validate outputs.
-- [ ] Write the docs on this part.
+- [x] Write the docs on this part.
 
 ## Quick Commands
 
@@ -33,11 +35,14 @@ sudo chmod 755 /workspace/simlingo/mp_push_simple.sh \
 	/workspace/simlingo/how_to_run_headless.sh \
 	/workspace/simlingo/japanese_driving_autopilot.py
 ```
-`sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore`
-`sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py`
+Also, I did 
+```bash 
+sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore
+sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py
+```
 
+---
   
-
 ## Japanese Traffic Management (left-hand driving)
 
 This project configures CARLA's Traffic Manager to emulate Japanese-style (left-hand) traffic. Below explains how it is implemented and how to change it.
