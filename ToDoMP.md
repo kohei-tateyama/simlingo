@@ -8,9 +8,11 @@ Use the checklist below to track progress on finishing `japanese_driving_autopil
 
 - [x] Change the per-frame JSON output format to match training dataset (gzipped per-frame files `measurements/0000.json.gz` and `boxes/0000.json.gz`, plus top-level `records.json.gz` and `results.json.gz`).
 - [x] Save up to 6 images per timestep into `rgb/` (names `0000.jpg` .. `0007.jpg`), and merge those implement multiple cameras producing those images.
+- [ ] Move all the `.sh` into a folder `scripts/`
+- [ ] Create multiple autonomous path to collect data from CARLA. 
 - [ ] Think of a way to insert a `prompt` or `text` field to per-frame measurements and document how to set it.
 - [ ] Run an end-to-end recording (using keyboard) and validate outputs.
-- [ ] Write the docs on this part.
+- [x] Write the docs on this part.
 
 ## Quick Commands
 
@@ -33,11 +35,14 @@ sudo chmod 755 /workspace/simlingo/mp_push_simple.sh \
 	/workspace/simlingo/how_to_run_headless.sh \
 	/workspace/simlingo/japanese_driving_autopilot.py
 ```
-`sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore`
-`sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py`
+Also, I did 
+```bash 
+sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore
+sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py
+```
 
+---
   
-
 ## Japanese Traffic Management (left-hand driving)
 
 This project configures CARLA's Traffic Manager to emulate Japanese-style (left-hand) traffic. Below explains how it is implemented and how to change it.
@@ -104,3 +109,42 @@ A.3) Attention Fusion Strategy
 Option B): 
 B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
 B.2) Camera + Posiiton ordering strategy (rule based)
+
+
+### How to push 
+I did a mess before and we do have some issue since Kohey is not with the Bosch account 
+
+I have two braches 
+```bash
+git status --porcelain --branch
+git branch -vv
+```
+This will return
+```bash
+## feat/michele...myfork/feat/michele
+* feat/michele                         3305c34 [myfork/feat/michele] autosave: add fps estimator, CLI forwarding and summary info
+  main                                 0f1f70c [myfork/main] chore(bosch_utils): add/update autopilot and patcher scripts
+  snapshot/pre-cleanup_20251212_141603 f497701 Snapshot: working tree before cleanup 20251212_141603
+``` 
+
+Next(n to actual push)
+```bash
+git fetch myfork
+git rebase myfork/feat/michele
+git add . && git commit -m "comment here" && git push myfork feat/michele
+```
+
+Some useful command here:
+```bash
+git push --force-with-lease myfork feat/michele # removing history, very mean 
+
+git checkout -b feat/michele   # if needed
+git push --set-upstream myfork feat/michele # differnt branch
+```
+
+Verify after pushing 
+```bash
+git fetch --all --prune
+git branch -vv
+git log --oneline --decorate -n 5
+```

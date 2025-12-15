@@ -12,6 +12,7 @@ import argparse
 import os
 import gzip
 from PIL import Image as PILImage
+import math
 
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
@@ -25,7 +26,30 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, town='Town13', fps=60.0, callback_debug=False):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=60.0, callback_debug=False):
+        """Initialize the Japanese-style driving autopilot with 6 cameras.
+
+        Number of timesteps recorder ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
+        D = desired recording duration in seconds (user --duration)
+        fps = target frames per second (user --fps)
+        dt = 1 / fps (sim step / sleep interval)
+        W = warmup frames skipped (self._warmup_frames)
+        Tprim = camera priming timeout (seconds) — time spent waiting for initial valid camera images
+        Tbuffer = buffer flush timeout (seconds) — time the writer will wait for missing cameras before flushing a partial frame
+        Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, compression, and Python scheduling jitter (measure empirically or assume small value)
+        Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
+
+        Args:
+            autopilot (bool): Whether to enable autopilot mode.
+            duration (int): Duration of the recording in seconds.
+            route_type (str): Type of route to follow ('highway', 'urban', 'simple').
+            port_localhost (int): Port for connecting to CARLA server.
+            port_traffic (int): Port for traffic manager.
+            town (str): Town/map name to load.
+            fps (float): Frames per second for recording.
+            callback_debug (bool): Enable debug logging in sensor callbacks.
+        """
+
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
         # Allow longer timeouts for slower hosts
@@ -38,6 +62,7 @@ class JapaneseStyleAutopilot:
         # Enable or disable per-callback debug logging (can be noisy at high FPS)
         self._callback_debug = bool(callback_debug)
         self.town = town
+        self.port_traffic = port_traffic
 
         print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s')
         print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
@@ -104,7 +129,7 @@ class JapaneseStyleAutopilot:
         time.sleep(1)
         
         # Get traffic manager
-        self.traffic_manager = self.client.get_trafficmanager(8000)
+        self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
         
         # Setup Japanese-style traffic
         self.setup_left_hand_traffic()
@@ -187,6 +212,44 @@ class JapaneseStyleAutopilot:
                 print(out, end='')
         except Exception:
             pass
+
+    def estimate_recorded_frames(self, D=None, fps=None, Tprim=None, Toverhead=None, W=None, Nlost=0):
+        """Estimate number of recorded timesteps using the user's formula.
+
+        Formula:
+            R = max(0, floor((D - Tprim - Toverhead) * fps) - W - Nlost)
+
+        Parameters (defaults taken from instance when None):
+            D (float): desired recording duration in seconds (defaults to self.duration)
+            fps (float): target frames per second (defaults to self.fps)
+            Tprim (float): priming timeout in seconds (defaults to self._priming_timeout)
+            Toverhead (float): estimated extra overhead seconds (defaults to _buffer_timeout + 0.1s)
+            W (int): warmup frames to skip (defaults to self._warmup_frames)
+            Nlost (int): estimated lost frames due to missing sensors (defaults 0)
+
+        Returns:
+            int: estimated number of recorded frames (non-negative)
+
+        Example (30 fps):
+            If D=60, fps=30, W=5, Tprim=0.5, Toverhead=0.5, Nlost=0:
+                R = floor((60 - 0.5 - 0.5) * 30) - 5 = 1765
+        """
+        # Use instance defaults when parameters are not provided
+        D = float(D) if D is not None else float(getattr(self, 'duration', 0.0))
+        fps = float(fps) if fps is not None else float(getattr(self, 'fps', 0.0))
+        W = int(W) if W is not None else int(getattr(self, '_warmup_frames', 0))
+        Tprim = float(Tprim) if Tprim is not None else float(getattr(self, '_priming_timeout', 0.0))
+        if Toverhead is None:
+            # Conservative default: buffer timeout plus small I/O overhead
+            Toverhead = float(getattr(self, '_buffer_timeout', 0.0)) + 0.1
+        else:
+            Toverhead = float(Toverhead)
+
+        Nlost = int(Nlost)
+
+        # Compute raw estimate and clamp to non-negative
+        raw = math.floor((D - Tprim - Toverhead) * fps) - W - Nlost
+        return max(0, int(raw))
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
@@ -726,6 +789,12 @@ class JapaneseStyleAutopilot:
                 self.traffic_manager.set_path(self.player_vehicle, 
                                              [wp.transform.location for wp in route_waypoints])
 
+            # store a lightweight copy of the planned route (list of [x,y]) for later measurement files
+            try:
+                self._route_points = [[float(wp.transform.location.x), float(wp.transform.location.y)] for wp in route_waypoints]
+            except Exception:
+                self._route_points = []
+
             print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
         else:
             raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
@@ -742,33 +811,30 @@ class JapaneseStyleAutopilot:
         frame_num = self.frame_counter
         
         # Build measurements JSON (matching training format)
-        speed = np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
-        
-        # Get waypoint for route/command info
-        try:
-            wp = self.world.get_map().get_waypoint(transform.location)
-            next_wps = wp.next(10.0)
-            target_wp = next_wps[0] if next_wps else wp
-            target_loc = target_wp.transform.location
-            target_point = [
-                target_loc.x - transform.location.x,
-                target_loc.y - transform.location.y
-            ]
-        except Exception:
-            target_point = [0.0, 0.0]
-        
+        speed = float(np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2))
+
+        # Compute ego transformation matrix (4x4) with identity rotation and translation
+        ego_matrix = [
+            [1.0, 0.0, 0.0, float(transform.location.x)],
+            [0.0, 1.0, 0.0, float(transform.location.y)],
+            [0.0, 0.0, 1.0, float(transform.location.z)],
+            [0.0, 0.0, 0.0, 1.0]
+        ]
+
+        # Route information: prefer stored planned route if available
+        route_original = getattr(self, '_route_points', [])
+        route = list(route_original) if route_original else []
+
+        # Simplified command encoding: retain previous defaults if unknown
+        command = int(getattr(self, 'last_command', 4)) if hasattr(self, 'last_command') else 4
+        next_command = int(getattr(self, 'next_command', command)) if hasattr(self, 'next_command') else command
+
         measurements = {
-            'pos_global': [transform.location.x, transform.location.y],
-            'theta': np.radians(transform.rotation.yaw),
-            'speed': speed,
-            'target_speed': 15.0,  # Placeholder
-            'speed_limit': 22.22,  # Placeholder (80 km/h)
-            'target_point': target_point,
-            'target_point_next': target_point,  # Simplified
-            'command': 4,  # LANE_FOLLOW
-            'next_command': 4,
-            'aim_wp': target_point,
-            'route': []  # Simplified - would need route planner
+            'ego_matrix': ego_matrix,
+            'route_original': route_original,
+            'route': route,
+            'command': int(command),
+            'next_command': int(next_command)
         }
         
         # Save measurements as gzipped JSON
@@ -779,44 +845,68 @@ class JapaneseStyleAutopilot:
         except Exception as e:
             print(f"Error saving measurements: {e}")
         
-        # Build boxes JSON (ego car + weather)
-        ego_extent = self.player_vehicle.bounding_box.extent
-        weather = self.world.get_weather()
-        
-        boxes_data = [
-            {
-                'class': 'ego_car',
-                'extent': [ego_extent.x, ego_extent.y, ego_extent.z],
-                'position': [0.0, 0.0, 0.0],
-                'yaw': 0.0,
-                'num_points': -1,
-                'distance': -1,
-                'speed': speed,
-                'brake': control.brake,
-                'id': self.player_vehicle.id,
-                'matrix': [
-                    [1.0, 0.0, 0.0, transform.location.x],
-                    [0.0, 1.0, 0.0, transform.location.y],
-                    [0.0, 0.0, 1.0, transform.location.z],
-                    [0.0, 0.0, 0.0, 1.0]
-                ]
-            },
-            {
-                'class': 'weather',
-                'cloudiness': weather.cloudiness,
-                'dust_storm': weather.dust_storm,
-                'fog_density': weather.fog_density,
-                'fog_distance': weather.fog_distance,
-                'fog_falloff': weather.fog_falloff,
-                'mie_scattering_scale': weather.mie_scattering_scale,
-                'precipitation': weather.precipitation,
-                'precipitation_deposits': weather.precipitation_deposits,
-                'rayleigh_scattering_scale': weather.rayleigh_scattering_scale,
-                'scattering_intensity': weather.scattering_intensity,
-                'sun_altitude_angle': weather.sun_altitude_angle,
-                'sun_azimuth_angle': weather.sun_azimuth_angle
-            }
-        ]
+        # Build boxes JSON: collect nearby vehicles and walkers (relative positions to ego)
+        boxes_data = []
+        try:
+            actors = self.world.get_actors()
+            # filter vehicles and walkers
+            vehicles = actors.filter('vehicle.*')
+            walkers = actors.filter('walker.pedestrian.*')
+            # ego actor id
+            ego_id = self.player_vehicle.id if self.player_vehicle else None
+
+            def actor_to_box(a):
+                try:
+                    at = a.get_transform()
+                    pos = at.location
+                    rel_x = float(pos.x - transform.location.x)
+                    rel_y = float(pos.y - transform.location.y)
+                    rel_z = float(pos.z - transform.location.z)
+                    extent = getattr(a, 'bounding_box', None)
+                    if extent is not None:
+                        ext = [float(extent.extent.x), float(extent.extent.y), float(extent.extent.z)]
+                    else:
+                        ext = [0.0, 0.0, 0.0]
+                    yaw = float(at.rotation.yaw - transform.rotation.yaw)
+                    vel = a.get_velocity()
+                    speed_a = float(np.sqrt(vel.x**2 + vel.y**2 + vel.z**2))
+                    # rough brake detection if actor has control
+                    br = False
+                    try:
+                        ctrl = a.get_control()
+                        br = bool(getattr(ctrl, 'brake', False))
+                    except Exception:
+                        br = False
+                    # affects_ego heuristic: within 30 meters
+                    dist = float(np.sqrt(rel_x**2 + rel_y**2 + rel_z**2))
+                    affects = dist < 30.0
+                    cls = 'vehicle' if 'vehicle' in a.type_id else 'walker'
+                    return {
+                        'class': cls,
+                        'position': [rel_x, rel_y, rel_z],
+                        'extent': ext,
+                        'yaw': yaw,
+                        'speed': speed_a,
+                        'brake': br,
+                        'affects_ego': affects,
+                        'id': a.id
+                    }
+                except Exception:
+                    return None
+
+            for v in vehicles:
+                if v.id == ego_id:
+                    continue
+                b = actor_to_box(v)
+                if b:
+                    boxes_data.append(b)
+
+            for w in walkers:
+                b = actor_to_box(w)
+                if b:
+                    boxes_data.append(b)
+        except Exception:
+            boxes_data = []
         
         # Save boxes as gzipped JSON
         boxes_path = os.path.join(self.folderpath, 'boxes', f'{frame_num:04d}.json.gz')
@@ -1096,7 +1186,19 @@ class JapaneseStyleAutopilot:
                 frame_count += 1
             print("\n" + "=" * self.print_length)  
             print(f"[INFO]: Simulation completed!")
-            print(f"[INFO]: Total frames recorded: {len(self.recording_data)}")
+            total = len(self.recording_data)
+            # estimate expected number of rgb folders from measurements (assuming 6 images per frame)
+            num_imgs_per_frame = 6
+            est_folders = int(round(total / float(num_imgs_per_frame))) if num_imgs_per_frame > 0 else 0
+            print(f"[INFO]: Total frames recorded: {total}")
+            print(f"[INFO]: Estimated rgb folders expected (measurements/{num_imgs_per_frame}): {est_folders}")
+            # If estimator used earlier produced an unexpected large number, print a warning
+            try:
+                est_prev = sim.estimate_recorded_frames(D=self.duration, fps=self.fps, Tprim=getattr(self, '_priming_timeout', 0.0), Toverhead=(getattr(self, '_buffer_timeout', 0.0) + 0.1), W=getattr(self, '_warmup_frames', 0), Nlost=0)
+                if est_prev > total * 5:
+                    print(f"[WARN]: Estimator earlier returned a large value ({est_prev}); this may be due to missing/duplicate estimator calls or mis-set defaults.")
+            except Exception:
+                pass
             print("=" * self.print_length + "\n")
             
             # Save data in training format
@@ -1225,14 +1327,30 @@ def main():
     parser.add_argument('--route', type=str, default='highway',
                        choices=['highway', 'urban', 'simple'],
                        help='Route type: highway, urban, or simple (default: highway)')
+    parser.add_argument('--fps', type=float, default=60.0,
+                       help='Target frames per second for recording (default: 60)')
     
     args = parser.parse_args()
     
     sim = JapaneseStyleAutopilot(
         autopilot=args.autopilot,
         duration=args.duration,
-        route_type=args.route
+        route_type=args.route,
+        fps=args.fps
     )
+    # Print an estimate of expected recorded frames using current inputs
+    try:
+        est = sim.estimate_recorded_frames(
+            D=args.duration,
+            fps=args.fps,
+            Tprim=getattr(sim, '_priming_timeout', 0.0),
+            Toverhead=(getattr(sim, '_buffer_timeout', 0.0) + 0.1),
+            W=getattr(sim, '_warmup_frames', 0),
+            Nlost=0
+        )
+        print(f"[INFO] Estimated recorded frames: {est}")
+    except Exception:
+        pass
     sim.run()
 
 if __name__ == '__main__':

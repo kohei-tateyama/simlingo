@@ -5,9 +5,16 @@
 # and launches the manual driving script `japanese_driving_cameras.py`.
 
 # =============================================================================
+<<<<<<< HEAD
 ## This script is an updated versionn of the how_to_run_docker_carla_agent.sh and it allows runnning carla and guiding the car around for gathering data visualizing the scene.
 # ============================================================================
 
+=======
+## Thicmscript is an updated versionn of the how_to_run_docker_carla_agent.sh and it allows runnning carla and guiding the car around for gathering data visualizing the scene.
+# ============================================================================
+
+
+>>>>>>> 58df888 (feat(multicamera): patch_multicamera and layout tuning (HORIZONTAL/VERTICAL multipliers, image scale))
 export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner

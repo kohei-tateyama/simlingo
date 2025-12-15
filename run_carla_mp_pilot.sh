@@ -4,7 +4,6 @@
 ## This script is an updated versionn of the how_to_run_headless.sh and it allows runnning the simlingo agent as well as other code for gathering data in headless mode.
 # This script is also a bnetter verison fo run_carla_autopilot.sh
 # ============================================================================
-
 # # single autopilot
 # bash run_carla_mp_pilot.sh --mode autopilot --duration 10 --route highway 
 # # all autopilot variations
@@ -108,6 +107,7 @@ EOF
 }
 
 RUN_ALL_AUTOPILOT=false
+AUTOPILOT_FPS=60
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -137,6 +137,10 @@ while [[ $# -gt 0 ]]; do
         --no-multicamera)
             MULTICAMERA=false
             shift
+            ;;
+        --fps)
+            AUTOPILOT_FPS="$2"
+            shift 2
             ;;
         *)
             err "Unknown option: $1"
@@ -379,23 +383,19 @@ run_autopilot() {
 
     if [ "$MULTICAMERA" = true ]; then
         info "MULTICAMERA mode (6 cameras) is currently USED in this script."
-        # Call the copy in bosch_utils; ensure line-continuations are not broken by comments
-        # python japanese_driving_autopilot_cameras.py \
         python bosch_utils/japanese_driving_autopilot_cameras.py \
             --autopilot \
             --duration "$duration" \
-            --route "$route"
-    fi
-    if [ "$MULTICAMERA" = false ]; then
+            --route "$route" \
+            --fps "$AUTOPILOT_FPS"
+    else
         info "MONOCAMERA mode is currently USED in this script."
-        # Use the local script
-        # python japanese_driving_autopilot.py \
         python bosch_utils/japanese_driving_autopilot.py \
             --autopilot \
             --duration "$duration" \
-            --route "$route"
+            --route "$route" \
+            --fps "$AUTOPILOT_FPS"
     fi
-    
     AUTOPILOT_EXIT_CODE=$?
 
     echo ""

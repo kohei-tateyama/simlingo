@@ -7,6 +7,8 @@ import time
 import json
 import argparse
 import os
+import gzip
+from PIL import Image as PILImage
 
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
@@ -20,7 +22,7 @@ RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, town='Town13'):
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
         # Allow longer timeouts for slower hosts
@@ -28,6 +30,7 @@ class JapaneseStyleAutopilot:
         self.client.set_timeout(self.client_timout_carla)
         self.print_length = 70
         self.sleep_interval = 0.05 # 20 Hz
+        self.town = town
 
         print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
 
@@ -36,7 +39,7 @@ class JapaneseStyleAutopilot:
             current_world = self.client.get_world()
             current_map_name = getattr(current_world.get_map(), 'name', '')
             if current_map_name:
-                print(f"  Server already has map loaded: {current_map_name} — using it")
+                print(f"[INFO]: Server already has map loaded: {current_map_name} — using it")
                 self.world = current_world
                 time.sleep(1)
                 skip_load = True
@@ -48,7 +51,6 @@ class JapaneseStyleAutopilot:
         # If user explicitly wants to force a map load, set FORCE_LOAD env var or pass --force-load
         FORCE_LOAD = False
 
-        # If skip_load is False, attempt to load Town13 or fall back to server-reported maps
         if not skip_load and not FORCE_LOAD:
             try:
                 available_maps = self.client.get_available_maps()
@@ -57,19 +59,19 @@ class JapaneseStyleAutopilot:
 
             preferred_map = None
             for m in available_maps:
-                if 'Town13' in m:
+                if self.tow in m:
                     preferred_map = m
                     break
 
             if preferred_map is not None:
                 map_to_load = preferred_map
-                print(f"  Found server map: {preferred_map} — will attempt to load it")
+                print(f"[INFO]: Found server map: {preferred_map} — will attempt to load it")
             elif len(available_maps) > 0:
                 map_to_load = available_maps[0]
-                print(f"  Town13 not found on server — would load {map_to_load} if needed")
+                print(f"[INFO]: {self.town} not found on server — would load {map_to_load} if needed")
             else:
-                map_to_load = 'Town13'
-                print("  No maps reported by server; would try short name 'Town13' if forced")
+                map_to_load = self.town
+                print(f"[WARNING]: No maps reported by server; would try short name '{self.town}' if forced")
 
             # We will not call load_world by default to avoid crashes — prefer using current world.
             # If no world was set above, fall back to attempting load with retries.
@@ -109,24 +111,27 @@ class JapaneseStyleAutopilot:
         
         # Recording data
         self.recording_data = []
-        # Prepare per-run artifact folders so sensors can write images
+        # Prepare per-run artifact folders matching training format
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.foldername = f"autopilot_japanese_{self.route_type}_{timestamp}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         os.makedirs(self.folderpath, exist_ok=True)
-        os.makedirs(os.path.join(self.folderpath, 'img'), exist_ok=True)
-        os.makedirs(os.path.join(self.folderpath, 'text'), exist_ok=True)
+        # Create training-format subfolders
+        os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
         self.last_image_filename = None
         self.sensors = []
-        self.image_size_x = 800
-        self.image_size_y = 600
+        # Match training data image size: 1024x512
+        self.image_size_x = 1024
+        self.image_size_y = 512
         self.last_seg_meta = None
-        # NDJSON file path for frame-level metadata
-        self.ndjson_path = os.path.join(self.folderpath, 'text', 'frames.ndjson')
+        # Frame counter for sequential naming (0000, 0001, ...)
+        self.frame_counter = 0
         
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
-        print("Configuring Japanese-style (left-hand) traffic...")
+        # print("Configuring Japanese-style (left-hand) traffic...")
         
         self.traffic_manager.set_global_distance_to_leading_vehicle(2.5)
         self.traffic_manager.global_lane_offset = -1.5
@@ -151,32 +156,35 @@ class JapaneseStyleAutopilot:
 
         def _on_image(image):
             try:
-                # Use CARLA frame id when available for deterministic pairing
-                if hasattr(image, 'frame'):
-                    base = f"frame_{image.frame:08d}"
-                else:
-                    base = datetime.now().strftime('frame_%Y%m%d_%H%M%S_%f')
-
-                fname = f"{base}_rgb.png"
-                path = os.path.join(self.folderpath, 'img', fname)
-                image.save_to_disk(path)
-                self.last_image_filename = os.path.join('img', fname)
-                # append minimal rgb entry to NDJSON for traceability
+                # Use sequential frame counter (matches training format)
+                frame_num = self.frame_counter
+                fname = f"{frame_num:04d}.jpg"
+                path = os.path.join(self.folderpath, 'rgb', fname)
+                
+                # Convert CARLA image to PIL and save as JPG
                 try:
-                    with open(self.ndjson_path, 'a') as f:
-                        f.write(json.dumps({'type': 'rgb', 'base': base, 'rgb': self.last_image_filename, 'timestamp': image.timestamp if hasattr(image, 'timestamp') else time.time()}) + '\n')
-                except Exception:
-                    pass
+                    img_array = np.frombuffer(image.raw_data, dtype=np.uint8)
+                    img_array = img_array.reshape((image.height, image.width, 4))  # BGRA
+                    img_rgb = img_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
+                    pil_img = PILImage.fromarray(img_rgb)
+                    pil_img.save(path, 'JPEG', quality=95)
+                    self.last_image_filename = os.path.join('rgb', fname)
+                except Exception as e:
+                    # Fallback to CARLA save_to_disk
+                    image.save_to_disk(path)
+                    self.last_image_filename = os.path.join('rgb', fname)
             except Exception as e:
                 print(f"Error saving camera image: {e}")
 
         camera.listen(_on_image)
         self.sensors.append(camera)
-        # Also spawn semantic segmentation camera (separate sensor)
-        try:
-            self.setup_semantic_camera()
-        except Exception:
-            pass
+        
+        # Semantic segmentation camera (DISABLED for training format compatibility)
+        # Uncomment below to enable semantic segmentation recording
+        # try:
+        #     self.setup_semantic_camera()
+        # except Exception as e:
+        #     print(f"Failed to setup semantic camera: {e}")
 
     def setup_semantic_camera(self):
         """Attach a semantic segmentation camera and save mask + metadata per frame."""
@@ -408,7 +416,7 @@ class JapaneseStyleAutopilot:
         blueprint_library = self.world.get_blueprint_library()
         spawn_points = self.world.get_map().get_spawn_points()
         
-        print(f"Spawning {num_vehicles} NPC vehicles...")
+        print(f"[INFO]: Spawning {num_vehicles} NPC vehicles...")
         
         for i, spawn_point in enumerate(spawn_points[:num_vehicles]):
             vehicle_bp = blueprint_library.filter('vehicle.*')[i % 20]
@@ -430,14 +438,14 @@ class JapaneseStyleAutopilot:
         # print("NPC vehicles spawned!")
         
     def get_predefined_route(self):
-        """Get predefined waypoints for different route types in Town13"""
+        """Get predefined waypoints for different route types in self.town"""
         """[THIS NEEDS TO BE IMPROVED]"""
         map = self.world.get_map()
         spawn_points = map.get_spawn_points()
         
         routes = {
             'highway': {
-                'description': 'Highway loop in Town13',
+                'description': f'Highway loop in {self.town}',
                 'start_idx': 50,
                 'waypoints': [
                     carla.Location(x=-150.0, y=50.0, z=0.5),
@@ -451,7 +459,7 @@ class JapaneseStyleAutopilot:
                 ]
             },
             'urban': {
-                'description': 'Urban streets in Town13',
+                'description': f'Urban streets in {self.town}',
                 'start_idx': 10,
                 'waypoints': [
                     carla.Location(x=-50.0, y=20.0, z=0.5),
@@ -513,89 +521,122 @@ class JapaneseStyleAutopilot:
                 self.traffic_manager.set_path(self.player_vehicle, 
                                              [wp.transform.location for wp in route_waypoints])
             
-            print("Autopilot enabled (Japanese-style left-hand traffic)")
+            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
             # Attach optional camera sensor to player vehicle
             try:
                 self.setup_camera()
             except Exception as e:
                 print(f"Failed to setup camera sensor: {e}")
         else:
-            print("Manual control mode (run japanese_driving_town13.py instead)")
+            raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
             
     def record_data(self):
-        """Record vehicle data for XML export"""
+        """Record vehicle data in training format (measurements + boxes)"""
         if not self.player_vehicle:
             return
             
         transform = self.player_vehicle.get_transform()
         velocity = self.player_vehicle.get_velocity()
         control = self.player_vehicle.get_control()
-        # Attempt to detect collision state if available (best-effort; may require a CollisionSensor)
-        collision_info = {
-            'is_colliding': False,
-            'note': 'unknown'
-        }
-        try:
-            # Some setups attach collision history or sensors to the vehicle; check safely
-            if hasattr(self.player_vehicle, 'get_collision_history'):
-                hist = self.player_vehicle.get_collision_history()
-                collision_info['is_colliding'] = bool(hist)
-                collision_info['note'] = 'from get_collision_history()'
-            else:
-                # No sensor attached — leave as False/unknown
-                collision_info['is_colliding'] = False
-                collision_info['note'] = 'no sensor'
-        except Exception:
-            collision_info['is_colliding'] = False
-            collision_info['note'] = 'error_checking'
-
-        data_point = {
-            'timestamp': time.time(),
-            'location': {
-                'x': transform.location.x,
-                'y': transform.location.y,
-                'z': transform.location.z
-            },
-            'rotation': {
-                'pitch': transform.rotation.pitch,
-                'yaw': transform.rotation.yaw,
-                'roll': transform.rotation.roll
-            },
-            'velocity': {
-                'x': velocity.x,
-                'y': velocity.y,
-                'z': velocity.z,
-                'speed': np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2) * 3.6
-            },
-            'control': {
-                'throttle': control.throttle,
-                'steer': control.steer,
-                'brake': control.brake,
-                'hand_brake': control.hand_brake,
-                'reverse': control.reverse
-            }
-        }
         
-        # Waypoint information (nearest waypoint to current location)
+        frame_num = self.frame_counter
+        
+        # Build measurements JSON (matching training format)
+        speed = np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+        
+        # Get waypoint for route/command info
         try:
             wp = self.world.get_map().get_waypoint(transform.location)
-            waypoint_info = {
-                'x': wp.transform.location.x,
-                'y': wp.transform.location.y,
-                'z': wp.transform.location.z,
-                'lane_id': getattr(wp, 'lane_id', None),
-                'road_id': getattr(wp, 'road_id', None),
-                'is_junction': getattr(wp, 'is_junction', False)
-            }
+            next_wps = wp.next(10.0)
+            target_wp = next_wps[0] if next_wps else wp
+            target_loc = target_wp.transform.location
+            target_point = [
+                target_loc.x - transform.location.x,
+                target_loc.y - transform.location.y
+            ]
         except Exception:
-            waypoint_info = None
-
-        data_point['collision'] = collision_info
-        data_point['waypoint'] = waypoint_info
-        # Record latest image filename if available
-        data_point['image'] = self.last_image_filename
+            target_point = [0.0, 0.0]
         
+        measurements = {
+            'pos_global': [transform.location.x, transform.location.y],
+            'theta': np.radians(transform.rotation.yaw),
+            'speed': speed,
+            'target_speed': 15.0,  # Placeholder
+            'speed_limit': 22.22,  # Placeholder (80 km/h)
+            'target_point': target_point,
+            'target_point_next': target_point,  # Simplified
+            'command': 4,  # LANE_FOLLOW
+            'next_command': 4,
+            'aim_wp': target_point,
+            'route': []  # Simplified - would need route planner
+        }
+        
+        # Save measurements as gzipped JSON
+        measurements_path = os.path.join(self.folderpath, 'measurements', f'{frame_num:04d}.json.gz')
+        try:
+            with gzip.open(measurements_path, 'wt', encoding='utf-8') as f:
+                json.dump(measurements, f)
+        except Exception as e:
+            print(f"Error saving measurements: {e}")
+        
+        # Build boxes JSON (ego car + weather)
+        ego_extent = self.player_vehicle.bounding_box.extent
+        weather = self.world.get_weather()
+        
+        boxes_data = [
+            {
+                'class': 'ego_car',
+                'extent': [ego_extent.x, ego_extent.y, ego_extent.z],
+                'position': [0.0, 0.0, 0.0],
+                'yaw': 0.0,
+                'num_points': -1,
+                'distance': -1,
+                'speed': speed,
+                'brake': control.brake,
+                'id': self.player_vehicle.id,
+                'matrix': [
+                    [1.0, 0.0, 0.0, transform.location.x],
+                    [0.0, 1.0, 0.0, transform.location.y],
+                    [0.0, 0.0, 1.0, transform.location.z],
+                    [0.0, 0.0, 0.0, 1.0]
+                ]
+            },
+            {
+                'class': 'weather',
+                'cloudiness': weather.cloudiness,
+                'dust_storm': weather.dust_storm,
+                'fog_density': weather.fog_density,
+                'fog_distance': weather.fog_distance,
+                'fog_falloff': weather.fog_falloff,
+                'mie_scattering_scale': weather.mie_scattering_scale,
+                'precipitation': weather.precipitation,
+                'precipitation_deposits': weather.precipitation_deposits,
+                'rayleigh_scattering_scale': weather.rayleigh_scattering_scale,
+                'scattering_intensity': weather.scattering_intensity,
+                'sun_altitude_angle': weather.sun_altitude_angle,
+                'sun_azimuth_angle': weather.sun_azimuth_angle
+            }
+        ]
+        
+        # Save boxes as gzipped JSON
+        boxes_path = os.path.join(self.folderpath, 'boxes', f'{frame_num:04d}.json.gz')
+        try:
+            with gzip.open(boxes_path, 'wt', encoding='utf-8') as f:
+                json.dump(boxes_data, f)
+        except Exception as e:
+            print(f"Error saving boxes: {e}")
+        
+        # Store minimal info for summary
+        data_point = {
+            'frame': frame_num,
+            'timestamp': time.time(),
+            'location': [transform.location.x, transform.location.y, transform.location.z],
+            'speed': speed * 3.6  # km/h
+        }
         self.recording_data.append(data_point)
+        
+        # Increment frame counter
+        self.frame_counter += 1
         
     def save_to_xml(self, filename=None):
         """Save recorded data to XML file"""
@@ -620,7 +661,7 @@ class JapaneseStyleAutopilot:
                 filename = os.path.join(folderpath, filename)
         
         root = ET.Element('DrivingSession')
-        root.set('map', 'Town13')
+        root.set('map', self.town)
         root.set('traffic_style', 'Japanese (Left-hand)')
         root.set('mode', 'Autopilot' if self.autopilot else 'Manual')
         root.set('route_type', self.route_type)
@@ -679,6 +720,75 @@ class JapaneseStyleAutopilot:
             f.write(xml_str)
             
         print(f"[INFO]: Data saved to {filename}")
+    
+    def save_training_format(self):
+        """Save records.json.gz and results.json.gz matching training format"""
+        if not self.recording_data:
+            print("[WARN]: No data to save!")
+            return
+        
+        # Save records.json.gz
+        records = {
+            'meta_data': {
+                'index': self.foldername,
+                'town': f'Carla/Maps/{self.town}/{self.town}'
+            },
+            'states': [],
+            'lights': [],
+            'route': [],
+            'ego_actions': [],
+            'adv_actions': []
+        }
+        
+        records_path = os.path.join(self.folderpath, 'records.json.gz')
+        try:
+            with gzip.open(records_path, 'wt', encoding='utf-8') as f:
+                json.dump(records, f)
+            print(f"[INFO]: Saved records.json.gz")
+        except Exception as e:
+            print(f"[ERROR]: Failed to save records.json.gz: {e}")
+        
+        # Save results.json.gz
+        results = {
+            'timestamp': self.foldername,
+            'index': 0,
+            'route_id': f'{self.route_type}_route',
+            'status': 'Completed',
+            'num_infractions': 0,
+            'infractions': {
+                'collisions_layout': [],
+                'collisions_pedestrian': [],
+                'collisions_vehicle': [],
+                'red_light': [],
+                'stop_infraction': [],
+                'outside_route_lanes': [],
+                'min_speed_infractions': [],
+                'yield_emergency_vehicle_infractions': [],
+                'scenario_timeouts': [],
+                'route_dev': [],
+                'vehicle_blocked': [],
+                'route_timeout': []
+            },
+            'scores': {
+                'score_route': 100,
+                'score_penalty': 1.0,
+                'score_composed': 100.0
+            },
+            'meta': {
+                'route_length': 0.0,  # Would need route calculation
+                'duration_game': self.duration,
+                'duration_system': self.duration
+            }
+        }
+        
+        results_path = os.path.join(self.folderpath, 'results.json.gz')
+        try:
+            with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                json.dump(results, f, indent=2)
+            print(f"[INFO]: Saved results.json.gz")
+            print(f"[INFO]: All training-format data saved to {self.folderpath}")
+        except Exception as e:
+            print(f"[ERROR]: Failed to save results.json.gz: {e}")
         
     def run(self):
         """Run autopilot simulation"""
@@ -702,7 +812,7 @@ class JapaneseStyleAutopilot:
             print("\n" + "=" * self.print_length)
             print("[INFO]: AUTOPILOT MODE - Japanese-Style Driving")
             print("="*self.print_length)
-            print(f"Map       : Town13")
+            print(f"Map       : {self.town}")
             print(f"Route     : {self.route_type}")
             print(f"Duration  : {self.duration} seconds")
             print(f"Recording : Enabled")
@@ -718,7 +828,7 @@ class JapaneseStyleAutopilot:
                     try:
                         self.world.tick()
                     except Exception as e:
-                        print(f"[WARN]: world.tick() failed, switching to async sleep: {e}")
+                        print(f"[WARNING]: world.tick() failed, switching to async sleep: {e}")
                         sync_enabled = False
                         time.sleep(self.sleep_interval)
                 else:
@@ -731,7 +841,7 @@ class JapaneseStyleAutopilot:
                 # Print progress every 5 seconds
                 elapsed = time.time() - start_time
                 if int(elapsed) % 5 == 0 and frame_count % 100 == 0:
-                    speed = self.recording_data[-1]['velocity']['speed'] if self.recording_data else 0
+                    speed = self.recording_data[-1]['speed'] if self.recording_data else 0
                     print(f"[INFO]: {int(elapsed):2d}s / {int(self.duration):2d}s | "
                           f"Frames: {len(self.recording_data):4d} | "
                           f"Speed: {speed:5.1f} km/h")
@@ -742,17 +852,16 @@ class JapaneseStyleAutopilot:
             print(f"[INFO]: Total frames recorded: {len(self.recording_data)}")
             print("=" * self.print_length + "\n")
             
-            # Save data
-            self.save_to_xml()
+            # Save data in training format
+            self.save_training_format()
             
         finally:
-            # Restore original settings if we changed them
             try:
                 if original_settings is not None:
                     self.world.apply_settings(original_settings)
                     print("[INFO]: Restored original world settings (synchronous mode off)")
             except Exception as e:
-                print(f"[WARN]: Failed to restore world settings: {e}")
+                print(f"[WARNING]: Failed to restore world settings: {e}")
 
             self.cleanup()
             
@@ -778,7 +887,7 @@ class JapaneseStyleAutopilot:
 
 def main():
     print('\n')
-    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA Town13')
+    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA')
     parser.add_argument('--autopilot', action='store_true', 
                        help='Enable autopilot mode (default: False)')
     parser.add_argument('--duration', type=int, default=60,
