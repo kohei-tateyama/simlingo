@@ -109,3 +109,42 @@ A.3) Attention Fusion Strategy
 Option B): 
 B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
 B.2) Camera + Posiiton ordering strategy (rule based)
+
+
+### How to push 
+I did a mess before and we do have some issue since Kohey is not with the Bosch account 
+
+I have two braches 
+```bash
+git status --porcelain --branch
+git branch -vv
+```
+This will return
+```bash
+## feat/michele...myfork/feat/michele
+* feat/michele                         3305c34 [myfork/feat/michele] autosave: add fps estimator, CLI forwarding and summary info
+  main                                 0f1f70c [myfork/main] chore(bosch_utils): add/update autopilot and patcher scripts
+  snapshot/pre-cleanup_20251212_141603 f497701 Snapshot: working tree before cleanup 20251212_141603
+``` 
+
+Next(n to actual push)
+```bash
+git fetch myfork
+git rebase myfork/feat/michele
+git add . && git commit -m "comment here" && git push myfork feat/michele
+```
+
+Some useful command here:
+```bash
+git push --force-with-lease myfork feat/michele # removing history, very mean 
+
+git checkout -b feat/michele   # if needed
+git push --set-upstream myfork feat/michele # differnt branch
+```
+
+Verify after pushing 
+```bash
+git fetch --all --prune
+git branch -vv
+git log --oneline --decorate -n 5
+```
