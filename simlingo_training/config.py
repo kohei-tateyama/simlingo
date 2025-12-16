@@ -50,8 +50,8 @@ class DatasetBaseConfig:
 
     use_commentary: bool = False
     use_qa: bool = False
-    qa_augmentation: bool = True
-    commentary_augmentation: bool = True
+    qa_augmentation: bool = False
+    commentary_augmentation: bool = False
     use_old_towns: bool = False
     use_only_old_towns: bool = False
     use_town13: bool = False

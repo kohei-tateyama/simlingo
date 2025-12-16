@@ -208,6 +208,9 @@ def visualise_waypoints(batch: DrivingExample, waypoints, route=False, language_
     fig.subplots_adjust(hspace=0.8)
     y_curr = 10
     for i in range(b):
+        # Get B=0,T=0,N=0 image for each batch sample 'i'
+        cam_img = batch.driving_input.camera_images[i, 0, 0].cpu().numpy().transpose(1,2,0)  # shape (H,W,C)
+
         if batch.driving_label.answer is not None:
             language = batch.driving_label.answer.language_string[i]
 
@@ -221,7 +224,10 @@ def visualise_waypoints(batch: DrivingExample, waypoints, route=False, language_
             y_curr += 20*lines_wrap
             white_draw.text((10, y_curr), f'{i} Pred: {wrapped_pred_text}', fill="black", font=ImageFont.truetype(f"{repo_root}/arial.ttf", 20))
             y_curr += 20*lines_wrap_pred + 20
+
+        
         ax = fig.add_subplot(rows, cols, i + 1)
+        ax.imshow(cam_img)
         # Predicted waypoints
         ax.scatter(pred_waypoints[i, :, 1], pred_waypoints[i, :, 0], marker="o", c="b")
         ax.plot(pred_waypoints[i, :, 1], pred_waypoints[i, :, 0], c="b")

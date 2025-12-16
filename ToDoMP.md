@@ -40,7 +40,6 @@ Also, I did
 sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore
 sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py
 ```
-
 ---
   
 ## Japanese Traffic Management (left-hand driving)
@@ -76,6 +75,16 @@ Left Front (LF): x=1.0, y=-1.0, z=1.5, yaw=-55° - left front corner, angled for
 Right Back (RB): x=-1.0, y=1.0, z=1.5, yaw=125° - right back corner, angled backward-right
 Left Back (LB): x=-1.0, y=-1.0, z=1.5, yaw=-125° - left back corner, angled backward-left
 ```
+### When I do take any picture
+Number of timesteps recorder ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
+D = desired recording duration in seconds (user --duration)
+fps = target frames per second (user --fps)
+dt = 1 / fps (sim step / sleep interval)
+W = warmup frames skipped (self._warmup_frames)
+Tprim = camera priming timeout (seconds) — time spent waiting for initial valid camera images
+Tbuffer = buffer flush timeout (seconds) — time the writer will wait for missing cameras before flushing a partial frame
+Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, compression, and Python scheduling jitter (measure empirically or assume small value)
+Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
 
 Troubleshotting on the images being black (delay in starting the camera sensor)
 ```bash
@@ -127,11 +136,12 @@ This will return
   snapshot/pre-cleanup_20251212_141603 f497701 Snapshot: working tree before cleanup 20251212_141603
 ``` 
 
-Next(n to actual push)
+Next (to actual push). **This jsut works for this repo!**
 ```bash
 git fetch myfork
 git rebase myfork/feat/michele
 git add . && git commit -m "comment here" && git push myfork feat/michele
+git checkout main && git pull --ff-only myfork main || true && git merge --no-ff feat/michele -m "merge: bring feat/michele into main" || true && git push myfork main && git status --porcelain --branch
 ```
 
 Some useful command here:
@@ -148,3 +158,19 @@ git fetch --all --prune
 git branch -vv
 git log --oneline --decorate -n 5
 ```
+
+
+### Future ideas
+ 
+| Component | Choice for Speed & Flexibility | Rationale |
+|---|---|---|
+| Vision Encoder | SigLIP-2 | Excellent visual features without the overhead of complex, proprietary vision architectures. It provides a flexible feature set. |
+| Projector | MLP Projector (specifically a Linear or 2-Layer MLP) | Fastest inference. It applies a simple matrix multiplication to the vision tokens, adding minimal latency compared to Transformer-based alternatives like Q-Former. |
+| Language Model (LLM) | Small, Quantized LLM (e.g., Llama 3 3B, Qwen2 0.5B) | The LLM dictates the overall latency. Choosing a small LLM and optimizing it with quantization (e.g., to INT4 or FP8) is essential for real-time edge deployment. |
+
+Vision Encoder (V-Enc) Options (Small Size) | Projector Module Options (Fast & Efficient) | Language Model (LLM) Options (Small & Quantizable)
+SigLIP-2 (ViT-B/16 or ViT-L/14) | 2-Layer MLP (LLaVA style) | "Qwen2 (0.5B, 1.5B)"
+DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2 (2B)
+"CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
+InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
+ |  | "Mistral (7B, if resource permits)"

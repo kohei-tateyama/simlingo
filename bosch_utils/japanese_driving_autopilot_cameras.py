@@ -29,16 +29,6 @@ class JapaneseStyleAutopilot:
     def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=60.0, callback_debug=False):
         """Initialize the Japanese-style driving autopilot with 6 cameras.
 
-        Number of timesteps recorder ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
-        D = desired recording duration in seconds (user --duration)
-        fps = target frames per second (user --fps)
-        dt = 1 / fps (sim step / sleep interval)
-        W = warmup frames skipped (self._warmup_frames)
-        Tprim = camera priming timeout (seconds) — time spent waiting for initial valid camera images
-        Tbuffer = buffer flush timeout (seconds) — time the writer will wait for missing cameras before flushing a partial frame
-        Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, compression, and Python scheduling jitter (measure empirically or assume small value)
-        Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
-
         Args:
             autopilot (bool): Whether to enable autopilot mode.
             duration (int): Duration of the recording in seconds.
