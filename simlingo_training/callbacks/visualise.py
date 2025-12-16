@@ -13,6 +13,7 @@ from pytorch_lightning import Callback, LightningModule, Trainer
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities import rank_zero_only
 from hydra.utils import get_original_cwd
+import os
 
 from simlingo_training.utils.custom_types import DrivingExample
 
@@ -159,6 +160,25 @@ class VisualiseCallback(Callback):
             waypoint_vis, prompt_img = visualise_waypoints(batch, waypoints, language_pred=language_pred)
         elif 'route' in name:
             waypoint_vis, prompt_img = visualise_waypoints(batch, waypoints, language_pred=language_pred, route=True)
+
+
+        # --- Save images to output/debug directory ---
+        output_dir="/workspace/simlingo/output/debug_images/"
+        os.makedirs(output_dir, exist_ok=True)
+        global_step = getattr(trainer, "global_step", 0)
+
+        # Save waypoint image
+        waypoint_filename = f"{output_dir}/{name}_step{global_step}_waypoint.png"
+        Image.fromarray(waypoint_vis).save(waypoint_filename)
+
+        # Save prompt image (if it exists and is not None)
+        if prompt_img is not None:
+            prompt_filename = f"{output_dir}/{name}_step{global_step}_prompt.png"
+            prompt_img.save(prompt_filename)
+        # --------------------------------------------
+
+
+        # Log to wandb
         pl_module.logger.log_image(
             f"visualise/{name}", images=[Image.fromarray(waypoint_vis), prompt_img], step=trainer.global_step
         )
@@ -201,16 +221,19 @@ def visualise_waypoints(batch: DrivingExample, waypoints, route=False, language_
     rows = int(np.ceil(b / 4))
     cols = min(b, 4)
 
-    white_pil = Image.new("RGB", (1024, 1024), "white")
+    # white_pil = Image.new("RGB", (1024, 1024), "white")
+    # white_draw = ImageDraw.Draw(white_pil)
+
+    # Calculate required height for text canvas
+    estimated_height = max(1024, b * 100)
+    white_pil = Image.new("RGB", (1024, estimated_height), "white")
     white_draw = ImageDraw.Draw(white_pil)
+
 
     # add space for text
     fig.subplots_adjust(hspace=0.8)
     y_curr = 10
     for i in range(b):
-        # Get B=0,T=0,N=0 image for each batch sample 'i'
-        cam_img = batch.driving_input.camera_images[i, 0, 0].cpu().numpy().transpose(1,2,0)  # shape (H,W,C)
-
         if batch.driving_label.answer is not None:
             language = batch.driving_label.answer.language_string[i]
 
@@ -219,21 +242,26 @@ def visualise_waypoints(batch: DrivingExample, waypoints, route=False, language_
 
             lines_wrap = len(textwrap.wrap(wrapped_text, width=80))
             lines_wrap_pred = len(textwrap.wrap(wrapped_pred_text, width=80))
+            try: 
+                font = ImageFont.truetype(f"{repo_root}/arial.ttf", 20)
+            except:
+                font = ImageFont. load_default()
         
-            white_draw.text((10, y_curr), f'{i} GT: {wrapped_text}', fill="black", font=ImageFont.truetype(f"{repo_root}/arial.ttf", 20))
+            white_draw.text((10, y_curr), f'{i} GT: {wrapped_text}', fill="black", font=font)
             y_curr += 20*lines_wrap
-            white_draw.text((10, y_curr), f'{i} Pred: {wrapped_pred_text}', fill="black", font=ImageFont.truetype(f"{repo_root}/arial.ttf", 20))
+            white_draw.text((10, y_curr), f'{i} Pred: {wrapped_pred_text}', fill="black", font=font)
             y_curr += 20*lines_wrap_pred + 20
 
         
         ax = fig.add_subplot(rows, cols, i + 1)
-        ax.imshow(cam_img)
         # Predicted waypoints
         ax.scatter(pred_waypoints[i, :, 1], pred_waypoints[i, :, 0], marker="o", c="b")
         ax.plot(pred_waypoints[i, :, 1], pred_waypoints[i, :, 0], c="b")
         # Ground truth waypoints (i.e. ideal waypoints)
         ax.scatter(gt_waypoints[i, :, 1], gt_waypoints[i, :, 0], marker="x", c="g")
         ax.plot(gt_waypoints[i, :, 1], gt_waypoints[i, :, 0], c="g")
+
+        
         # Original waypoints
         if len(org_wps) > 0:
             ax.scatter(org_wps[i][:, 1], org_wps[i][:, 0], marker="o", c="r")
