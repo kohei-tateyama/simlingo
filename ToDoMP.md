@@ -159,6 +159,14 @@ git fetch --all --prune
 git branch -vv
 git log --oneline --decorate -n 5
 ```
+This is a one only push quite useful right now.
+```bash
+cd /workspace/simlingo
+git checkout feat/michele
+git add -A
+git commit -m "feat(michele): camera timing fixes, long autopilot, CLI flags, and helper scripts" || echo "No changes to commit"
+git push myfork feat/michele
+```
 
 To open multiple photo of the `F.png` camera, using visual code and while being isidre the folder itsleft, i.e., `script/open_every50_code.sh`
 
