@@ -33,6 +33,75 @@ def _resolve_weather_param(name: str):
     ## Usage see later in the code 
     ## world.set_weather(weather)
 
+    def make_weather_parameters(cloudiness=None,
+                                precipitation=None,
+                                sun_altitude_angle=None,
+                                sun_azimuth_angle=None,
+                                fog_density=None,
+                                precipitation_deposits=None,
+                                wetness=None):
+        """Build and return a carla.WeatherParameters object from provided values.
+        Returns: populated weather object
+        """
+        try:
+            wp = carla.WeatherParameters()
+        except Exception:
+            raise(RuntimeError("CARLA module not available; cannot create WeatherParameters"))
+
+        mapping = {
+            'cloudiness': cloudiness,
+            'precipitation': precipitation,
+            'sun_altitude_angle': sun_altitude_angle,
+            'sun_azimuth_angle': sun_azimuth_angle,
+            'fog_density': fog_density,
+            'precipitation_deposits': precipitation_deposits,
+            'wetness': wetness,
+        }
+
+        for k, v in mapping.items():
+            if v is not None:
+                try:
+                    setattr(wp, k, float(v))
+                except Exception:
+                    try:
+                        setattr(wp, k, v)
+                    except Exception:
+                        pass
+
+        return wp
+
+    def get_weather_object(weather):
+        """Normalize various weather inputs into a carla.WeatherParameters object.
+
+        Accepted inputs:
+        - None -> returns None
+        - str  -> name of CARLA preset (falls back to _resolve_weather_param)
+        - dict -> mapping of weather parameter names to values (passed to make_weather_parameters)
+        - tuple/list -> positional values interpreted as (cloudiness, precipitation, sun_altitude_angle, sun_azimuth_angle, fog_density)
+        """
+        if weather is None:
+            return None
+
+        # If a preset name, try resolving via existing helper
+        if isinstance(weather, str):
+            try:
+                return _resolve_weather_param(weather)
+            except Exception:
+                # re-raise with clearer message
+                raise ValueError(f"Unknown CARLA weather preset or string: {weather}")
+
+        # If a mapping, use it to construct WeatherParameters
+        if isinstance(weather, dict):
+            return make_weather_parameters(**weather)
+
+        # If a sequence, map positional args to common names
+        if isinstance(weather, (list, tuple)):
+            keys = ('cloudiness', 'precipitation', 'sun_altitude_angle', 'sun_azimuth_angle', 'fog_density')
+            kw = {k: weather[i] for i, k in enumerate(keys) if i < len(weather)}
+            return make_weather_parameters(**kw)
+
+        raise ValueError('Unsupported weather input type; expected None, str, dict, list, or tuple')
+
     if not name:
         return None
     name = str(name)
@@ -46,7 +115,7 @@ def _resolve_weather_param(name: str):
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight', spawn_idx=None):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight',):
         """Initialize the Japanese-style driving autopilot with 6 cameras.
 
         Args:
@@ -141,11 +210,11 @@ class JapaneseStyleAutopilot:
                         last_exc = e
                         attempt += 1
                         wait = 5
-                        print(f"  Attempt {attempt}/{max_attempts} failed: {e}. Retrying in {wait}s...")
+                        print(f"[INFO]: Attempt {attempt}/{max_attempts} failed: {e}. Retrying in {wait}s...")
                         time.sleep(wait)
 
                 if not hasattr(self, 'world'):
-                    raise RuntimeError(f"Failed to load map '{map_to_load}' after {max_attempts} attempts: {last_exc}")
+                    raise RuntimeError(f"[ERROR]: Failed to load map '{map_to_load}' after {max_attempts} attempts: {last_exc}")
 
         time.sleep(1)
         
@@ -176,13 +245,17 @@ class JapaneseStyleAutopilot:
         
         # Vehicle
         self.player_vehicle = None
-        
-        # Recording data
         self.recording_data = []
+        
         # Prepare per-run artifact folders matching training format
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
+
+        # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
+        # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
+
+        self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
+
         os.makedirs(self.folderpath, exist_ok=True)
         # Create training-format subfolders
         os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)

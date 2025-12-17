@@ -25,7 +25,7 @@ def main(cfg: TrainConfig):
 
     # turn off wandb uploading when in debug mode
     if cfg.debug:
-        os.environ["WANDB_MODE"] = "offline"
+        os.environ[""] = "offline"
     
     cfg.wandb_name = f"{cfg.wandb_name}_{cfg.name}"
     
