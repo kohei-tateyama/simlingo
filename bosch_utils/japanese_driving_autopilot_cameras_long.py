@@ -1,10 +1,4 @@
-import sys
 import os
-
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if repo_root not in sys.path:
-    sys.path.insert(0, repo_root)
-
 import numpy as np
 import xml.etree.ElementTree as ET
 import time
@@ -13,21 +7,30 @@ import argparse
 from PIL import Image as PILImage
 import carla 
 
-RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
-
 from bosch_utils.japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras import _resolve_weather_param
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
-    def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, num_imgs_per_frame=6, random_spawn=False, **kwargs):
-        # Enforce 20 FPS to match dataset expectations
-        fps = kwargs.pop('fps', None)
+    def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, random_spawn=False, **kwargs):
+        fps = kwargs.pop('fps', None) # trying to enforce the 20 fps as simlingo
         if fps is not None and float(fps) != 20.0:
             print(f"[INFO]: Overriding requested fps={fps} to enforced 20.0 FPS for consistency")
         kwargs['fps'] = 20.0
         self.fps = kwargs['fps']
-        self.random_spawn = random_spawn
+        self.random_spawn = bool(random_spawn)
         super().__init__(*args, **kwargs)
+        # Use a distinct folder prefix for long-run autopilot outputs
+        try:
+            self.foldername = f"database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+            self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
+            os.makedirs(self.folderpath, exist_ok=True)
+            os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
+            os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
+            os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
+        except Exception:
+            # Non-fatal: if path creation fails, fall back to parent's folder settings
+            pass
         self.autosave_secs = int(autosave_secs) if autosave_secs else 0
         self.rotate_secs = int(rotate_secs) if rotate_secs else 0
         self.repeat = int(repeat)
@@ -35,7 +38,6 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         self._last_rotate = time.time()
         self._stop_flag = threading.Event()
         self._io_lock = threading.Lock()
-        self.num_imgs_per_frame = num_imgs_per_frame
 
         # Note: initialization of CARLA client, world, traffic manager and
         # folders is handled by the parent class (`JapaneseStyleAutopilot`).
@@ -95,7 +97,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             # Planner unavailable or failed — fall back to parent's predefined route
             print('=' * self.print_length)
             print('=' * self.print_length)
-            print(f"[WARNING] agents planner unavailable or failed: {e}; falling back to predefined routes")
+            print(f"[WARNING]: agents planner unavailable or failed:\n{e}\n[WARNING]: falling back to predefined routes")
             print('=' * self.print_length)
             print('=' * self.print_length)
             return super().get_predefined_route()

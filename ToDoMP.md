@@ -144,8 +144,7 @@ git rebase myfork/feat/michele
 git add . && git commit -m "comment here" && git push myfork feat/michele
 git checkout main && git pull --ff-only myfork main || true && git merge --no-ff feat/michele -m "merge: bring feat/michele into main" || true && git push myfork main && git status --porcelain --branch
 ```
-
-Some useful command here:
+Some useful `git` command here:
 ```bash
 git push --force-with-lease myfork feat/michele # removing history, very mean 
 
@@ -168,24 +167,8 @@ git commit -m "feat(michele): camera timing fixes, long autopilot, CLI flags, an
 git push myfork feat/michele
 ```
 
-To open multiple photo of the `F.png` camera, using visual code and while being isidre the folder itsleft, i.e., `script/open_every50_code.sh`
-
-
-
-## Future directions and ideas
- 
-| Component | Choice for Speed & Flexibility | Rationale |
-|---|---|---|
-| Vision Encoder | SigLIP-2 | Excellent visual features without the overhead of complex, proprietary vision architectures. It provides a flexible feature set. |
-| Projector | MLP Projector (specifically a Linear or 2-Layer MLP) | Fastest inference. It applies a simple matrix multiplication to the vision tokens, adding minimal latency compared to Transformer-based alternatives like Q-Former. |
-| Language Model (LLM) | Small, Quantized LLM (e.g., Llama 3 3B, Qwen2 0.5B) | The LLM dictates the overall latency. Choosing a small LLM and optimizing it with quantization (e.g., to INT4 or FP8) is essential for real-time edge deployment. |
-
-Vision Encoder (V-Enc) Options (Small Size) | Projector Module Options (Fast & Efficient) | Language Model (LLM) Options (Small & Quantizable)
-SigLIP-2 (ViT-B/16 or ViT-L/14) | 2-Layer MLP (LLaVA style) | "Qwen2 (0.5B, 1.5B)"
-DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2 (2B)
-"CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
-InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
- |  | "Mistral (7B, if resource permits)"
+To open multiple photo of the `F.png` camera, using visual code and while being isidre the folder itsleft, i.e., `script/open_every50_code.sh`.
+You can decide which data to open, which software to use (code default), frquency of opend images, and the name of the `.png` to be open.
 
 
 ## NEW dataset (enriching the simlingo one)
@@ -222,3 +205,75 @@ Long autopilot with specific spawn point 10
 `python bosch_utils/japanese_driving_autopilot_cameras_long.py --autopilot --duration 10 --route highway --spawn-index 10`
 <!-- Via wrapper script with long agent
 `bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --agent-long --spawn-index 42` -->
+
+---
+
+I will write here a pseudocode to get an idea of what I can run for the collection of data.
+I could also run mutiple .sh file like the following changing the port of carla, e.g., 2000 --> 2001, etc. 
+I want to run `bash script/run_carla_mp_pilot_script.sh` iterating within this 
+
+```bash
+## This ia pesudo bash!!
+
+# JapaneseStyleAutopilot --> japanese_driving_autopilot_cameras.py (This is managed form the script/run_carla_mp_pilot_script.sh
+self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+# LongJapaneseStyleAutopilot --> japanese_driving_autopilot_cameras_long.py
+self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+
+ROUTER_TYPES=[highway,urban,simple] # note that they usualle come with a predefined time [60,90,30]
+TOWN=[Town13,Town12]
+SPAWN_INDICES=[42,???]
+DURATION=[10,20,30,40,50,120,180,300]
+AGENT=[no-agent-long,agent-long]
+
+for agent in AGENT
+  for town in TOWN
+    for route_type in ROUTER_TYPES
+      for weather in WEATHER
+        for spawn_idx in SPAWN_INDICES
+          for duration in DURATION
+
+bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration $duration --multicamera --route $route_type --agent-long --spawn-index $spawn_idx 
+
+```
+
+
+
+## Future directions and ideas
+ 
+| Component | Choice for Speed & Flexibility | Rationale |
+|---|---|---|
+| Vision Encoder | SigLIP-2 | Excellent visual features without the overhead of complex, proprietary vision architectures. It provides a flexible feature set. |
+| Projector | MLP Projector (specifically a Linear or 2-Layer MLP) | Fastest inference. It applies a simple matrix multiplication to the vision tokens, adding minimal latency compared to Transformer-based alternatives like Q-Former. |
+| Language Model (LLM) | Small, Quantized LLM (e.g., Llama 3 3B, Qwen2 0.5B) | The LLM dictates the overall latency. Choosing a small LLM and optimizing it with quantization (e.g., to INT4 or FP8) is essential for real-time edge deployment. |
+
+Vision Encoder (V-Enc) Options (Small Size) | Projector Module Options (Fast & Efficient) | Language Model (LLM) Options (Small & Quantizable)
+SigLIP-2 (ViT-B/16 or ViT-L/14) | 2-Layer MLP (LLaVA style) | "Qwen2 (0.5B, 1.5B)"
+DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2 (2B)
+"CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
+InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
+ |  | "Mistral (7B, if resource permits)"
+
+
+
+
+
+
+`ls -1 | head -n 5`
+
+`/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27`
+From the windows bash ( 52 MB of data)
+`scp -r pim1yh@10.162.163.183:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27 "C:\Users\PIM1YH\Downloads\"`
+```bash
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27$ ll
+total 428
+drwxr-sr-x    7 tko3yh workspace   4096 Jan 11  2025 ./
+drwxrwsr-x 5700 tko3yh workspace 405504 Nov 20 12:36 ../
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 boxes/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 lidar/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 measurements/
+-rw-r--r--    1 tko3yh workspace    159 Jan 11  2025 records.json.gz
+-rw-r--r--    1 tko3yh workspace    410 Jan 11  2025 results.json.gz
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb_augmented/
+```
