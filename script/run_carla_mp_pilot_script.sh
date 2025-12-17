@@ -434,8 +434,8 @@ run_autopilot() {
                 --duration "$duration" \
                 --route "$route" \
                 --fps "$AUTOPILOT_FPS" \
-                $( [ -n "$AUTOPILOT_WEATHER" ] && printf "--weather %s" "$AUTOPILOT_WEATHER" ) \
-                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf "--spawn-index %s" "$AUTOPILOT_SPAWN_INDEX" )
+                $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
+                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" )
         fi
         
         if [ "$AGENT_LONG" = true ]; then
@@ -445,9 +445,9 @@ run_autopilot() {
                 --duration "$duration" \
                 --route "$route" \
                 --fps "$AUTOPILOT_FPS" \
-                $( [ -n "$AUTOPILOT_WEATHER" ] && printf "--weather %s" "$AUTOPILOT_WEATHER" ) \
-                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf "--spawn-index %s" "$AUTOPILOT_SPAWN_INDEX" ) \
-                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf "--random-spawn" )
+                $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
+                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" ) \
+                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf '%s' "--random-spawn" )
         fi
     else
         info "MONOCAMERA mode is currently USED in this script."

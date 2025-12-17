@@ -13,14 +13,15 @@ import os
 import gzip
 from PIL import Image as PILImage
 import math
+import yaml
+from pathlib import Path
 
-RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
 
 def _resolve_weather_param(name: str):
     """Resolve a weather name to a carla.WeatherParameters attribute.
 
-    Accepts common CARLA preset names, refer to the config_bosch_utils.yaml for the
-    compelte list of available presets.
+    Accepts common CARLA preset names, refer to the config_bosch_utils.yaml for the complete list.
     """
 
     # weather = carla.WeatherParameters(
@@ -115,7 +116,7 @@ def _resolve_weather_param(name: str):
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight',):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight',spawn_idx=None):
         """Initialize the Japanese-style driving autopilot with 6 cameras.
 
         Args:
@@ -130,8 +131,6 @@ class JapaneseStyleAutopilot:
             spawn_idx (int): Spawn point index to use (None = use route default).
         """
 
-        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
-        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
         print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
 
         # Connect to CARLA
@@ -253,7 +252,7 @@ class JapaneseStyleAutopilot:
         # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
-        self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+        self.foldername = f"database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
         os.makedirs(self.folderpath, exist_ok=True)
@@ -320,6 +319,32 @@ class JapaneseStyleAutopilot:
                 print(out, end='')
         except Exception:
             pass
+
+    def _save_compressed_png(self, pil_img, dst_path, colors=128, compress_level=9):
+        """Save a PIL image as a compressed paletted PNG without changing dimensions.
+
+        - `colors`: number of palette colors to keep (try 128, 64, 32)
+        - `compress_level`: zlib compression level 0-9 (9 = max)
+
+        Falls back to a standard PNG save on error.
+        """
+        try:
+            # Ensure RGB for quantization step
+            if pil_img.mode not in ('RGB', 'RGBA'):
+                pil_img = pil_img.convert('RGB')
+
+            # Use PIL quantize to create a paletted image (P-mode) with adaptive palette
+            # MEDIANCUT or FASTOCTREE are available; MEDIANCUT is a solid default.
+            pal = pil_img.quantize(colors=colors, method=PILImage.MEDIANCUT)
+
+            # Save with optimization and max compression
+            pal.save(dst_path, format='PNG', optimize=True, compress_level=compress_level)
+        except Exception:
+            try:
+                pil_img.save(dst_path, 'PNG', optimize=True, compress_level=compress_level)
+            except Exception:
+                # Last resort: plain save
+                pil_img.save(dst_path, 'PNG')
 
     def estimate_recorded_frames(self, D=None, fps=None, Tprim=None, Toverhead=None, W=None, Nlost=0):
         """Estimate number of recorded timesteps using the user's formula.
@@ -1437,7 +1462,14 @@ class JapaneseStyleAutopilot:
                 for cam_name, arr in cam_dict.items():
                     try:
                         pil_img = PILImage.fromarray(arr)
-                        pil_img.save(os.path.join(frame_dir, f"{cam_name}.png"), 'PNG')
+                        # pil_img.save(os.path.join(frame_dir, f"{cam_name}.png"), 'PNG') # THIS SI THE CLASSIC NO COMPRESSED
+                        dst = os.path.join(frame_dir, f"{cam_name}.png")
+                        # use paletted quantization to reduce PNG file size without changing dimensions
+                        try:
+                            self._save_compressed_png(pil_img, dst, colors=128, compress_level=9)
+                        except Exception:
+                            # fallback to plain save
+                            pil_img.save(dst, 'PNG')
                     except Exception as e:
                         if not getattr(self, '_stopping', False):
                             print(f"[WARN] Failed to write image for frame {frame_num} cam {cam_name}: {e}")
@@ -1488,7 +1520,7 @@ def main():
             W=getattr(sim, '_warmup_frames', 0),
             Nlost=0
         )
-        print(f"[INFO] Estimated recorded frames: {est}")
+        print(f"[INFO]: Estimated recorded frames: {est}")
     except Exception:
         pass
     sim.run()

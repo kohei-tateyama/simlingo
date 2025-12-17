@@ -12,14 +12,14 @@ if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
   echo "DRY RUN: commands will be printed but not executed"
 fi
 
-# Configure combinations here (edit as needed)
 ROUTE_TYPES=(highway urban simple)
-TOWNS=(Town13 Town12)
-# Edit SPAWN_INDICES to include desired spawn points; replace or extend this list
+TOWNS=(Town01 Town02 Town03 Town04 Town10 Town11 Town12 Town13)
 SPAWN_INDICES=(42 10 25)
 DURATIONS=(10 20 30 40 50 120 180 300)
-# Common weather presets (can be extended)
-WEATHERS=(ClearNoon CloudyNoon SoftRainNight)
+WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon HardRainNoon
+        ClearSunset CloudySunset WetSunset WetCloudySunset SoftRainSunset MidRainSunset HardRainSunset
+        ClearNight CloudyNight WetNight WetCloudyNight SoftRainNight MidRainyNight HardRainNight DustStorm)
+
 # Agent modes: "no-agent-long" -> no flag, "agent-long" -> --agent-long
 AGENTS=(no-agent-long agent-long)
 

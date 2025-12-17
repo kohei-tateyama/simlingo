@@ -236,24 +236,6 @@ for agent in AGENT
 bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration $duration --multicamera --route $route_type --agent-long --spawn-index $spawn_idx 
 
 ```
-    
-
-
-To use the `config_bosch_utils.yaml`
-```python
-import os
-import yaml
-
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-cfg_path = os.path.join(repo_root, 'bosch_utils', 'config_bosch_utils.yaml')
-
-with open(cfg_path, 'r') as f:
-    cfg = yaml.safe_load(f)
-
-# Example usage:
-autosave = cfg.get('AUTOSAVE_SECS', 300)
-rotate = cfg.get('ROTATE_SECS', 0)
-```
 
 
 
@@ -271,3 +253,27 @@ DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2
 "CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
 InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
  |  | "Mistral (7B, if resource permits)"
+
+
+
+
+
+
+`ls -1 | head -n 5`
+
+`/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27`
+From the windows bash ( 52 MB of data)
+`scp -r pim1yh@10.162.163.183:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27 "C:\Users\PIM1YH\Downloads\"`
+```bash
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27$ ll
+total 428
+drwxr-sr-x    7 tko3yh workspace   4096 Jan 11  2025 ./
+drwxrwsr-x 5700 tko3yh workspace 405504 Nov 20 12:36 ../
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 boxes/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 lidar/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 measurements/
+-rw-r--r--    1 tko3yh workspace    159 Jan 11  2025 records.json.gz
+-rw-r--r--    1 tko3yh workspace    410 Jan 11  2025 results.json.gz
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb_augmented/
+```
