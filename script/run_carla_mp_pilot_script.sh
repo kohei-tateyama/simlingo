@@ -9,10 +9,12 @@ cd "$REPO_ROOT" || exit 1
 ## This script is an updated versionn of the how_to_run_headless.sh and it allows runnning the simlingo agent as well as other code for gathering data in headless mode.
 # This script is also a bnetter verison fo run_carla_autopilot.sh
 # ============================================================================
-# # single autopilot
-# bash run_carla_mp_pilot.sh --mode autopilot --duration 10 --route highway 
-# # all autopilot variations
-# bash run_carla_mp_pilot.sh --mode autopilot --autopilot-all
+
+## single autopilot
+# bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway 
+
+## add weather 
+# bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 60 --route highway --multicamera --fps 60 --weather ClearNoon
 
 
 # Set environment variables
@@ -59,7 +61,10 @@ MODE="evaluation"  # Default mode
 AUTOPILOT_DURATION=60
 AUTOPILOT_ROUTE="highway"
 MULTICAMERA=true
-# MULTICAMERA=false
+AGENT_LONG=false
+AUTOPILOT_WEATHER=""
+AUTOPILOT_SPAWN_INDEX=""
+AUTOPILOT_RANDOM_SPAWN=false
 
 show_help() {
     cat << EOF
@@ -91,6 +96,10 @@ OPTIONS:
                            - simple (30s)
     --multicamera           Force multicamera mode (overrides MULTICAMERA env)
     --no-multicamera        Force monocamera mode (overrides MULTICAMERA env)
+    --agent-long            Run the long-version autopilot (overrides AGENT_LONG env)
+    --no-agent-long         Do not run the long-version autopilot (overrides AGENT_LONG env)
+    --spawn-index INDEX     Spawn point index (0-based, forwarded to autopilot)
+    --random-spawn          Randomize spawn location (only for agent-long)
 
 EXAMPLES:
     # Run default evaluation simlingo agent
@@ -106,6 +115,10 @@ EXAMPLES:
     
     # Run evaluation then autopilot
     $0 --mode both --duration 60 --route urban
+
+    # Running the fdifferent class of the autopilot
+    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --no-agent-long
+    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --agent-long
 
 EOF
     exit 0
@@ -143,9 +156,29 @@ while [[ $# -gt 0 ]]; do
             MULTICAMERA=false
             shift
             ;;
+        --agent-long)
+            AGENT_LONG=true
+            shift
+            ;;
+        --no-agent-long)
+            AGENT_LONG=false
+            shift
+            ;;
         --fps)
             AUTOPILOT_FPS="$2"
             shift 2
+            ;;
+        --weather)
+            AUTOPILOT_WEATHER="$2"
+            shift 2
+            ;;
+        --spawn-index)
+            AUTOPILOT_SPAWN_INDEX="$2"
+            shift 2
+            ;;
+        --random-spawn)
+            AUTOPILOT_RANDOM_SPAWN=true
+            shift
             ;;
         *)
             err "Unknown option: $1"
@@ -388,11 +421,34 @@ run_autopilot() {
 
     if [ "$MULTICAMERA" = true ]; then
         info "MULTICAMERA mode (6 cameras) is currently USED in this script."
-        python bosch_utils/japanese_driving_autopilot_cameras.py \
-            --autopilot \
-            --duration "$duration" \
-            --route "$route" \
-            --fps "$AUTOPILOT_FPS"
+        # python bosch_utils/japanese_driving_autopilot_cameras.py \
+        #     --autopilot \
+        #     --duration "$duration" \
+        #     --route "$route" \
+        #     --fps "$AUTOPILOT_FPS"
+
+        if [ "$AGENT_LONG" = false ]; then
+            info "Also running SHORT HARDCODED version of the autopilot for extended data collection."
+            python bosch_utils/japanese_driving_autopilot_cameras.py \
+                --autopilot \
+                --duration "$duration" \
+                --route "$route" \
+                --fps "$AUTOPILOT_FPS" \
+                $( [ -n "$AUTOPILOT_WEATHER" ] && printf "--weather %s" "$AUTOPILOT_WEATHER" ) \
+                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf "--spawn-index %s" "$AUTOPILOT_SPAWN_INDEX" )
+        fi
+        
+        if [ "$AGENT_LONG" = true ]; then
+            info "Also running LONG version of the autopilot for extended data collection."
+            python bosch_utils/japanese_driving_autopilot_cameras_long.py \
+                --autopilot \
+                --duration "$duration" \
+                --route "$route" \
+                --fps "$AUTOPILOT_FPS" \
+                $( [ -n "$AUTOPILOT_WEATHER" ] && printf "--weather %s" "$AUTOPILOT_WEATHER" ) \
+                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf "--spawn-index %s" "$AUTOPILOT_SPAWN_INDEX" ) \
+                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf "--random-spawn" )
+        fi
     else
         info "MONOCAMERA mode is currently USED in this script."
         python bosch_utils/japanese_driving_autopilot.py \

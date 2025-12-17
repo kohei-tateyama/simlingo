@@ -1,25 +1,32 @@
-import carla
+import sys
+import os
+
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 import numpy as np
 import xml.etree.ElementTree as ET
-from xml.dom import minidom
-from datetime import datetime
 import time
 import threading
-import queue
-import traceback
-import json
 import argparse
-import os
-import gzip
 from PIL import Image as PILImage
-import math
+import carla 
 
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
-from .japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
+from bosch_utils.japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
+from bosch_utils.japanese_driving_autopilot_cameras import _resolve_weather_param
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
-    def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, num_imgs_per_frame=6, **kwargs):
+    def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, num_imgs_per_frame=6, random_spawn=False, **kwargs):
+        # Enforce 20 FPS to match dataset expectations
+        fps = kwargs.pop('fps', None)
+        if fps is not None and float(fps) != 20.0:
+            print(f"[INFO]: Overriding requested fps={fps} to enforced 20.0 FPS for consistency")
+        kwargs['fps'] = 20.0
+        self.fps = kwargs['fps']
+        self.random_spawn = random_spawn
         super().__init__(*args, **kwargs)
         self.autosave_secs = int(autosave_secs) if autosave_secs else 0
         self.rotate_secs = int(rotate_secs) if rotate_secs else 0
@@ -37,33 +44,52 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
 
 
     def get_predefined_route(self):
-        """Compute a route using CARLA agents GlobalRoutePlanner if available.
+        """Compute a route using CARLA agents GlobalRoutePlanner for long-run data collection.
 
         Returns (waypoints, start_idx) where waypoints is a list of carla.Waypoint
         instances and start_idx is an index into map.get_spawn_points() to use
         as the spawn point.
 
+        For long runs, picks spawn points that are far apart to create extended routes.
         If the agents package is not available, fall back to the parent's
         simple waypoint lookup using self.route_type definitions.
         """
         # Try to use CARLA agents planner
         try:
             # Import lazily to avoid hard dependency at module import time
-            from agents.navigation.global_route_planner import GlobalRoutePlanner
-            from agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
+            from agents.navigation.global_route_planner import GlobalRoutePlanner, GlobalRoutePlannerDAO
             dao = GlobalRoutePlannerDAO(self.world.get_map(), sampling_resolution=2.0)
             grp = GlobalRoutePlanner(dao)
             grp.setup()
-            # Choose two spawn points as start and goal (use map spawn points)
             spawn_points = self.world.get_map().get_spawn_points()
             if len(spawn_points) < 2:
                 raise RuntimeError('Not enough spawn points to plan route')
-            start = spawn_points[0].location
-            goal = spawn_points[min(1, len(spawn_points)-1)].location
+            
+            # For long runs, pick distant spawn points to maximize route length
+            # Use spawn_idx if specified, otherwise random or default strategy
+            if self.spawn_idx is not None:
+                start_idx = self.spawn_idx % len(spawn_points)
+            elif self.random_spawn:
+                import random
+                start_idx = random.randint(0, len(spawn_points) - 1)
+                print(f"[INFO] Random spawn enabled: selected spawn point {start_idx}")
+            else:
+                start_idx = 0
+            
+            # Pick distant goal for longest route
+            goal_idx = max(len(spawn_points) // 2, len(spawn_points) - 1)
+            
+            start = spawn_points[start_idx].location
+            goal = spawn_points[goal_idx].location
+            
+            # Calculate distance for logging
+            import math
+            dist = math.sqrt((goal.x - start.x)**2 + (goal.y - start.y)**2)
+            
             plan = grp.trace_route(start, goal)
             waypoints = [wp for wp, _ in plan]
-            start_idx = 0
-            print(f"[INFO] Planner produced {len(waypoints)} waypoints using agents planner")
+            
+            print(f"[INFO] Planner route: start={start_idx}, goal={goal_idx}, straight-line dist={dist:.1f}m, waypoints={len(waypoints)}")
             return waypoints, start_idx
         except Exception as e:
             # Planner unavailable or failed — fall back to parent's predefined route
@@ -84,7 +110,8 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 original_settings = self.world.get_settings()
                 new_settings = self.world.get_settings()
                 new_settings.synchronous_mode = True
-                new_settings.fixed_delta_seconds = self.sleep_interval
+                # Ensure fixed delta matches enforced 20 FPS
+                new_settings.fixed_delta_seconds = 1.0 / self.fps
                 self.world.apply_settings(new_settings)
                 sync_enabled = True
                 print(f"[INFO]: Enabled synchronous mode (dt={self.sleep_interval}s)")
@@ -102,13 +129,17 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             print(f"Recording : Enabled")
             print("="*self.print_length + "\n")
             
-            # Start time should be measured after the vehicle is spawned and autopilot enabled
+            # Calculate target number of frames to record at 20 FPS
+            target_frames = int(self.duration * self.fps)
+            print(f"[INFO]: Target frames to record: {target_frames} (duration={self.duration}s at {self.fps} fps)")
+            
+            # Start time (for progress reporting only, not loop control)
             start_time = time.time()
             frame_count = 0
             warmup_done = False
 
-            # Main loop
-            while (time.time() - start_time) < self.duration:
+            # Main loop: run until we've recorded the target number of frames
+            while len(self.recording_data) < target_frames:
                 # Enable recording after warmup period and after cameras have been primed
                 if not warmup_done and frame_count >= self._warmup_frames:
                     primed_ok = all(self._camera_primed.values())
@@ -125,7 +156,6 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                         warmup_done = True
                         print(f"[INFO]: Warmup complete ({self._warmup_frames} frames skipped), recording started (primed_ok={primed_ok}, priming_elapsed={priming_elapsed:.2f}s)")
                 
-                # Advance simulator deterministically if possible
                 if sync_enabled:
                     try:
                         self.world.tick()
@@ -140,13 +170,13 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 if getattr(self, '_ready_to_record', False):
                     self.record_data()
 
-                # Print progress every 5 seconds
-                elapsed = time.time() - start_time
-                if int(elapsed) % 5 == 0 and frame_count % 100 == 0:
+                # Print progress every 20 frames
+                if len(self.recording_data) % 20 == 0 and len(self.recording_data) > 0:
+                    elapsed = time.time() - start_time
                     speed = self.recording_data[-1]['speed'] if self.recording_data else 0
-                    print(f"[INFO]: {int(elapsed):2d}s / {int(self.duration):2d}s | "
-                          f"Frames: {len(self.recording_data):4d} | "
-                          f"Speed: {speed:5.1f} km/h")
+                    pct = 100.0 * len(self.recording_data) / target_frames if target_frames > 0 else 0
+                    print(f"[INFO]: Frames: {len(self.recording_data):4d}/{target_frames} ({pct:5.1f}%) | "
+                          f"Elapsed: {elapsed:5.1f}s | Speed: {speed:5.1f} km/h")
 
                 frame_count += 1
             print("\n" + "=" * self.print_length)  
@@ -166,6 +196,21 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             # Save data
             self.save_training_format()
             
+            # Give writer thread time to flush all buffered images
+            print("[INFO]: Flushing image buffer...")
+            max_wait = 120.0
+            wait_start = time.time()
+            while (time.time() - wait_start) < max_wait:
+                with self._buffer_lock:
+                    pending = len(self._image_buffer)
+                if pending == 0:
+                    break
+                time.sleep(0.5)
+            if pending > 0:
+                print(f"[WARN]: {pending} frames still in buffer after {max_wait}s wait")
+            else:
+                print("[INFO]: All images flushed to disk")
+            
         finally:
             try:
                 if original_settings is not None:
@@ -176,8 +221,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
 
             self.cleanup()      
         
-
-    
+####################################################################
 
 def main():
     print('\n')
@@ -189,8 +233,14 @@ def main():
     parser.add_argument('--route', type=str, default='highway',
                        choices=['highway', 'urban', 'simple'],
                        help='Route type: highway, urban, or simple (default: highway)')
-    parser.add_argument('--fps', type=float, default=60.0,
-                       help='Target frames per second for recording (default: 60)')
+    parser.add_argument('--fps', type=float, default=20.0,
+                       help='Target frames per second for recording (default: 20 - enforced)')
+    parser.add_argument('--weather', type=str, default='',
+                       help='CARLA weather preset name (e.g. ClearNoon, CloudyNoon, WetNoon)')
+    parser.add_argument('--spawn-index', type=int, default=None,
+                       help='Spawn point index (0-based, None=use default strategy)')
+    parser.add_argument('--random-spawn', action='store_true',
+                       help='Randomize spawn location for data variety')
     
     args = parser.parse_args()
     
@@ -198,8 +248,22 @@ def main():
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
-        fps=args.fps
+        fps=args.fps,
+        spawn_idx=args.spawn_index,
+        random_spawn=args.random_spawn
     )
+    # Apply weather if provided (best-effort; ignore if CARLA not available)
+    if getattr(args, 'weather', ''):
+        try:
+            wp = _resolve_weather_param(args.weather)
+            if wp is not None and hasattr(sim, 'world'):
+                try:
+                    sim.world.set_weather(wp)
+                    print(f"[INFO] Applied CARLA weather preset: {args.weather}")
+                except Exception as e:
+                    print(f"[WARNING] Failed to apply weather: {e}")
+        except Exception as e:
+            print(f"[WARNING] Unknown weather preset '{args.weather}': {e}")
     # Print an estimate of expected recorded frames using current inputs
     try:
         est = sim.estimate_recorded_frames(

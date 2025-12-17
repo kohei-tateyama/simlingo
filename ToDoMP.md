@@ -13,6 +13,7 @@ Use the checklist below to track progress on finishing `japanese_driving_autopil
 - [ ] Think of a way to insert a `prompt` or `text` field to per-frame measurements and document how to set it.
 - [ ] Run an end-to-end recording (using keyboard) and validate outputs.
 - [x] Write the docs on this part.
+- [ ] `.sh` file to run the possible combination of the `japanese_driving_autopilot_cameras.py`
 
 ## Quick Commands
 
@@ -76,7 +77,7 @@ Right Back (RB): x=-1.0, y=1.0, z=1.5, yaw=125° - right back corner, angled bac
 Left Back (LB): x=-1.0, y=-1.0, z=1.5, yaw=-125° - left back corner, angled backward-left
 ```
 ### When I do take any picture
-Number of timesteps recorder ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
+N_{shoot} ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
 D = desired recording duration in seconds (user --duration)
 fps = target frames per second (user --fps)
 dt = 1 / fps (sim step / sleep interval)
@@ -97,7 +98,7 @@ for f in sorted(p):
     print(os.path.basename(f), 'max=', im.max(), 'shape=', im.shape)
 PY
 ```
-
+<!-- https://carla.readthedocs.io/en/latest/adv_agents/ -->
 
 ## How to manage multiple images?
 
@@ -159,8 +160,11 @@ git branch -vv
 git log --oneline --decorate -n 5
 ```
 
+To open multiple photo of the `F.png` camera, using visual code and while being isidre the folder itsleft, i.e., `script/open_every50_code.sh`
 
-### Future ideas
+
+
+## Future directions and ideas
  
 | Component | Choice for Speed & Flexibility | Rationale |
 |---|---|---|
@@ -174,3 +178,39 @@ DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2
 "CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
 InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
  |  | "Mistral (7B, if resource permits)"
+
+
+## NEW dataset (enriching the simlingo one)
+
+What we can vary `japanese_driving_autopilot_cameras.py` and its _long_ version `japanese_driving_autopilot_cameras_long.py`
+
+```bash
+japanese_driving_autopilot_cameras.py [-h] [--autopilot]
+                                            [--duration DURATION]
+                                            [--route {highway,urban,simple}]
+                                            [--fps FPS] 
+                                            [--weather WEATHER]
+                                            [--spawn-index SPAWN_INDEX]
+```
+
+Simlingo strcture of the databased was:
+`/database/simlingo_v2_2025_01_10/commentary/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150$`
+
+In our case, 
+`/database/simlingo_v2_2025_01_10/<>/simlingo/training_<>_scenario/routes_training/random_weather_seed_1_balanced_<>$`
+
+---
+
+## Run the I should do now
+To run next:
+`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway --multicamera --fps 20 --agent-long`
+`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway --agent-long --fps 20`
+
+Short autopilot with spawn point 25
+`python bosch_utils/japanese_driving_autopilot_cameras.py --autopilot --duration 10 --route highway --spawn-index 25`
+Long autopilot with random spawn for data variety
+`python bosch_utils/japanese_driving_autopilot_cameras_long.py --autopilot --duration 30 --route highway --random-spawn`
+Long autopilot with specific spawn point 10
+`python bosch_utils/japanese_driving_autopilot_cameras_long.py --autopilot --duration 10 --route highway --spawn-index 10`
+<!-- Via wrapper script with long agent
+`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --agent-long --spawn-index 42` -->

@@ -1,0 +1,95 @@
+# RECORDING_OUTPUT_DIR: /workspace/simlingo/recording_japan_xml
+RECORDING_OUTPUT_DIR: '/media/external_ssd' # this is the Kohei ssd we canb use 4 TB
+CARLA_HOST: localhost
+CARLA_PORT: 2000
+CARLA_TIMEOUT: 10.0
+VEHICLE_MODEL: vehicle.toyota.prius  
+TRAFFIC_MANAGER_PORT: 8000
+PRINT_LENGTH: 70
+AUTOPILOT: true
+WEATHER_PRESET: 10
+ROUTE_TYPE: highway
+SIMULATION_DURATION_SECS: 600
+FPS: 20 
+NUM_CAMERAS: 6
+CAMERA_IMAGE_WIDTH: 800
+CAMERA_IMAGE_HEIGHT: 600
+CAMERA_FOV: 90
+
+
+CAMERA_POSITIONS:
+  -F:
+    - x: 2.5
+      y: 0.0
+      z: 1.5    
+      pitch: 0.0
+      yaw: 0.0
+      roll: 0.0
+      name: 'Front'
+  -B:
+    - x: -2.5
+      y: 0.0
+      z: 1.5    
+      pitch: 0.0
+      yaw: 180.0
+      roll: 0.0
+      name: 'Back'
+  -LB:
+    - x: -1.0
+      y: -1.0  
+      z: 1.5  
+      pitch: 0.0
+      yaw: -125.0
+      roll: 0.0
+      name: 'Left Back'
+  -RF:
+    - x: 1.0
+      y: 1.0
+      z: 2.5    
+      pitch: 0.0
+      yaw: 55.0
+      roll: 0.0 
+      name: 'Right Front'
+  -RB:
+    - x: -1.0
+      y: 1.0
+      z: 1.5  
+      pitch: 0.0  
+      yaw: 125.0
+      roll: 0.0
+      name: 'Right Back'
+  -LF:
+    - x: 1.0
+      y: -1.0  
+      z: 1.5  
+      pitch: 0.0  
+      yaw: -55.0
+      roll: 0.0
+      name: 'Left Front'
+
+
+AUTOSAVE_SECS: 300
+ROTATE_SECS: 0
+REPEAT: 1
+NUM_IMGS_PER_FRAME: 6 
+
+
+## PATCH CAMERA CONFIG
+VEHICLE_LENGTH: 5.0  # meters
+VEHICLE_WIDTH: 2.0   # meters
+HORIZONTAL_MULT: 3.25  # >1 moves left/right cameras further out (increased per request)
+VERTICAL_MULT: 0.6   # <1 brings front/back cameras closer to center
+LEFT_VERTICAL_SPREAD: 1.5
+RIGHT_VERTICAL_SPREAD: 1.5
+IMAGE_SCALE_MULTIPLIER: 1.08
+
+## WEATHER 
+PRESETS : [
+        'ClearNoon', 'CloudyNoon', 'WetNoon', 'WetCloudyNoon',
+        'SoftRainNoon', 'MidRainyNoon', 'HardRainNoon',
+        'ClearSunset', 'CloudySunset', 'WetSunset', 'WetCloudySunset',
+        'SoftRainSunset', 'MidRainSunset', 'HardRainSunset',
+        'ClearNight', 'CloudyNight', 'WetNight', 'WetCloudyNight',
+        'SoftRainNight', 'MidRainyNight', 'HardRainNight',
+        'DustStorm'
+        ]

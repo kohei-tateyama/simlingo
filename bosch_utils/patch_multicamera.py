@@ -328,7 +328,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-# # Example:
 # image_w = 800          # sensor['image_size_x']
 # fov = 90.0             # sensor['fov']
 # d = 10.0               # chosen representative distance in metres

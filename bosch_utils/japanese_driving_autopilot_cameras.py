@@ -16,17 +16,37 @@ import math
 
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
 
-# # Highway route (default)
-# python japanese_driving_autopilot.py --autopilot --route highway
-# # Urban streets
-# python japanese_driving_autopilot.py --autopilot --route urban
-# # Simple straight path
-# python japanese_driving_autopilot.py --autopilot --route simple
-# python japanese_driving_autopilot.py --autopilot --duration 300 --route highway
+def _resolve_weather_param(name: str):
+    """Resolve a weather name to a carla.WeatherParameters attribute.
+
+    Accepts common CARLA preset names, refer to the config_bosch_utils.yaml for the
+    compelte list of available presets.
+    """
+
+    # weather = carla.WeatherParameters(
+    #     cloudiness=10.0,
+    #     precipitation=0.0,
+    #     sun_altitude_angle=-80.0, # Below horizon for night
+    #     sun_azimuth_angle=90.0,
+    #     fog_density=0.0
+    # )
+    ## Usage see later in the code 
+    ## world.set_weather(weather)
+
+    if not name:
+        return None
+    name = str(name)
+    if hasattr(carla.WeatherParameters, name):
+        return getattr(carla.WeatherParameters, name)
+    # tolerate some common alternative names (case-insensitive)
+    for attr in dir(carla.WeatherParameters):
+        if attr.lower() == name.lower():
+            return getattr(carla.WeatherParameters, attr)
+    raise ValueError(f"Unknown CARLA weather preset: {name}")
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=60.0, callback_debug=False):
+    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight', spawn_idx=None):
         """Initialize the Japanese-style driving autopilot with 6 cameras.
 
         Args:
@@ -38,7 +58,12 @@ class JapaneseStyleAutopilot:
             town (str): Town/map name to load.
             fps (float): Frames per second for recording.
             callback_debug (bool): Enable debug logging in sensor callbacks.
+            spawn_idx (int): Spawn point index to use (None = use route default).
         """
+
+        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
+        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
+        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
 
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
@@ -46,9 +71,14 @@ class JapaneseStyleAutopilot:
         self.client_timout_carla = 30.0
         self.client.set_timeout(self.client_timout_carla)
         self.print_length = 70
-        self.fps = fps
-        # self.sleep_interval = 0.05 # 20 Hz
+        requested_fps = float(fps)
+        if requested_fps != 20.0:
+            print(f"[INFO]: Overriding requested fps={requested_fps} to enforced 20.0 FPS for consistency")
+        self.fps = 20.0
+        self.num_imgs_per_frame = num_imgs_per_frame
         self.sleep_interval = 1.0 / self.fps
+        # Spawn point override (None = use route default)
+        self.spawn_idx = spawn_idx
         # Enable or disable per-callback debug logging (can be noisy at high FPS)
         self._callback_debug = bool(callback_debug)
         self.town = town
@@ -64,6 +94,7 @@ class JapaneseStyleAutopilot:
             if current_map_name:
                 print(f"[INFO]: Server already has map loaded: {current_map_name} — using it")
                 self.world = current_world
+                # self.world.set_weather(weather) # even the custom one
                 time.sleep(1)
                 skip_load = True
             else:
@@ -123,6 +154,20 @@ class JapaneseStyleAutopilot:
         
         # Setup Japanese-style traffic
         self.setup_left_hand_traffic()
+
+        # Weather (optional): apply chosen CARLA weather preset if provided
+        self.weather = weather
+        if self.weather:
+            try:
+                wp = _resolve_weather_param(self.weather)
+                if wp is not None and hasattr(self, 'world'):
+                    try:
+                        self.world.set_weather(wp)
+                        print(f"[INFO]: Applied CARLA weather preset: {self.weather}")
+                    except Exception as e:
+                        print(f"[WARNING]: Failed to apply weather '{self.weather}': {e}")
+            except Exception as e:
+                print(f"[WARNING]: Unknown weather preset '{self.weather}': {e}")
         
         # Autopilot settings
         self.autopilot = autopilot
@@ -659,7 +704,7 @@ class JapaneseStyleAutopilot:
         routes = {
             'highway': {
                 'description': f'Highway loop in {self.town}',
-                'start_idx': 50,
+                'start_idx': self.spawn_idx if self.spawn_idx is not None else 50,
                 'waypoints': [
                     carla.Location(x=-150.0, y=50.0, z=0.5),
                     carla.Location(x=-100.0, y=100.0, z=0.5),
@@ -673,7 +718,7 @@ class JapaneseStyleAutopilot:
             },
             'urban': {
                 'description': f'Urban streets in {self.town}',
-                'start_idx': 10,
+                'start_idx': self.spawn_idx if self.spawn_idx is not None else 10,
                 'waypoints': [
                     carla.Location(x=-50.0, y=20.0, z=0.5),
                     carla.Location(x=-30.0, y=40.0, z=0.5),
@@ -686,7 +731,7 @@ class JapaneseStyleAutopilot:
             },
             'simple': {
                 'description': 'Simple straight path',
-                'start_idx': 0,
+                'start_idx': self.spawn_idx if self.spawn_idx is not None else 0,
                 'waypoints': [
                     carla.Location(x=0.0, y=0.0, z=0.5),
                     carla.Location(x=50.0, y=0.0, z=0.5),
@@ -788,7 +833,7 @@ class JapaneseStyleAutopilot:
             print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
         else:
             raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
-            
+
     def record_data(self):
         """Record vehicle data in training format (measurements + boxes)"""
         if not self.player_vehicle:
@@ -1124,13 +1169,17 @@ class JapaneseStyleAutopilot:
             print(f"Recording : Enabled")
             print("="*self.print_length + "\n")
             
-            # Start time should be measured after the vehicle is spawned and autopilot enabled
+            # Calculate target number of frames to record at 20 FPS
+            target_frames = int(self.duration * self.fps)
+            print(f"[INFO]: Target frames to record: {target_frames} (duration={self.duration}s at {self.fps} fps)")
+            
+            # Start time (for progress reporting only, not loop control)
             start_time = time.time()
             frame_count = 0
             warmup_done = False
 
-            # Main loop
-            while (time.time() - start_time) < self.duration:
+            # Main loop: run until we've recorded the target number of frames
+            while len(self.recording_data) < target_frames:
                 # Enable recording after warmup period and after cameras have been primed
                 if not warmup_done and frame_count >= self._warmup_frames:
                     primed_ok = all(self._camera_primed.values())
@@ -1165,23 +1214,22 @@ class JapaneseStyleAutopilot:
                 if getattr(self, '_ready_to_record', False):
                     self.record_data()
 
-                # Print progress every 5 seconds
-                elapsed = time.time() - start_time
-                if int(elapsed) % 5 == 0 and frame_count % 100 == 0:
+                # Print progress every 20 frames
+                if len(self.recording_data) % 20 == 0 and len(self.recording_data) > 0:
+                    elapsed = time.time() - start_time
                     speed = self.recording_data[-1]['speed'] if self.recording_data else 0
-                    print(f"[INFO]: {int(elapsed):2d}s / {int(self.duration):2d}s | "
-                          f"Frames: {len(self.recording_data):4d} | "
-                          f"Speed: {speed:5.1f} km/h")
+                    pct = 100.0 * len(self.recording_data) / target_frames if target_frames > 0 else 0
+                    print(f"[INFO]: Frames: {len(self.recording_data):4d}/{target_frames} ({pct:5.1f}%) | "
+                          f"Elapsed: {elapsed:5.1f}s | Speed: {speed:5.1f} km/h")
 
                 frame_count += 1
             print("\n" + "=" * self.print_length)  
             print(f"[INFO]: Simulation completed!")
             total = len(self.recording_data)
             # estimate expected number of rgb folders from measurements (assuming 6 images per frame)
-            num_imgs_per_frame = 6
-            est_folders = int(round(total / float(num_imgs_per_frame))) if num_imgs_per_frame > 0 else 0
+            est_folders = int(round(total / float(self.num_imgs_per_frame))) if self.num_imgs_per_frame > 0 else 0
             print(f"[INFO]: Total frames recorded: {total}")
-            print(f"[INFO]: Estimated rgb folders expected (measurements/{num_imgs_per_frame}): {est_folders}")
+            print(f"[INFO]: Estimated rgb folders expected (measurements/{self.num_imgs_per_frame}): {est_folders}")
             # If estimator used earlier produced an unexpected large number, print a warning
             try:
                 est_prev = sim.estimate_recorded_frames(D=self.duration, fps=self.fps, Tprim=getattr(self, '_priming_timeout', 0.0), Toverhead=(getattr(self, '_buffer_timeout', 0.0) + 0.1), W=getattr(self, '_warmup_frames', 0), Nlost=0)
@@ -1193,6 +1241,21 @@ class JapaneseStyleAutopilot:
             
             # Save data in training format
             self.save_training_format()
+            
+            # Give writer thread time to flush all buffered images
+            print("[INFO]: Flushing image buffer...")
+            max_wait = 120.0
+            wait_start = time.time()
+            while (time.time() - wait_start) < max_wait:
+                with self._buffer_lock:
+                    pending = len(self._image_buffer)
+                if pending == 0:
+                    break
+                time.sleep(0.5)
+            if pending > 0:
+                print(f"[WARN]: {pending} frames still in buffer after {max_wait}s wait")
+            else:
+                print("[INFO]: All images flushed to disk")
             
         finally:
             try:
@@ -1239,7 +1302,7 @@ class JapaneseStyleAutopilot:
         try:
             # signal writer thread via stopping flag and join
             if hasattr(self, '_writer_thread') and self._writer_thread.is_alive():
-                self._writer_thread.join(timeout=2.0)
+                self._writer_thread.join(timeout=10.0)
         except Exception:
             pass
 
@@ -1305,7 +1368,9 @@ class JapaneseStyleAutopilot:
                     except Exception as e:
                         if not getattr(self, '_stopping', False):
                             print(f"[WARN] Failed to write image for frame {frame_num} cam {cam_name}: {e}")
-            time.sleep(0.05)
+            # Only sleep if no work was done
+            if not to_write:
+                time.sleep(0.02)
 
 def main():
     print('\n')
@@ -1317,8 +1382,18 @@ def main():
     parser.add_argument('--route', type=str, default='highway',
                        choices=['highway', 'urban', 'simple'],
                        help='Route type: highway, urban, or simple (default: highway)')
-    parser.add_argument('--fps', type=float, default=60.0,
-                       help='Target frames per second for recording (default: 60)')
+    parser.add_argument('--fps', type=float, default=20.0,
+                       help='Target frames per second for recording (default: 20 - enforced)')
+    parser.add_argument('--weather', type=str, default='SoftRainNight',
+                       choices=['ClearNoon', 'CloudyNoon', 'WetNoon', 'WetCloudyNoon',
+                                'SoftRainNoon', 'MidRainyNoon', 'HardRainNoon',
+                                'ClearSunset', 'CloudySunset', 'WetSunset', 'WetCloudySunset',
+                                'SoftRainSunset', 'MidRainSunset', 'HardRainSunset',
+                                'ClearNight', 'CloudyNight', 'WetNight', 'WetCloudyNight',
+                                'SoftRainNight', 'MidRainyNight', 'HardRainNight', 'DustStorm'],
+                       help='Weather preset to use (default: SoftRainNight)') 
+    parser.add_argument('--spawn-index', type=int, default=None,
+                       help='Spawn point index (0-based, None=use route default)')
     
     args = parser.parse_args()
     
@@ -1326,7 +1401,9 @@ def main():
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
-        fps=args.fps
+        fps=args.fps,
+        weather=args.weather,
+        spawn_idx=args.spawn_index
     )
     # Print an estimate of expected recorded frames using current inputs
     try:
