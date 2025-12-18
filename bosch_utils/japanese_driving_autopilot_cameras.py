@@ -133,7 +133,8 @@ class JapaneseStyleAutopilot:
             spawn_idx (int): Spawn point index to use (None = use route default).
         """
 
-        print('[WARNING]: Currently the fps is ~40 fps for each camera. This is half of the speed in which simlingo was running')
+        # print('[WARNING]: If using imgs.PNG the fps is ~HALF fps OF THE ONE SET for each camera. This is half of the speed in which simlingo was running')
+        # print('[INFO]: If using imgs.JPG the fps is THE ONE SET for each camera. This is half of the speed in which simlingo was running')
 
         # Connect to CARLA
         self.client = carla.Client('localhost', port_localhost)
@@ -417,12 +418,109 @@ class JapaneseStyleAutopilot:
     def setup_left_hand_traffic(self):
         """Configure traffic manager for left-hand traffic (Japan/UK)"""
         # print("Configuring Japanese-style (left-hand) traffic...")
-        
         self.traffic_manager.set_global_distance_to_leading_vehicle(2.5)
-        self.traffic_manager.global_lane_offset = -1.5
-        
+
+        # Compute and apply geometry-aware left-hand driving configuration
+        try:
+            # prefer to compute a safe offset using current map and default spawn point
+            self.enforce_driving_side(side='left', margin=0.10)
+        except Exception:
+            # Fallback to a conservative default offset (meters)
+            try:
+                self.traffic_manager.global_lane_offset = -0.8
+            except Exception:
+                pass
+
         # Spawn NPC vehicles
         self.spawn_npc_vehicles(num_vehicles=30)
+
+    def enforce_driving_side(self, side='left', margin=0.10):
+        """Compute a safe lateral lane offset (meters) for left/right driving and apply it.
+
+        - side: 'left' or 'right'
+        - margin: small clearance from curb in metres
+
+        The method attempts to query a representative waypoint (spawn point) to get lane width,
+        and obtains ego vehicle half-width from its bounding box when available. It then computes
+        a desired offset and applies it to both `traffic_manager.global_lane_offset` and,
+        when a vehicle is available, `traffic_manager.vehicle_lane_offset(self.player_vehicle, offset)`.
+
+        Returns the applied offset.
+        """
+        dir_sign = -1.0 if side == 'left' else 1.0
+
+        # Default fallbacks
+        lane_w = 3.5
+        vehicle_half_w = 0.9
+
+        try:
+            # pick a representative spawn point or player position
+            spawn_points = self.world.get_map().get_spawn_points()
+            if spawn_points:
+                sp = spawn_points[0]
+            else:
+                sp = None
+        except Exception:
+            sp = None
+
+        try:
+            if sp is not None:
+                wp = self.world.get_map().get_waypoint(sp.location)
+                if wp is not None and getattr(wp, 'lane_width', None) is not None:
+                    lane_w = float(wp.lane_width)
+        except Exception:
+            pass
+
+        try:
+            if self.player_vehicle is not None:
+                bb = getattr(self.player_vehicle, 'bounding_box', None)
+                if bb is not None:
+                    vehicle_half_w = float(bb.extent.y)
+        except Exception:
+            pass
+
+        # compute safe offset so vehicle remains within lane (from lane center)
+        max_safe = max(0.02, lane_w / 2.0 - 0.02)  # small safety clamp
+        desired = dir_sign * (lane_w / 2.0 - vehicle_half_w - float(margin))
+        # clamp
+        if desired > max_safe:
+            desired = max_safe
+        if desired < -max_safe:
+            desired = -max_safe
+
+        # Apply to traffic manager
+        try:
+            self.traffic_manager.global_lane_offset = desired
+        except Exception:
+            pass
+
+        try:
+            # If the player vehicle exists, apply per-vehicle offset as well
+            if self.player_vehicle is not None:
+                self.traffic_manager.vehicle_lane_offset(self.player_vehicle, desired)
+        except Exception:
+            pass
+
+        # Ensure traffic manager light/behavior is coherent: make NPCs obey lights by default
+        try:
+            # 0 => obey lights, so set ignore_lights_percentage to 0 for all vehicles
+            self.traffic_manager.ignore_lights_percentage(self.player_vehicle if self.player_vehicle else None, 0)
+        except Exception:
+            # some TM versions expect actor arg or global setting; set per-npc in spawn loop if needed
+            pass
+
+        try:
+            self._driving_side_offset = float(desired)
+        except Exception:
+            self._driving_side_offset = desired
+
+        # Log result for debugging
+        try:
+            print(f"[INFO]: enforce_driving_side: applied offset={desired:.2f}m (lane_w={lane_w:.2f}, veh_half_w={vehicle_half_w:.2f}) for side='{side}'")
+        except Exception:
+            pass
+
+        return desired
 
     def setup_camera(self):
         """Attach 6 RGB cameras around the vehicle: Front, Back, RF, LF, RB, LB.
@@ -804,21 +902,37 @@ class JapaneseStyleAutopilot:
         
         print(f"[INFO]: Spawning {num_vehicles} NPC vehicles...")
         
+        # Use stored offset computed by enforce_driving_side if available, otherwise compute now
+        offset = getattr(self, '_driving_side_offset', None)
+        if offset is None:
+            try:
+                offset = self.enforce_driving_side(side='left', margin=0.10)
+            except Exception:
+                offset = -0.8 # -1.5 before
+
         for i, spawn_point in enumerate(spawn_points[:num_vehicles]):
             vehicle_bp = blueprint_library.filter('vehicle.*')[i % 20]
-            
+
             if vehicle_bp.has_attribute('driver_id'):
                 vehicle_bp.set_attribute('driver_id', '0')
-            
+
             try:
                 vehicle = self.world.spawn_actor(vehicle_bp, spawn_point)
-                
+
                 if vehicle:
                     vehicle.set_autopilot(True, self.traffic_manager.get_port())
-                    self.traffic_manager.vehicle_lane_offset(vehicle, -1.5)
-                    self.traffic_manager.ignore_lights_percentage(vehicle, 0)
-                    
-            except RuntimeError as e:
+                    try:
+                        # apply per-NPC lane offset so NPCs follow the same side
+                        self.traffic_manager.vehicle_lane_offset(vehicle, float(offset)) 
+                    except Exception:
+                        pass
+                    try:
+                        # make NPCs obey traffic lights
+                        self.traffic_manager.ignore_lights_percentage(vehicle, 0)
+                    except Exception:
+                        pass
+
+            except RuntimeError:
                 continue
                 
         # print("NPC vehicles spawned!")

@@ -276,7 +276,7 @@ def main():
             W=getattr(sim, '_warmup_frames', 0),
             Nlost=0
         )
-        print(f"[INFO] Estimated recorded frames: {est}")
+        print(f"[INFO]: Estimated recorded frames: {est}")
     except Exception:
         pass
     sim.run()

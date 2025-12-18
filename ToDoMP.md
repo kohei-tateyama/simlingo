@@ -132,7 +132,7 @@ git log --oneline --decorate -n 5
 cd /workspace/simlingo
 git checkout feat/michele
 git add -A && git status --porcelain --branch
-git commit -m "feat(michele): fixed dataset" || echo "No changes to commit"
+git commit -m "feat(michele): fixed jpg" || echo "No changes to commit"
 git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
@@ -211,15 +211,13 @@ Option B):
 B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
 B.2) Camera + Posiiton ordering strategy (rule based)
 
+## Useless stuff
 
-
-
-
-
-`ls -1 | head -n 5`
+`ls -1 | head -n 5` # print he first 5 element in a folder 
+`ls -1A . | wc -l`  # Number of element in a fodler 
 
 `/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27`
-From the windows bash ( 52 MB of data)
+From the windows bash (52 MB of data)
 `scp -r pim1yh@10.162.163.183:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27 "C:\Users\PIM1YH\Downloads\"`
 ```bash
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27$ ll
@@ -233,4 +231,16 @@ drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 measurements/
 -rw-r--r--    1 tko3yh workspace    410 Jan 11  2025 results.json.gz
 drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
 drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb_augmented/
+```
+We reached the same lavel of precision now 
+```bash
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_42$ du -sh ./rgb/0008/*
+56K     ./rgb/0008/B.jpg
+64K     ./rgb/0008/F.jpg
+64K     ./rgb/0008/LB.jpg
+64K     ./rgb/0008/LF.jpg
+108K    ./rgb/0008/patched.jpg
+60K     ./rgb/0008/RB.jpg
+64K     ./rgb/0008/RF.jpg
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_42$
 ```
