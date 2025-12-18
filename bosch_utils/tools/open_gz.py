@@ -6,7 +6,7 @@ from typing import Any
 
 
 DEFAULT_SIM = "/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/"
-DEFAULT_OURS = "/workspace/simlingo/recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/"
+DEFAULT_OURS = "/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_10_training/SoftRainNight_weather/ego_42" # "/workspace/simlingo/recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/"
 
 
 def short(obj: Any, maxlen: int = 160) -> str:

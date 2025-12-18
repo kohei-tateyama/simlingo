@@ -38,7 +38,7 @@ sudo chmod 755 /workspace/simlingo/mp_push_simple.sh \
 ```
 Also, I did 
 ```bash 
-sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignore
+sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignorethe 
 sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py
 ```
 ---
@@ -87,17 +87,7 @@ Tbuffer = buffer flush timeout (seconds) — time the writer will wait for missi
 Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, compression, and Python scheduling jitter (measure empirically or assume small value)
 Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
 
-Troubleshotting on the images being black (delay in starting the camera sensor)
-```bash
-python3 - <<'PY'                                               
-from PIL import Image
-import numpy as np, glob, os
-p = glob.glob('recording_japan_xml/autopilot_multicamera_japanese_highway_*/rgb/0000/*')
-for f in sorted(p):
-    im = np.array(Image.open(f))
-    print(os.path.basename(f), 'max=', im.max(), 'shape=', im.shape)
-PY
-```
+
 <!-- https://carla.readthedocs.io/en/latest/adv_agents/ -->
 
 ## How to manage multiple images?

@@ -462,6 +462,19 @@ run_autopilot() {
     sep
     if [ $AUTOPILOT_EXIT_CODE -eq 0 ]; then
         info "Autopilot completed successfully!"
+        
+        # Post-processing: Patch multicamera images if in multicamera mode
+        if [ "$MULTICAMERA" = true ]; then
+            echo ""
+            info "Starting post-processing: Patching multicamera RGB images..."
+            python bosch_utils/tools/batch_patch_multicamera.py --auto-latest --layout geometric
+            PATCH_EXIT_CODE=$?
+            if [ $PATCH_EXIT_CODE -eq 0 ]; then
+                info "Multicamera patching completed successfully!"
+            else
+                warn "Patching encountered errors (exit code: $PATCH_EXIT_CODE) - continuing anyway"
+            fi
+        fi
     else
         err "Autopilot encountered errors (exit code: $AUTOPILOT_EXIT_CODE)"
     fi

@@ -78,15 +78,11 @@ def create_geometric_patch(images, output_size=None):
           ╲       |       ╱
            ╲      |      ╱
             ╲     |     ╱
-             ╲    |    ╱
-              ╲   |   ╱
-     LB ────── [CAR] ────── RB
+    LB ──────   [CAR]   ────── RB
               ╱   |   ╲
              ╱    |    ╲
-            ╱     |     ╱
-           ╱      |      ╱
-          ╱       |       ╱
-         ╱        |        ╱
+            ╱     |     ╲
+           ╱      |      ╲
                   B
     """
     # Get reference image size
@@ -103,8 +99,7 @@ def create_geometric_patch(images, output_size=None):
     canvas = np.full((canvas_h, canvas_w, 3), 255, dtype=np.uint8)
     
     # Calculate scaling factor (pixels per meter)
-    scale = min(canvas_w / (VEHICLE_WIDTH * 3), 
-                canvas_h / (VEHICLE_LENGTH * 3))
+    scale = min(canvas_w / (VEHICLE_WIDTH * 3), canvas_h / (VEHICLE_LENGTH * 3))
     
     # Canvas center (where car is)
     center_x = canvas_w // 2
@@ -114,9 +109,9 @@ def create_geometric_patch(images, output_size=None):
     # Preserve aspect ratio and paste images without rotation.
     pixels_per_meter = scale
 
-    # #######################################
-    # ### HARCODED TWEAKS 
-    # #########################################
+    #######################################
+    ### HARCODED TWEAKS 
+    #######################################
 
     # # Placement tweaks: allow horizontal stretching (move left/right further out) and vertical compression (bring forward/back cameras closer to center). Adjust these multipliers to tweak the visual layout.
     # HORIZONTAL_MULT = 3.25  # >1 moves left/right cameras further out (increased per request)

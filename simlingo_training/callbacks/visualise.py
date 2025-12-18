@@ -179,9 +179,9 @@ class VisualiseCallback(Callback):
 
 
         # Log to wandb
-        pl_module.logger.log_image(
-            f"visualise/{name}", images=[Image.fromarray(waypoint_vis), prompt_img], step=trainer.global_step
-        )
+        # pl_module.logger.log_image(
+        #     f"visualise/{name}", images=[Image.fromarray(waypoint_vis), prompt_img], step=trainer.global_step
+        # )
         plt.close("all")
 
 

@@ -2,14 +2,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./open_every50_code.sh [recording_folder] [viewer] [step] [which_img]
+# Usage: ./open_every50_code.sh [recording_folder] [viewer] [step] [ls ]
 #  recording_folder: path to a recording run folder containing 'rgb/' (default: current dir)
 #  viewer: optional, defaults to 'code' (VS Code). Pass 'xdg-open' or 'feh' to use a different viewer.
 
 RECORDING_DIR="${1:-.}"
+# Viewer to open images (defaults to VS Code `code`)
 VIEWER="${2:-code}"
-STEP="${3:-code}"
-WHICH_IMGS="${4:-F}"
+# Step between folders when opening (default: every 50 folders)
+STEP="${3:-50}"
+# Which camera images to open (F, B, LF, RF, LB, RB, patched)
+WHICH_IMGS="${4:-patched}"
 
 # Resolve root rgb folder
 ROOT="${RECORDING_DIR%/}/rgb"
@@ -21,7 +24,7 @@ fi
 # Find the last folder name (preserve leading zeros width)
 last=$(for d in "$ROOT"/*/; do printf '%s\n' "${d%/}"; done | sed 's!.*/!!' | sort -V | tail -n1)
 if [[ -z "$last" ]]; then
-  echo "No folders found under ${ROOT}/"
+  echo "[ERROR]: No folders found under ${ROOT}/"
   exit 1
 fi
 width=${#last}

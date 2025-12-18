@@ -14,9 +14,11 @@ import gzip
 from PIL import Image as PILImage
 import math
 import yaml
-from pathlib import Path
 
+
+from pathlib import Path
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
+
 
 def _resolve_weather_param(name: str):
     """Resolve a weather name to a carla.WeatherParameters attribute.
@@ -943,31 +945,107 @@ class JapaneseStyleAutopilot:
         
         frame_num = self.frame_counter
         
-        # Build measurements JSON (matching training format)
+        # Build measurements JSON (matching simlingo training format)
         speed = float(np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2))
+        
+        # Get current waypoint for junction and speed limit info
+        try:
+            current_wp = self.world.get_map().get_waypoint(transform.location)
+            junction = current_wp.is_junction if current_wp else False
+            speed_limit = float(current_wp.lane_width * 3.6) if current_wp else 60.0  # km/h
+        except Exception:
+            junction = False
+            speed_limit = 60.0
 
-        # Compute ego transformation matrix (4x4) with identity rotation and translation
-        ego_matrix = [
-            [1.0, 0.0, 0.0, float(transform.location.x)],
-            [0.0, 1.0, 0.0, float(transform.location.y)],
-            [0.0, 0.0, 1.0, float(transform.location.z)],
-            [0.0, 0.0, 0.0, 1.0]
-        ]
+        # Compute ego transformation matrix (4x4) with proper rotation from CARLA transform
+        # Use get_matrix() for full 4x4 transformation matrix
+        try:
+            ego_matrix = transform.get_matrix()
+        except:
+            # Fallback to identity with translation if get_matrix() not available
+            ego_matrix = [
+                [1.0, 0.0, 0.0, float(transform.location.x)],
+                [0.0, 1.0, 0.0, float(transform.location.y)],
+                [0.0, 0.0, 1.0, float(transform.location.z)],
+                [0.0, 0.0, 0.0, 1.0]
+            ]
 
         # Route information: prefer stored planned route if available
         route_original = getattr(self, '_route_points', [])
         route = list(route_original) if route_original else []
+        
+        # Compute target points from route
+        target_point = route[0] if len(route) > 0 else [0.0, 0.0]
+        target_point_next = route[1] if len(route) > 1 else target_point
+        aim_wp = route[0] if len(route) > 0 else [0.0, 0.0]
 
         # Simplified command encoding: retain previous defaults if unknown
         command = int(getattr(self, 'last_command', 4)) if hasattr(self, 'last_command') else 4
         next_command = int(getattr(self, 'next_command', command)) if hasattr(self, 'next_command') else command
+        
+        # Control signals from vehicle
+        steer = float(control.steer)
+        throttle = float(control.throttle)
+        brake = bool(control.brake > 0.0)
+        control_brake = bool(control.brake)
+        
+        # Augmentation fields (no augmentation during data collection)
+        angle = 0.0
+        augmentation_rotation = 0.0
+        augmentation_translation = 0.0
+        
+        # Speed reduction and route changes (not implemented in autopilot mode)
+        changed_route = False
+        speed_reduced_by_obj_type = None
+        speed_reduced_by_obj_id = None
+        speed_reduced_by_obj_distance = None
+        
+        # Hazard detection (simplified - not implemented in autopilot mode)
+        light_hazard = False
+        vehicle_hazard = False
+        vehicle_affecting_id = None
+        walker_hazard = False
+        walker_affecting_id = None
+        stop_sign_hazard = False
+        stop_sign_close = False
+        walker_close = False
+        walker_close_id = None
 
         measurements = {
-            'ego_matrix': ego_matrix,
-            'route_original': route_original,
-            'route': route,
+            'pos_global': [float(transform.location.x), float(transform.location.y)],
+            'theta': float(np.radians(transform.rotation.yaw)),
+            'speed': speed,
+            'target_speed': 20.0,  # Default target speed in m/s
+            'speed_limit': speed_limit,
+            'target_point': target_point,
+            'target_point_next': target_point_next,
             'command': int(command),
-            'next_command': int(next_command)
+            'next_command': int(next_command),
+            'aim_wp': aim_wp,
+            'route': route,
+            'route_original': route_original,
+            'changed_route': changed_route,
+            'speed_reduced_by_obj_type': speed_reduced_by_obj_type,
+            'speed_reduced_by_obj_id': speed_reduced_by_obj_id,
+            'speed_reduced_by_obj_distance': speed_reduced_by_obj_distance,
+            'steer': steer,
+            'throttle': throttle,
+            'brake': brake,
+            'control_brake': control_brake,
+            'junction': junction,
+            'vehicle_hazard': vehicle_hazard,
+            'vehicle_affecting_id': vehicle_affecting_id,
+            'light_hazard': light_hazard,
+            'walker_hazard': walker_hazard,
+            'walker_affecting_id': walker_affecting_id,
+            'stop_sign_hazard': stop_sign_hazard,
+            'stop_sign_close': stop_sign_close,
+            'walker_close': walker_close,
+            'walker_close_id': walker_close_id,
+            'angle': angle,
+            'augmentation_translation': augmentation_translation,
+            'augmentation_rotation': augmentation_rotation,
+            'ego_matrix': ego_matrix
         }
         
         # Save measurements as gzipped JSON
@@ -1010,19 +1088,31 @@ class JapaneseStyleAutopilot:
                         br = bool(getattr(ctrl, 'brake', False))
                     except Exception:
                         br = False
-                    # affects_ego heuristic: within 30 meters
-                    dist = float(np.sqrt(rel_x**2 + rel_y**2 + rel_z**2))
-                    affects = dist < 30.0
+                    # Compute distance from ego to actor
+                    distance = float(np.sqrt(rel_x**2 + rel_y**2 + rel_z**2))
+                    # Get actor's transformation matrix
+                    try:
+                        matrix = at.get_matrix()
+                    except:
+                        # Fallback: identity matrix with translation
+                        matrix = [
+                            [1.0, 0.0, 0.0, float(pos.x)],
+                            [0.0, 1.0, 0.0, float(pos.y)],
+                            [0.0, 0.0, 1.0, float(pos.z)],
+                            [0.0, 0.0, 0.0, 1.0]
+                        ]
                     cls = 'vehicle' if 'vehicle' in a.type_id else 'walker'
                     return {
-                        'class': cls,
-                        'position': [rel_x, rel_y, rel_z],
-                        'extent': ext,
-                        'yaw': yaw,
-                        'speed': speed_a,
                         'brake': br,
-                        'affects_ego': affects,
-                        'id': a.id
+                        'class': cls,
+                        'distance': distance,
+                        'extent': ext,
+                        'id': a.id,
+                        'matrix': matrix,
+                        'num_points': 0,  # LiDAR points (not available in this collector)
+                        'position': [rel_x, rel_y, rel_z],
+                        'speed': speed_a,
+                        'yaw': yaw
                     }
                 except Exception:
                     return None
