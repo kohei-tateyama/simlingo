@@ -132,7 +132,7 @@ git log --oneline --decorate -n 5
 cd /workspace/simlingo
 git checkout feat/michele
 git add -A && git status --porcelain --branch
-git commit -m "feat(michele): fixed jpg" || echo "No changes to commit"
+git commit -m "feat(michele): japanese/uk driving (sligly more) stable" || echo "No changes to commit"
 git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
@@ -165,8 +165,6 @@ In our case, it will be:
 
 ## Example of runs
 
-Long autopilot with specific spawn point 10
-`python bosch_utils/japanese_driving_autopilot_cameras_long.py --mode autopilot --duration 10 --autopilot-long --route highway --spawn-index 10`
 Via wrapper script with long agent
 `bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --autopilot-long --spawn-index 42`
 
@@ -244,3 +242,7 @@ We reached the same lavel of precision now
 64K     ./rgb/0008/RF.jpg
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_42$
 ```
+
+
+
+

@@ -1,6 +1,6 @@
 ## Very fast implementation of patching 6 img
 """
-Assuming a Standard CARLA vehicles (e.g., Tesla Model 3, Audi A2):
+Assuming a Standard CARLA vehicles (e.g., Tesla Model 3, Prius, Audi A2):
 Length: ~4.5-5.0 meters
 Width: ~1.8-2.0 meters
 Height: ~1.4-1.6 meters
