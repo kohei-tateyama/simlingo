@@ -17,7 +17,7 @@ import yaml
 
 
 from pathlib import Path
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL
 
 
 def _resolve_weather_param(name: str):
@@ -348,6 +348,34 @@ class JapaneseStyleAutopilot:
                 # Last resort: plain save
                 pil_img.save(dst_path, 'PNG')
 
+    def _save_image(self, pil_img, dst_path):
+        """Save PIL image according to global IMAGE_FORMAT (JPG or PNG).
+
+        Ensures the file extension matches IMAGE_EXT and handles RGBA->RGB conversion for JPG.
+        """
+        try:
+            root, _ = os.path.splitext(dst_path)
+            dst_path = root + IMAGE_EXT
+            fmt = IMAGE_FORMAT.upper()
+            if fmt == 'JPG':
+                if pil_img.mode == 'RGBA':
+                    pil_img = pil_img.convert('RGB')
+                pil_img.save(dst_path, format='JPG', quality=JPG_QUALITY, optimize=True)
+            else:
+                # Use compressed paletted PNG when possible
+                try:
+                    if pil_img.mode not in ('RGB', 'RGBA'):
+                        pil_img = pil_img.convert('RGB')
+                    pal = pil_img.quantize(colors=128, method=PILImage.MEDIANCUT)
+                    pal.save(dst_path, format='PNG', optimize=True, compress_level=PNG_COMPRESS_LEVEL)
+                except Exception:
+                    pil_img.save(dst_path, format='PNG', optimize=True)
+        except Exception:
+            try:
+                pil_img.save(dst_path)
+            except Exception:
+                pass
+
     def estimate_recorded_frames(self, D=None, fps=None, Tprim=None, Toverhead=None, W=None, Nlost=0):
         """Estimate number of recorded timesteps using the user's formula.
 
@@ -398,7 +426,7 @@ class JapaneseStyleAutopilot:
 
     def setup_camera(self):
         """Attach 6 RGB cameras around the vehicle: Front, Back, RF, LF, RB, LB.
-        Save images into per-frame folders: /folderpath/00XX/{F,B,RF,LF,RB,LB}.png
+        Save images into per-frame folders: /folderpath/0XXX/{F,B,RF,LF,RB,LB}.png
         """
         if not self.player_vehicle:
             raise RuntimeError("Player vehicle not spawned yet")
@@ -1165,11 +1193,14 @@ class JapaneseStyleAutopilot:
             frame_dir = os.path.join(self.folderpath, 'rgb', frame_folder)
             os.makedirs(frame_dir, exist_ok=True)
             for cam_name in missing:
-                path = os.path.join(frame_dir, f"{cam_name}.png")
+                path = os.path.join(frame_dir, f"{cam_name}{IMAGE_EXT}")
                 try:
                     # create a blank black image matching the camera resolution
                     blank = PILImage.new('RGB', (self.image_size_x, self.image_size_y), (0, 0, 0))
-                    blank.save(path, 'PNG')
+                    try:
+                        self._save_image(blank, path)
+                    except Exception:
+                        blank.save(path)
                 except Exception as e:
                     print(f"[ERROR]: Failed to write placeholder for missing camera {cam_name} at frame {frame_num}: {e}")
 
@@ -1553,13 +1584,15 @@ class JapaneseStyleAutopilot:
                     try:
                         pil_img = PILImage.fromarray(arr)
                         # pil_img.save(os.path.join(frame_dir, f"{cam_name}.png"), 'PNG') # THIS SI THE CLASSIC NO COMPRESSED
-                        dst = os.path.join(frame_dir, f"{cam_name}.png")
-                        # use paletted quantization to reduce PNG file size without changing dimensions
+                        dst = os.path.join(frame_dir, f"{cam_name}{IMAGE_EXT}")
                         try:
-                            self._save_compressed_png(pil_img, dst, colors=128, compress_level=9)
+                            self._save_image(pil_img, dst)
                         except Exception:
-                            # fallback to plain save
-                            pil_img.save(dst, 'PNG')
+                            # fallback to plain save with a matching extension
+                            try:
+                                pil_img.save(dst)
+                            except Exception:
+                                pil_img.save(os.path.splitext(dst)[0] + '.png')
                     except Exception as e:
                         if not getattr(self, '_stopping', False):
                             print(f"[WARN] Failed to write image for frame {frame_num} cam {cam_name}: {e}")

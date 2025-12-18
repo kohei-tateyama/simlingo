@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 import argparse
+from bosch_utils.config import IMAGE_EXT
 
 # Camera configuration (same layout used by patch_multicamera)
 CAMERA_KEYS = ['F', 'B', 'RF', 'LF', 'RB', 'LB']
@@ -56,7 +57,7 @@ class GaussianSpatter:
     def load_images(self, folder_path: Path):
         imgs = {}
         for k in CAMERA_KEYS:
-            p = folder_path / f"{k}.png"
+            p = folder_path / f"{k}{IMAGE_EXT}"
             if not p.exists():
                 raise FileNotFoundError(f"Missing camera image: {p}")
             img = cv2.imread(str(p))

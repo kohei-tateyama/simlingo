@@ -88,30 +88,9 @@ Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, com
 Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
 
 
-<!-- https://carla.readthedocs.io/en/latest/adv_agents/ -->
-
-## How to manage multiple images?
-
-In out pipeline, we need somethig that takes one imgs as input --> training. 
-In other words, the **output** of this processing (before the training) has to be **one img**.
-
-We have two approaches: 
-A) Fusing the imgs into one.
-B) Threat N-imgs independent. 
-
-These approaches A) and B) have options:
-
-Option A)
-A.1) Spatial-Aware Independent Processing + Attention Fusion
-A.2) Gaussina splattering to reconstrctut the whole scene 
-A.3) Attention Fusion Strategy
-
-Option B): 
-B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
-B.2) Camera + Posiiton ordering strategy (rule based)
 
 
-### How to push 
+## How to push / maintain
 I did a mess before and we do have some issue since Kohey is not with the Bosch account 
 
 I have two braches 
@@ -124,7 +103,6 @@ This will return
 ## feat/michele...myfork/feat/michele
 * feat/michele                         3305c34 [myfork/feat/michele] autosave: add fps estimator, CLI forwarding and summary info
   main                                 0f1f70c [myfork/main] chore(bosch_utils): add/update autopilot and patcher scripts
-  snapshot/pre-cleanup_20251212_141603 f497701 Snapshot: working tree before cleanup 20251212_141603
 ``` 
 
 Next (to actual push). **This jsut works for this repo!**
@@ -148,18 +126,22 @@ git fetch --all --prune
 git branch -vv
 git log --oneline --decorate -n 5
 ```
-This is a one only push quite useful right now.
+
+**This is a one only push quite useful right now.**
 ```bash
 cd /workspace/simlingo
 git checkout feat/michele
-git add -A
-git commit -m "feat(michele): camera timing fixes, long autopilot, CLI flags, and helper scripts" || echo "No changes to commit"
+git add -A && git status --porcelain --branch
+git commit -m "feat(michele): fixed dataset" || echo "No changes to commit"
 git push myfork feat/michele
 ```
-
-To open multiple photo of the `F.png` camera, using visual code and while being isidre the folder itsleft, i.e., `script/open_every50_code.sh`.
-You can decide which data to open, which software to use (code default), frquency of opend images, and the name of the `.png` to be open.
-
+To update also the branch `main` from the `feat/michele` one do
+```bash
+git fetch myfork --prune && git rev-list --left-right --count myfork/main...myfork/feat/michele
+git push --dry-run myfork feat/michele:main # safrer vesion
+git fetch myfork && git branch -r --verbose --sort=-committerdate | sed -n '1,20p' # checking 
+```
+---
 
 ## NEW dataset (enriching the simlingo one)
 
@@ -176,60 +158,23 @@ japanese_driving_autopilot_cameras.py [-h] [--autopilot]
 
 Simlingo strcture of the databased was:
 `/database/simlingo_v2_2025_01_10/commentary/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150$`
-
-In our case, 
+In our case, it will be:
 `/database/simlingo_v2_2025_01_10/<>/simlingo/training_<>_scenario/routes_training/random_weather_seed_1_balanced_<>$`
 
 ---
 
-## Run the I should do now
-To run next:
-`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway --multicamera --fps 20 --agent-long`
-`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway --agent-long --fps 20`
+## Example of runs
 
-Short autopilot with spawn point 25
-`python bosch_utils/japanese_driving_autopilot_cameras.py --autopilot --duration 10 --route highway --spawn-index 25`
-Long autopilot with random spawn for data variety
-`python bosch_utils/japanese_driving_autopilot_cameras_long.py --autopilot --duration 30 --route highway --random-spawn`
 Long autopilot with specific spawn point 10
-`python bosch_utils/japanese_driving_autopilot_cameras_long.py --autopilot --duration 10 --route highway --spawn-index 10`
-<!-- Via wrapper script with long agent
-`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --agent-long --spawn-index 42` -->
+`python bosch_utils/japanese_driving_autopilot_cameras_long.py --mode autopilot --duration 10 --autopilot-long --route highway --spawn-index 10`
+Via wrapper script with long agent
+`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --autopilot-long --spawn-index 42`
 
 ---
 
-I will write here a pseudocode to get an idea of what I can run for the collection of data.
-I could also run mutiple .sh file like the following changing the port of carla, e.g., 2000 --> 2001, etc. 
-I want to run `bash script/run_carla_mp_pilot_script.sh` iterating within this 
-
-```bash
-## This ia pesudo bash!!
-
-# JapaneseStyleAutopilot --> japanese_driving_autopilot_cameras.py (This is managed form the script/run_carla_mp_pilot_script.sh
-self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
-# LongJapaneseStyleAutopilot --> japanese_driving_autopilot_cameras_long.py
-self.foldername = f"/database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
-
-ROUTER_TYPES=[highway,urban,simple] # note that they usualle come with a predefined time [60,90,30]
-TOWN=[Town13,Town12]
-SPAWN_INDICES=[42,???]
-DURATION=[10,20,30,40,50,120,180,300]
-AGENT=[no-agent-long,agent-long]
-
-for agent in AGENT
-  for town in TOWN
-    for route_type in ROUTER_TYPES
-      for weather in WEATHER
-        for spawn_idx in SPAWN_INDICES
-          for duration in DURATION
-
-bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration $duration --multicamera --route $route_type --agent-long --spawn-index $spawn_idx 
-
-```
-
-
-
 ## Future directions and ideas
+
+### Pipeline and VLA
  
 | Component | Choice for Speed & Flexibility | Rationale |
 |---|---|---|
@@ -243,6 +188,28 @@ DINOv2 (ViT-S/16 or ViT-B/14) | LVP (Language-guided Visual Projector) | Gemma 2
 "CLIP / EVA-CLIP (ViT-B/16, L-14)" | Efficient Dense Connector | "Llama 3 (3B, 8B)"
 InternViT-300M (InternVL2 backbone) | Semantic Visual Projector (SVP) | MiniCPM-V (2.4B)
  |  | "Mistral (7B, if resource permits)"
+
+ <!-- https://carla.readthedocs.io/en/latest/adv_agents/ -->
+
+### How to manage multiple images?
+
+In out pipeline, we need somethig that takes one imgs as input --> training. 
+In other words, the **output** of this processing (before the training) has to be **one img**.
+
+We have two approaches: 
+A) Fusing the imgs into one.
+B) Threat N-imgs independent. 
+
+These approaches A) and B) have options:
+
+Option A)
+A.1) Spatial-Aware Independent Processing + Attention Fusion
+A.2) Gaussina splattering to reconstrctut the whole scene 
+A.3) Attention Fusion Strategy
+
+Option B): 
+B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
+B.2) Camera + Posiiton ordering strategy (rule based)
 
 
 

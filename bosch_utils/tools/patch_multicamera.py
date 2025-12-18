@@ -16,6 +16,7 @@ import numpy as np
 from pathlib import Path
 import argparse
 import math
+from bosch_utils.config import IMAGE_EXT
 
 # Camera configuration 
 CAMERA_CONFIG = {
@@ -55,7 +56,7 @@ def load_camera_images(folder_path):
     
     images = {}
     for cam_key in CAMERA_CONFIG.keys():
-        img_path = folder / f"{cam_key}.png"
+        img_path = folder / f"{cam_key}{IMAGE_EXT}"
         if not img_path.exists():
             raise FileNotFoundError(f"Camera image not found: {img_path}")
         
@@ -295,7 +296,7 @@ def main():
     parser.add_argument('--layout', type=str, default='geometric', 
                        choices=['geometric', 'grid'],
                        help='Patching layout: geometric (rotated cameras) or grid (simple)')
-    parser.add_argument('--output-name', type=str, default='patched.png',
+    parser.add_argument('--output-name', type=str, default='patched' + IMAGE_EXT,
                        help='Output filename')
     
     args = parser.parse_args()

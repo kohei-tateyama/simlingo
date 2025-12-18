@@ -1,7 +1,8 @@
-import os, sys, glob, math
+import os, sys, glob
 from PIL import Image
 import numpy as np
 import cv2
+from bosch_utils.config import IMAGE_EXT
 
 # python3 simlingo/bosch_utils/imgs_features.py [ROOT_OURS] [ROOT_SIMLINGO]
 url_simlingo = "/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/rgb"
@@ -9,7 +10,7 @@ url_ours = "/workspace/simlingo/recording_japan_xml/autopilot_multicamera_japane
 
 ROOT_OURS = sys.argv[1] if len(sys.argv) > 1 else url_ours
 ROOT_SIM = sys.argv[2] if len(sys.argv) > 2 else url_simlingo
-
+FORMAT = IMAGE_EXT.lstrip('.') if IMAGE_EXT else 'png'
 CAM_NAMES = ['F','B','RF','LF','RB','LB']
 
 def variance_of_laplacian(gray):
@@ -37,7 +38,7 @@ def analyze_root(root):
         for d in frame_dirs:
             cams = []
             for c in CAM_NAMES:
-                path = os.path.join(d, f"{c}.png")
+                path = os.path.join(d, f"{c}.{FORMAT}")
                 if os.path.isfile(path):
                     cams.append(c)
                     try:
@@ -64,8 +65,11 @@ def analyze_root(root):
         files = sorted([p for p in entries if os.path.isfile(p)])
         for p in files:
             base = os.path.basename(p)
+    
+        for p in files:
+            base = os.path.basename(p)
             for c in CAM_NAMES:
-                if base.endswith(f"{c}.png") or base.endswith(f"{c}.jpg") or base == f"{c}.png":
+                if base.endswith(f"{c}.{FORMAT}") or base.endswith(f"{c}.jpg") or base.endswith(f"{c}.jpeg") or base == f"{c}.{FORMAT}":
                     try:
                         im = Image.open(p).convert('RGB')
                         arr = np.array(im)

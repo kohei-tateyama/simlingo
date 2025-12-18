@@ -29,3 +29,9 @@ RECORDING_OUTPUT_DIR = (
 
 def get_cfg():
     return cfg
+
+# Image format preferences (can be overridden in config_bosch_utils.yaml)
+IMAGE_FORMAT = (cfg.get('IMAGE_FORMAT') or os.environ.get('IMAGE_FORMAT') or 'PNG').upper()
+IMAGE_EXT = '.jpg' if IMAGE_FORMAT == 'JPG' else '.png'
+JPG_QUALITY = int(cfg.get('JPG_QUALITY') or os.environ.get('JPG_QUALITY') or 85)
+PNG_COMPRESS_LEVEL = int(cfg.get('PNG_COMPRESS_LEVEL') or os.environ.get('PNG_COMPRESS_LEVEL') or 9)

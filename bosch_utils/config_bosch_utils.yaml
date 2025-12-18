@@ -93,3 +93,11 @@ PRESETS : [
         'SoftRainNight', 'MidRainyNight', 'HardRainNight',
         'DustStorm'
         ]
+
+## IMAGE FORMAT SETTINGS
+# Choose 'JPG' to save images as .jpg (smaller, lossy) or 'PNG' to keep lossless .png files
+IMAGE_FORMAT: 'JPG'
+# JPG quality 1-100 (higher = better quality, larger files)
+JPG_QUALITY: 85
+# PNG compression level 0-9 (9 = max compression)
+PNG_COMPRESS_LEVEL: 9

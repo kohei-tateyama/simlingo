@@ -61,7 +61,7 @@ MODE="evaluation"  # Default mode
 AUTOPILOT_DURATION=60
 AUTOPILOT_ROUTE="highway"
 MULTICAMERA=true
-AGENT_LONG=false
+AUTOPILOT_LONG=false
 AUTOPILOT_WEATHER=""
 AUTOPILOT_SPAWN_INDEX=""
 AUTOPILOT_RANDOM_SPAWN=false
@@ -96,10 +96,10 @@ OPTIONS:
                            - simple (30s)
     --multicamera           Force multicamera mode (overrides MULTICAMERA env)
     --no-multicamera        Force monocamera mode (overrides MULTICAMERA env)
-    --agent-long            Run the long-version autopilot (overrides AGENT_LONG env)
-    --no-agent-long         Do not run the long-version autopilot (overrides AGENT_LONG env)
+    --autopilot-long            Run the long-version autopilot (overrides AUTOPILOT_LONG env)
+    --no-autopilot-long         Do not run the long-version autopilot (overrides AUTOPILOT_LONG env)
     --spawn-index INDEX     Spawn point index (0-based, forwarded to autopilot)
-    --random-spawn          Randomize spawn location (only for agent-long)
+    --random-spawn          Randomize spawn location (only for autopilot-long)
 
 EXAMPLES:
     # Run default evaluation simlingo agent
@@ -117,8 +117,8 @@ EXAMPLES:
     $0 --mode both --duration 60 --route urban
 
     # Running the fdifferent class of the autopilot
-    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --no-agent-long
-    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --agent-long
+    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --no-autopilot-long
+    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --autopilot-long
 
 EOF
     exit 0
@@ -156,12 +156,12 @@ while [[ $# -gt 0 ]]; do
             MULTICAMERA=false
             shift
             ;;
-        --agent-long)
-            AGENT_LONG=true
+        --autopilot-long)
+            AUTOPILOT_LONG=true
             shift
             ;;
-        --no-agent-long)
-            AGENT_LONG=false
+        --no-autopilot-long)
+            AUTOPILOT_LONG=false
             shift
             ;;
         --fps)
@@ -427,7 +427,7 @@ run_autopilot() {
         #     --route "$route" \
         #     --fps "$AUTOPILOT_FPS"
 
-        if [ "$AGENT_LONG" = false ]; then
+        if [ "$AUTOPILOT_LONG" = false ]; then
             info "Also running SHORT HARDCODED version of the autopilot for extended data collection."
             python bosch_utils/japanese_driving_autopilot_cameras.py \
                 --autopilot \
@@ -438,7 +438,7 @@ run_autopilot() {
                 $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" )
         fi
         
-        if [ "$AGENT_LONG" = true ]; then
+        if [ "$AUTOPILOT_LONG" = true ]; then
             info "Also running LONG version of the autopilot for extended data collection."
             python bosch_utils/japanese_driving_autopilot_cameras_long.py \
                 --autopilot \

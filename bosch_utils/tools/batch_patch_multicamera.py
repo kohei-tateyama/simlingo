@@ -26,6 +26,7 @@ import time
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from bosch_utils.tools.patch_multicamera import load_camera_images, create_geometric_patch, create_simple_layout_patch
 import cv2
+from bosch_utils.config import IMAGE_EXT
 
 
 def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
@@ -60,7 +61,7 @@ def find_rgb_folders(dataset_path):
     for item in sorted(rgb_path.iterdir()):
         if item.is_dir():
             # Check if it contains the 6 camera images
-            required_cameras = ['F.png', 'B.png', 'LF.png', 'RF.png', 'LB.png', 'RB.png']
+            required_cameras = [f'F{IMAGE_EXT}', f'B{IMAGE_EXT}', f'LF{IMAGE_EXT}', f'RF{IMAGE_EXT}', f'LB{IMAGE_EXT}', f'RB{IMAGE_EXT}']
             if all((item / cam).exists() for cam in required_cameras):
                 frame_folders.append(item)
     
@@ -156,8 +157,8 @@ Examples:
     parser.add_argument('--layout', type=str, default='geometric',
                        choices=['geometric', 'grid'],
                        help='Patching layout (default: geometric)')
-    parser.add_argument('--output-name', type=str, default='patched.png',
-                       help='Output filename for patched images (default: patched.png)')
+    parser.add_argument('--output-name', type=str, default='patched' + IMAGE_EXT,
+                       help=f'Output filename for patched images (default: patched{IMAGE_EXT})')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress progress messages')
     

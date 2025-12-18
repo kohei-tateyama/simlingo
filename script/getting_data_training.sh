@@ -20,8 +20,8 @@ WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon H
         ClearSunset CloudySunset WetSunset WetCloudySunset SoftRainSunset MidRainSunset HardRainSunset
         ClearNight CloudyNight WetNight WetCloudyNight SoftRainNight MidRainyNight HardRainNight DustStorm)
 
-# Agent modes: "no-agent-long" -> no flag, "agent-long" -> --agent-long
-AGENTS=(no-agent-long agent-long)
+# Agent modes: "no-autopilot-long" -> no flag, "autopilot-long" -> --autopilot-long
+AGENTS=(no-autopilot-long autopilot-long)
 
 # Path to wrapper script (relative to repo root)
 WRAPPER=script/run_carla_mp_pilot_script.sh
@@ -40,8 +40,8 @@ for agent in "${AGENTS[@]}"; do
         for spawn_idx in "${SPAWN_INDICES[@]}"; do
           for duration in "${DURATIONS[@]}"; do
             AGENT_FLAG=""
-            if [[ "$agent" == "agent-long" ]]; then
-              AGENT_FLAG="--agent-long"
+            if [[ "$agent" == "autopilot-long" ]]; then
+              AGENT_FLAG="--autopilot-long"
             fi
 
             CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" $AGENT_FLAG --fps 20 --spawn-index "$spawn_idx" --weather "$weather" )
