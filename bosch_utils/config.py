@@ -30,6 +30,10 @@ RECORDING_OUTPUT_DIR = (
 # Default run/dataset directory (optional). If present in the YAML, use it.
 DEFAULT_RUN_DIR = cfg.get('DEFAULT_RUN_DIR') or os.environ.get('DEFAULT_RUN_DIR') or None
 
+# Default comparison folders (optional)
+DEFAULT_SIM = cfg.get('DEFAULT_SIM') or os.environ.get('DEFAULT_SIM') or None
+DEFAULT_OURS = cfg.get('DEFAULT_OURS') or os.environ.get('DEFAULT_OURS') or None
+
 
 def get_default_run_rgb():
     """Return a Path to the `rgb` directory inside the default run, or None.
@@ -40,7 +44,7 @@ def get_default_run_rgb():
         return None
     p = Path(DEFAULT_RUN_DIR)
     rgb = p / 'rgb'
-    return rgb if rgb.exists() else rgb
+    return rgb
 
 def get_cfg():
     return cfg

@@ -4,9 +4,11 @@ import os
 import argparse
 from typing import Any
 
+from bosch_utils import config as _cfg
 
-DEFAULT_SIM = "/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/"
-DEFAULT_OURS = "/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_10_training/SoftRainNight_weather/ego_42" # "/workspace/simlingo/recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/"
+# Defaults are read from config; fall back to previous hard-coded values if missing
+DEFAULT_SIM = _cfg.DEFAULT_SIM or "/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/"
+DEFAULT_OURS = _cfg.DEFAULT_OURS or "/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_10_training/SoftRainNight_weather/ego_42" # fallback
 
 
 def short(obj: Any, maxlen: int = 160) -> str:
@@ -14,22 +16,22 @@ def short(obj: Any, maxlen: int = 160) -> str:
     return s if len(s) <= maxlen else s[:maxlen] + '...'
 
 
-def summarize(obj: Any, indent: int = 2):
+def summarize(obj: Any, indent: int = 2, len_objs: int = 20):
     t = type(obj)
     if isinstance(obj, dict):
         print(' ' * indent + f'Dict with {len(obj)} keys:')
-        for k in list(obj.keys())[:20]:
+        for k in list(obj.keys())[:len_objs]:
             v = obj[k]
             print(' ' * (indent + 2) + f'- {k}: {type(v).__name__}')
-        if len(obj) > 20:
-            print(' ' * (indent + 2) + f'... ({len(obj)-20} more keys)')
+        if len(obj) > len_objs:
+            print(' ' * (indent + 2) + f'... ({len(obj)-len_objs} more keys)')
     elif isinstance(obj, list):
         print(' ' * indent + f'List length={len(obj)}')
         if len(obj) > 0:
             first = obj[0]
             print(' ' * (indent + 2) + f'First item type: {type(first).__name__}')
             if isinstance(first, dict):
-                print(' ' * (indent + 2) + 'First item keys: ' + ', '.join(list(first.keys())[:20]))
+                print(' ' * (indent + 2) + 'First item keys: ' + ', '.join(list(first.keys())[:len_objs]))
     else:
         print(' ' * indent + f'{type(obj).__name__}: {short(obj)}')
 
@@ -91,7 +93,31 @@ def load_gz_json(path: str):
         return None
 
 
-def compare_json(a, b, label_a='A', label_b='B', indent=2):
+def load_and_print_fields(path: str, max_len: int = 200):
+    """Load a .json.gz file and print all top-level fields with short samples.
+
+    This function is intentionally simple: it accepts a path string and prints
+    the keys and small representations of their values. It is not an argparse
+    entrypoint and is designed for programmatic use or interactive runs.
+    """
+    data = load_gz_json(path)
+    if data is None:
+        print('Failed to load or parse:', path)
+        return
+    print(f'Loaded {type(data).__name__} from {path}')
+    if isinstance(data, dict):
+        for k in sorted(data.keys()):
+            v = data[k]
+            print(f'- {k}: {type(v).__name__} -> {short(v, maxlen=max_len)}')
+    elif isinstance(data, list):
+        print(f'List with {len(data)} items. Sample:')
+        for i, item in enumerate(data[:3]):
+            print(f' [{i}] {short(item, maxlen=max_len)}')
+    else:
+        print(short(data, maxlen=400))
+
+
+def compare_json(a, b, label_a='A', label_b='B', indent=2, len_objs=20):
     if a is None or b is None:
         print('Compare: one of the inputs is missing')
         return
@@ -111,7 +137,7 @@ def compare_json(a, b, label_a='A', label_b='B', indent=2):
             print(f'  Keys only in {label_a}: {only_a}')
         if only_b:
             print(f'  Keys only in {label_b}: {only_b}')
-        print(f'  Keys in both ({len(both)}): {both[:20]}{"..." if len(both)>20 else ""}')
+        print(f'  Keys in both ({len(both)}): {both[:len_objs]}{"..." if len(both)>len_objs else ""}')
 
         # For common keys, compare types and summary stats
         for k in both:

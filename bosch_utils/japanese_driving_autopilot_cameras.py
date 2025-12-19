@@ -1273,6 +1273,30 @@ class JapaneseStyleAutopilot:
         except Exception:
             boxes_data = []
         
+        # Add weather information entry (to match dataset format)
+        try:
+            weather = self.world.get_weather()
+            weather_info = {
+                'class': 'weather',
+                'cloudiness': float(weather.cloudiness),
+                'dust_storm': float(weather.dust_storm),
+                'fog_density': float(weather.fog_density),
+                'fog_distance': float(weather.fog_distance),
+                'fog_falloff': float(weather.fog_falloff),
+                'mie_scattering_scale': float(weather.mie_scattering_scale),
+                'precipitation': float(weather.precipitation),
+                'precipitation_deposits': float(weather.precipitation_deposits),
+                'rayleigh_scattering_scale': float(weather.rayleigh_scattering_scale),
+                'scattering_intensity': float(weather.scattering_intensity),
+                'sun_altitude_angle': float(weather.sun_altitude_angle),
+                'sun_azimuth_angle': float(weather.sun_azimuth_angle),
+                'wetness': float(weather.wetness),
+                'wind_intensity': float(weather.wind_intensity)
+            }
+            boxes_data.append(weather_info)
+        except Exception as e:
+            print(f"[WARN]: Could not add weather info to boxes: {e}")
+        
         # Save boxes as gzipped JSON
         boxes_path = os.path.join(self.folderpath, 'boxes', f'{frame_num:04d}.json.gz')
         try:
@@ -1448,10 +1472,10 @@ class JapaneseStyleAutopilot:
                 'outside_route_lanes': [],
                 'min_speed_infractions': [],
                 'yield_emergency_vehicle_infractions': [],
-                'scenario_timeouts': [],
-                'route_dev': [],
-                'vehicle_blocked': [],
-                'route_timeout': []
+                'scenario_timeouts': [] #,
+                # 'route_dev': [],
+                # 'vehicle_blocked': [],
+                # 'route_timeout': []
             },
             'scores': {
                 'score_route': 100,

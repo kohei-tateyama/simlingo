@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Compare structure (not values) of measurements, boxes and debug.log between two run folders.
 
 Usage:
@@ -11,10 +10,11 @@ import gzip
 import json
 import argparse
 from typing import Any, Dict, List
+from bosch_utils import config as _cfg
 
-DEFAULT_SIM = "/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/"
-DEFAULT_OURS = "/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_10_training/SoftRainNight_weather/ego_42" # "/workspace/simlingo/recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/"
-
+# Defaults come from configuration YAML; fall back to None if not set
+DEFAULT_SIM = _cfg.DEFAULT_SIM
+DEFAULT_OURS = _cfg.DEFAULT_OURS
 
 def load_gz_json(path: str):
     try:

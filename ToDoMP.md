@@ -244,5 +244,53 @@ We reached the same lavel of precision now
 ```
 
 
+```bash
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20$ ll
+total 428
+drwxr-sr-x    7 tko3yh workspace   4096 Jan 11  2025 ./
+drwxrwsr-x 5700 tko3yh workspace 405504 Nov 20 12:36 ../
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 boxes/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 lidar/
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 measurements/
+-rw-r--r--    1 tko3yh workspace    159 Jan 11  2025 records.json.gz
+-rw-r--r--    1 tko3yh workspace    414 Jan 11  2025 results.json.gz
+drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
+
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43$ ll
+total 52
+drwxrwsr-x   5 pim1yh workspace  4096 Dec 18 11:50 ./
+drwxrwsr-x   3 pim1yh workspace  4096 Dec 18 11:53 ../
+drwxrwsr-x   2 pim1yh workspace 12288 Dec 18 11:50 boxes/
+drwxrwsr-x   2 pim1yh workspace 12288 Dec 18 11:50 measurements/
+-rw-rw-r--   1 pim1yh workspace   226 Dec 18 11:50 records.json.gz
+-rw-rw-r--   1 pim1yh workspace   408 Dec 18 11:50 results.json.gz
+drwxrwsr-x 403 pim1yh workspace 12288 Dec 18 11:50 rgb/
+```
+
+To check the same strcture, we use 
+```bash
+python - <<'PY'
+from bosch_utils.tools.open_gz import load_and_print_fields
+print('='*60)
+print('DATASET: records.json.gz')
+print('='*60)
+load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/records.json.gz', max_len=300)
+print('\n' + '='*60)
+print('OUR RECORDING: records.json.gz')
+print('='*60)
+load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43/records.json.gz', max_len=300)
+print('\n' + '='*60)
+print('DATASET: results.json.gz')
+print('='*60)
+load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/results.json.gz', max_len=300)
+print('\n' + '='*60)
+print('OUR RECORDING: results.json.gz')
+print('='*60)
+load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43/results.json.gz', max_len=300)
+PY
+```
+
+to compare the content of all the *.json.gz, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`.
+
 
 
