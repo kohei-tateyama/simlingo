@@ -7,6 +7,9 @@ import argparse
 from PIL import Image as PILImage
 import carla 
 
+# export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla"
+# export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla/agents"
+
 from bosch_utils.japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras import _resolve_weather_param
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
@@ -39,11 +42,8 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         self._stop_flag = threading.Event()
         self._io_lock = threading.Lock()
 
-        # Note: initialization of CARLA client, world, traffic manager and
-        # folders is handled by the parent class (`JapaneseStyleAutopilot`).
-        # Avoid re-initializing those attributes here — the subclass only
-        # adds long-run specific state (autosave/rotation/repeat).
-
+        # Note: initialization of CARLA client, world, traffic manager and folders is handled by the parent class (`JapaneseStyleAutopilot`).
+        # Avoid re-initializing those attributes here — the subclass only adds long-run specific state (autosave/rotation/repeat).
 
     def get_predefined_route(self):
         """Compute a route using CARLA agents GlobalRoutePlanner for long-run data collection.
@@ -59,15 +59,15 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         # Try to use CARLA agents planner
         try:
             # Import lazily to avoid hard dependency at module import time
-            from agents.navigation.global_route_planner import GlobalRoutePlanner, GlobalRoutePlannerDAO
-            dao = GlobalRoutePlannerDAO(self.world.get_map(), sampling_resolution=2.0)
-            grp = GlobalRoutePlanner(dao)
-            grp.setup()
+            from agents.navigation.global_route_planner import GlobalRoutePlanner
+            # CARLA 0.9.13+ API: pass map directly (no DAO)
+            # Use finer sampling (0.5m) to capture road curvature and intersections
+            grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=0.5)
             spawn_points = self.world.get_map().get_spawn_points()
             if len(spawn_points) < 2:
                 raise RuntimeError('Not enough spawn points to plan route')
             
-            # For long runs, pick distant spawn points to maximize route length
+            # For long runs, pick distant spawn points to create extended routes
             # Use spawn_idx if specified, otherwise random or default strategy
             if self.spawn_idx is not None:
                 start_idx = self.spawn_idx % len(spawn_points)
@@ -78,27 +78,90 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             else:
                 start_idx = 0
             
-            # Pick distant goal for longest route
-            goal_idx = max(len(spawn_points) // 2, len(spawn_points) - 1)
-            
             start = spawn_points[start_idx].location
-            goal = spawn_points[goal_idx].location
             
-            # Calculate distance for logging
+            # Estimate required distance based on duration
+            # Assume average speed: 40 km/h = 11.1 m/s (conservative for city driving)
             import math
-            dist = math.sqrt((goal.x - start.x)**2 + (goal.y - start.y)**2)
+            avg_speed_mps = 11.1  # m/s
+            target_distance = self.duration * avg_speed_mps
+            
+            # Find a goal spawn point approximately target_distance away
+            # Add variety by selecting from multiple candidates (not just closest match)
+            distances = []
+            for idx, sp in enumerate(spawn_points):
+                if idx == start_idx:
+                    continue
+                d = math.sqrt((sp.location.x - start.x)**2 + (sp.location.y - start.y)**2)
+                distances.append((idx, d))
+            
+            # Sort by distance
+            distances.sort(key=lambda x: x[1])
+            
+            # Find spawn points within target range: 0.7x to 1.5x target_distance
+            # (allows for road curvature and routing overhead)
+            min_dist = target_distance * 0.7
+            max_dist = target_distance * 1.5
+            candidates = [idx for idx, d in distances if min_dist <= d <= max_dist]
+            
+            # If no candidates in range, pick from closest 30% of all points for variety
+            if not candidates:
+                top_30_pct = max(1, len(distances) * 30 // 100)
+                candidates = [idx for idx, d in distances[:top_30_pct]]
+            
+            # Randomly pick one candidate for route variety (avoids always same routes)
+            import random
+            goal_idx = random.choice(candidates) if candidates else distances[-1][0]
+            
+            # For urban routes, try to pick goals that go through intersections/city centers
+            # (heuristic: prefer spawn points with more nearby spawn points = denser urban areas)
+            if self.route_type == 'urban' and len(candidates) > 3:
+                # Count nearby spawn points for each candidate (within 50m radius)
+                density_scores = []
+                for c_idx in candidates[:10]:  # Check top 10 candidates
+                    c_loc = spawn_points[c_idx].location
+                    nearby = sum(1 for sp in spawn_points 
+                                if math.sqrt((sp.location.x - c_loc.x)**2 + (sp.location.y - c_loc.y)**2) < 50.0)
+                    density_scores.append((c_idx, nearby))
+                # Pick from top 3 densest areas
+                density_scores.sort(key=lambda x: x[1], reverse=True)
+                top_dense = [idx for idx, _ in density_scores[:3]]
+                if top_dense:
+                    goal_idx = random.choice(top_dense)
+            
+            goal = spawn_points[goal_idx].location
+            straight_dist = math.sqrt((goal.x - start.x)**2 + (goal.y - start.y)**2)
             
             plan = grp.trace_route(start, goal)
             waypoints = [wp for wp, _ in plan]
             
-            print(f"[INFO] Planner route: start={start_idx}, goal={goal_idx}, straight-line dist={dist:.1f}m, waypoints={len(waypoints)}")
+            # Calculate route complexity (total turning angle as proxy for curves)
+            total_turn = 0.0
+            for i in range(1, len(waypoints)):
+                prev_yaw = waypoints[i-1].transform.rotation.yaw
+                curr_yaw = waypoints[i].transform.rotation.yaw
+                delta = abs(curr_yaw - prev_yaw)
+                if delta > 180:
+                    delta = 360 - delta
+                total_turn += delta
+            
+            print('=' * self.print_length)
+            print(f"[INFO][AGENT CARLA]: Planner route for duration={self.duration}s (target dist={target_distance:.0f}m @ {avg_speed_mps:.1f}m/s)")
+            print(f"[INFO][AGENT CARLA]: start={start_idx}, goal={goal_idx}, straight-line={straight_dist:.1f}m, waypoints={len(waypoints)}, candidates={len(candidates)}")
+            print(f"[INFO][AGENT CARLA]: Route complexity: total_turn={total_turn:.1f}°, avg_turn_per_wp={total_turn/max(1,len(waypoints)):.2f}°")
+            print('=' * self.print_length)
             return waypoints, start_idx
         except Exception as e:
             # Planner unavailable or failed — fall back to parent's predefined route
+            import traceback
             print('=' * self.print_length)
+            print('[WARNING]: agents planner failed, falling back to short predefined route')
+            print(f'[WARNING]: Exception type: {type(e).__name__}')
+            print(f'[WARNING]: Exception message: {str(e)}')
+            print('[WARNING]: Full traceback:')
+            traceback.print_exc()
             print('=' * self.print_length)
-            print(f"[WARNING]: agents planner unavailable or failed:\n{e}\n[WARNING]: falling back to predefined routes")
-            print('=' * self.print_length)
+            print('[WARNING]: Using fallback short route (NOT suitable for long runs)')
             print('=' * self.print_length)
             return super().get_predefined_route()
 
@@ -209,7 +272,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                     break
                 time.sleep(0.5)
             if pending > 0:
-                print(f"[WARN]: {pending} frames still in buffer after {max_wait}s wait")
+                print(f"[WARNING]: {pending} frames still in buffer after {max_wait}s wait")
             else:
                 print("[INFO]: All images flushed to disk")
             
@@ -246,26 +309,18 @@ def main():
     
     args = parser.parse_args()
     
+    # Use provided weather or default to ClearNoon if empty
+    weather_arg = args.weather if args.weather else 'ClearNoon'
+    
     sim = LongJapaneseStyleAutopilot(
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
         fps=args.fps,
         spawn_idx=args.spawn_index,
-        random_spawn=args.random_spawn
+        random_spawn=args.random_spawn,
+        weather=weather_arg
     )
-    # Apply weather if provided (best-effort; ignore if CARLA not available)
-    if getattr(args, 'weather', ''):
-        try:
-            wp = _resolve_weather_param(args.weather)
-            if wp is not None and hasattr(sim, 'world'):
-                try:
-                    sim.world.set_weather(wp)
-                    print(f"[INFO] Applied CARLA weather preset: {args.weather}")
-                except Exception as e:
-                    print(f"[WARNING] Failed to apply weather: {e}")
-        except Exception as e:
-            print(f"[WARNING] Unknown weather preset '{args.weather}': {e}")
     # Print an estimate of expected recorded frames using current inputs
     try:
         est = sim.estimate_recorded_frames(

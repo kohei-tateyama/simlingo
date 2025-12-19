@@ -137,33 +137,22 @@ git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
 ```bash
-git fetch myfork --prune && git rev-list --left-right --count myfork/main...myfork/feat/michele
-git push --dry-run myfork feat/michele:main # safrer vesion
-git fetch myfork && git branch -r --verbose --sort=-committerdate | sed -n '1,20p' # checking 
+git fetch myfork --prune # && git rev-list --left-right --count myfork/main...myfork/feat/michele
+git checkout main
+git merge --no-ff feat/michele -m "merge: bring feat/michele into main"
+# git push --dry-run myfork feat/michele:main # safrer vesion
+# git fetch myfork && git branch -r --verbose --sort=-committerdate | sed -n '1,20p' # checking 
+git push myfork main
+```
+To switch back again to the feat/michele branch
+```bash
+git stash push -m "wip: stash before switching to feat/michele" || true && git checkout feat/michele && git status --porcelain --branch && git branch -vv && git stash list -n 5
 ```
 ---
 
 ## NEW dataset (enriching the simlingo one)
 
 What we can vary `japanese_driving_autopilot_cameras.py` and its _long_ version `japanese_driving_autopilot_cameras_long.py`
-
-```bash
-japanese_driving_autopilot_cameras.py [-h] [--autopilot]
-                                            [--duration DURATION]
-                                            [--route {highway,urban,simple}]
-                                            [--fps FPS] 
-                                            [--weather WEATHER]
-                                            [--spawn-index SPAWN_INDEX]
-```
-
-Simlingo strcture of the databased was:
-`/database/simlingo_v2_2025_01_10/commentary/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150$`
-In our case, it will be:
-`/database/simlingo_v2_2025_01_10/<>/simlingo/training_<>_scenario/routes_training/random_weather_seed_1_balanced_<>$`
-
----
-
-## Example of runs
 
 Via wrapper script with long agent
 `bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --autopilot-long --spawn-index 42`

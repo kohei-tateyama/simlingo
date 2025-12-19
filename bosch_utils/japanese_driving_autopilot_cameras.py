@@ -306,6 +306,8 @@ class JapaneseStyleAutopilot:
             self._debug_log_path = None
         # By default do not print debug lines to stdout (can be enabled)
         self._print_debug = False
+        # GPS trajectory tracking (XY positions)
+        self._gps_trajectory = []
 
     def _log_debug(self, msg):
         try:
@@ -431,8 +433,8 @@ class JapaneseStyleAutopilot:
             except Exception:
                 pass
 
-        # Spawn NPC vehicles
-        self.spawn_npc_vehicles(num_vehicles=30)
+        # NOTE: NPCs are spawned AFTER ego vehicle to avoid blocking spawn points
+        # See spawn_player_vehicle() which calls spawn_npc_vehicles() after ego spawns
 
     def enforce_driving_side(self, side='left', margin=0.10):
         """Compute a safe lateral lane offset (meters) for left/right driving and apply it.
@@ -1007,8 +1009,41 @@ class JapaneseStyleAutopilot:
         spawn_points = self.world.get_map().get_spawn_points()
         spawn_point = spawn_points[start_idx] if start_idx < len(spawn_points) else spawn_points[0]
         
-        self.player_vehicle = self.world.spawn_actor(vehicle_bp, spawn_point)
-        print(f"[INFO]: Player vehicle spawned at {spawn_point.location}")
+        # Try to spawn with collision retry logic
+        max_spawn_attempts = min(50, len(spawn_points))  # Try up to 50 points
+        spawn_attempt = 0
+        spawned = False
+        
+        while spawn_attempt < max_spawn_attempts and not spawned:
+            try:
+                # Try preferred spawn point first, then cycle through all available
+                if spawn_attempt == 0:
+                    current_spawn = spawn_point
+                else:
+                    alt_idx = (start_idx + spawn_attempt) % len(spawn_points)
+                    current_spawn = spawn_points[alt_idx]
+                    
+                self.player_vehicle = self.world.spawn_actor(vehicle_bp, current_spawn)
+                spawned = True
+                if spawn_attempt > 0:
+                    print(f"[INFO]: Player spawned at alt index {(start_idx + spawn_attempt) % len(spawn_points)} after {spawn_attempt + 1} attempts")
+                else:
+                    print(f"[INFO]: Player spawned at requested index {start_idx}")
+                break
+            except RuntimeError as e:
+                if "collision" in str(e).lower():
+                    spawn_attempt += 1
+                    if spawn_attempt >= max_spawn_attempts:
+                        print(f"[ERROR]: All {max_spawn_attempts} spawn points blocked")
+                        raise
+                else:
+                    raise
+        
+        # Now spawn NPC vehicles AFTER ego is placed (avoids blocking ego spawn)
+        try:
+            self.spawn_npc_vehicles(num_vehicles=30)
+        except Exception as e:
+            print(f"[WARN]: NPC spawn issues: {e}")
         
         if self.autopilot:
             # Enable autopilot with Japanese traffic settings
@@ -1197,6 +1232,9 @@ class JapaneseStyleAutopilot:
                 json.dump(measurements, f)
         except Exception as e:
             print(f"Error saving measurements: {e}")
+        
+        # Track GPS trajectory for plotting
+        self._gps_trajectory.append([float(transform.location.x), float(transform.location.y)])
         
         # Build boxes JSON: collect nearby vehicles and walkers (relative positions to ego)
         boxes_data = []
@@ -1497,6 +1535,54 @@ class JapaneseStyleAutopilot:
             print(f"[INFO]: All training-format data saved to {self.folderpath}")
         except Exception as e:
             print(f"[ERROR]: Failed to save results.json.gz: {e}")
+        
+        # Save GPS trajectory plot
+        self._save_gps_plot()
+    
+    def _save_gps_plot(self, line_width=3, font_size=14, font_size_title=16):
+        """Save GPS trajectory plot as GPS.jpg in output folder
+        """
+        if not self._gps_trajectory or len(self._gps_trajectory) < 2:
+            print("[INFO]: Not enough GPS points to plot trajectory")
+            return
+        
+        try:
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend for headless mode
+            import matplotlib.pyplot as plt
+            
+            # Extract X and Y coordinates
+            xs = [pt[0] for pt in self._gps_trajectory]
+            ys = [pt[1] for pt in self._gps_trajectory]
+            
+            # Pull plot style values from config if available
+            try:
+                plot_cfg = cfg or {}
+            except Exception:
+                plot_cfg = {}
+
+            lw = float(plot_cfg.get('LINE_WIDTH', line_width))
+            fs = int(plot_cfg.get('FONT_SIZE', font_size))
+            fst = int(plot_cfg.get('FONT_SIZE_TITLE', font_size_title))
+            alpha_grid = float(plot_cfg.get('ALPHA_GRID', 0.7))
+            alpha_legend = float(plot_cfg.get('ALPHA_LEGEND', 0.3))
+
+            # Create plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.plot(xs, ys, linewidth=lw, color='blue', alpha=max(0.05, min(1.0, 1.0 - alpha_legend)))
+            ax.set_xlabel('X [m]', fontsize=fs)
+            ax.set_ylabel('Y [m]', fontsize=fs)
+            ax.set_title('Vehicle GPS Trajectory', fontsize=fst)
+            ax.grid(True, alpha=alpha_grid)
+            ax.axis('equal')
+            
+            # Save plot
+            gps_path = os.path.join(self.folderpath, 'GPS.jpg')
+            plt.savefig(gps_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            print(f"[INFO]: Saved GPS trajectory plot to {gps_path}")
+        except Exception as e:
+            print(f"[WARNING]: Failed to save GPS plot: {e}")
         
     def run(self):
         """Run autopilot simulation"""

@@ -2,7 +2,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./open_every50_code.sh [recording_folder] [viewer] [step] [ls ]
+# Usage: ./open_imgs_code.sh [recording_folder] [viewer] [step] [ls ]
 #  recording_folder: path to a recording run folder containing 'rgb/' (default: current dir)
 #  viewer: optional, defaults to 'code' (VS Code). Pass 'xdg-open' or 'feh' to use a different viewer.
 
@@ -13,6 +13,7 @@ VIEWER="${2:-code}"
 STEP="${3:-50}"
 # Which camera images to open (F, B, LF, RF, LB, RB, patched)
 WHICH_IMGS="${4:-patched}"
+TYPE="${5:-jpg}"  # png, jpg, odd
 
 # Resolve root rgb folder
 ROOT="${RECORDING_DIR%/}/rgb"
@@ -34,7 +35,7 @@ last_nz=${last_nz:-0}
 files=()
 for ((n=0; n<=last_nz; n+=$STEP)); do
   idx=$(printf "%0${width}d" "$n")
-  img="$ROOT/${idx}/${WHICH_IMGS}.png"
+  img="$ROOT/${idx}/${WHICH_IMGS}.${TYPE}"
   if [[ -f "$img" ]]; then
     files+=("$img")
     echo "[INFO]: Opening $img"

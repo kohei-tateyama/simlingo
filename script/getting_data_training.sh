@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # Script to run many data collection jobs via script/run_carla_mp_pilot_script.sh
 # Usage:
 #   ./script/getting_data_training.sh [--dry-run]
 # Edit arrays below to change the combinations.
+# NOTE: This script continues execution even if individual tasks fail.
 
 DRY_RUN=0
 if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
@@ -33,6 +34,12 @@ fi
 # Small pause between launches to avoid accidental overload
 PAUSE_SECS=2
 
+# Track successes and failures
+TOTAL_TASKS=0
+SUCCESS_COUNT=0
+FAILURE_COUNT=0
+FAILED_TASKS=()
+
 for agent in "${AGENTS[@]}"; do
   for town in "${TOWNS[@]}"; do
     for route_type in "${ROUTE_TYPES[@]}"; do
@@ -47,12 +54,24 @@ for agent in "${AGENTS[@]}"; do
             CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" $AGENT_FLAG --fps 20 --spawn-index "$spawn_idx" --weather "$weather" )
 
             # Print command for logging / review
-            echo "[RUN] town=$town route=$route_type weather=$weather spawn=$spawn_idx duration=${duration}s agent=$agent"
+            TASK_ID="town=$town route=$route_type weather=$weather spawn=$spawn_idx duration=${duration}s agent=$agent"
+            echo "[RUN] $TASK_ID"
             echo "      ${CMD[*]}"
 
+            TOTAL_TASKS=$((TOTAL_TASKS + 1))
+
             if [[ $DRY_RUN -eq 0 ]]; then
-              # Execute
-              "${CMD[@]}"
+              # Execute with error handling - continue even if this task fails
+              if "${CMD[@]}"; then
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                echo "[SUCCESS] Task completed: $TASK_ID"
+              else
+                EXIT_CODE=$?
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+                FAILED_TASKS+=("$TASK_ID (exit code: $EXIT_CODE)")
+                echo "[FAILED] Task failed with exit code $EXIT_CODE: $TASK_ID"
+                echo "[INFO] Continuing with remaining tasks..."
+              fi
               sleep $PAUSE_SECS
             fi
 
@@ -63,4 +82,25 @@ for agent in "${AGENTS[@]}"; do
   done
 done
 
+echo ""
+echo "========================================"
 echo "All jobs processed."
+echo "========================================"
+echo "Total tasks: $TOTAL_TASKS"
+echo "Successful:  $SUCCESS_COUNT"
+echo "Failed:      $FAILURE_COUNT"
+
+if [[ $FAILURE_COUNT -gt 0 ]]; then
+  echo ""
+  echo "Failed tasks:"
+  for failed_task in "${FAILED_TASKS[@]}"; do
+    echo "  - $failed_task"
+  done
+  echo ""
+  echo "NOTE: Script completed with $FAILURE_COUNT failure(s)"
+  exit 1
+else
+  echo ""
+  echo "All tasks completed successfully!"
+  exit 0
+fi
