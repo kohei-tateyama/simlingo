@@ -2,6 +2,8 @@
 
 Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azure ML using Standard_NC16as_T4_v3 (4x T4 GPUs, 64 vCPUs, 440GB RAM).
 
+---
+
 ## Pre
 
 1. **Azure ML Workspace**: Have your `subscription_id`, `resource_group`, and `workspace` name ready
@@ -15,6 +17,8 @@ Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azur
    pip install azure-ai-ml azure-identity
    ```
 
+---
+
 ## Setup
 
 ### 1. Configure Azure Credentials
@@ -22,61 +26,77 @@ Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azur
 Run the setup script and export the credentials it prints:
 ```bash
 bash azure_deploy_mp/setup_azure.sh
-# Then copy and run the export commands it prints
 export AZ_SUBSCRIPTION_ID="your-subscription-id"
 export AZ_RESOURCE_GROUP="your-resource-group"
 export AZ_WORKSPACE="your-workspace-name"
 ```
-
-Keep these exported in your shell session for all subsequent commands. 
+This script `setup_azure.sh` will run the prerequisistes. 
 
 ### 2. Upload Your Dataset
 
-Training requires **~847GB** from `database/` (~847GB):
+Training requires **~847GB** from `database/` (~847GB) (not ours):
 - `simlingo_v2_2025_01_10/` (846GB)
 - `bucketsv2_simlingo/` (647MB)
-Total: 
+- `recording_japan_xml/` (?) [optional] (ours)
 
-**Upload to Azure Blob Storage** (~3-6 hours, run in tmux):
+**Upload to Azure Blob Storage**:
 ```bash
+tmux new -s upload # run this so it will not dosconnect
 bash azure_deploy_mp/upload_dataset.sh
 ```
-
 This script:
 - Creates Azure storage account + container
 - Uploads dataset using `azcopy` (resumable)
 - Registers datastore in Azure ML
 - Cost: ~$15/month for storage
 
-### 3. Configure Training Parameters (Optional)
+**Example `tmux` workflow.**
+Start a new tmux session named 'simlingo-upload' and run the upload inside it:
+```bash
+tmux new -s simlingo-upload
+bash azure_deploy_mp/upload_dataset.sh
+```
+Detach the session without stopping the upload: press Ctrl-B then D
+Re-attach later to check progress:
+```bash
+tmux attach -t simlingo-upload
+```
+Or run the whole command in one line (nosn-interactive session):
+```bash
+tmux new -d -s simlingo-upload "bash azure_deploy_mp/upload_dataset.sh"
+```
+
+### 3. Configure Training Param (Optional)
 
 Set environment variables to customize training:
 
 ```bash
-export BATCH_SIZE=8                             # Batch size per GPU (default: 8)
+export BATCH_SIZE=4                             # Batch size per GPU (default: 4, up to 4). 
 export NUM_GPUS=4                               # Number of GPUs (default: 4 for NC16as_T4_v3)
 export EXPERIMENT_NAME=simlingo_seed1           # Experiment name (default: simlingo_seed1)
 export AZ_COMPUTE=simlingo-gpu-cluster          # Compute cluster name
 export AZ_COMPUTE_SKU=Standard_NC16as_T4_v3     # VM SKU
 ```
 
+---
+
 ## Launch Training
 
-**Important**: You must export Azure credentials first (see Setup step 1)
+**Important**: You must export **Azure credentials** first (see, Setup step 1)
 
 Then run step-by-step:
 ```bash
 bash azure_deploy_mp/setup_azure.sh      # Configure credentials (prints export commands)
-# Export the printed variables
-bash azure_deploy_mp/upload_dataset.sh   # Upload 846GB dataset
+# Export the printed variables refer to line 29-21 on this doc.
+bash azure_deploy_mp/upload_dataset.sh   # Upload ~850GB dataset
 bash azure_deploy_mp/launch_training.sh  # Submit training job
 ```
 
-**Note**: `one_execution_azure.sh` cannot run fully automated because credentials must be exported interactively.
+---
 
 ## Monitor Training
 
-### In Terminal
+### In Terminal `bash`
 The script automatically streams logs. Press `Ctrl+C` to stop streaming (job continues).
 
 ### In Azure ML Studio
@@ -88,11 +108,15 @@ The script automatically streams logs. Press `Ctrl+C` to stop streaming (job con
 az ml job list --workspace-name YOUR_WORKSPACE --resource-group YOUR_RESOURCE_GROUP
 ```
 
+---
+
 ## Training Outputs
 
 - **Checkpoints**: Saved in Azure ML's outputs folder
 - **Logs**: Available in Azure ML Studio under "Outputs + logs" tab
-- **WandB**: Metrics logged to WandB project `simlingo-azure` (if configured)
+- **WandB**: Metrics logged to WandB project `simlingo-azure`
+
+---
 
 ## File Structure
 
@@ -102,13 +126,14 @@ azure_deploy_mp/
 ├── setup_azure.sh          # Configure Azure credentials
 ├── upload_dataset.sh       # Upload dataset to Azure Blob
 ├── launch_training.sh      # Submit training job
-├── one_execution_azure.sh  # Run all steps
 ├── azure_training.py       # Training entrypoint on Azure
 ├── submit_to_azure.py      # Job submission logic
 └── README.md               # This file
 ```
 
-## Cost Estimation
+---
+
+<!-- ## Cost Estimation
 
 Standard_NC16as_T4_v3 pricing (pay-as-you-go, East US):
 - **~$1.50-2.00/hour** depending on region
@@ -118,7 +143,7 @@ Standard_NC16as_T4_v3 pricing (pay-as-you-go, East US):
 **Cost-saving tips**:
 - Use lower `idle_time_before_scale_down` (set in submit_to_azure.py)
 - Start with smaller batch sizes to test
-- Use spot instances if available (add `tier="Spot"` to AmlCompute)
+- Use spot instances if available (add `tier="Spot"` to AmlCompute) -->
 
 ## Troubleshooting
 
@@ -136,7 +161,7 @@ Ensure you're logged in: `az login` and have correct subscription ID.
 ### "Dataset not found"
 Run `bash azure_deploy_mp/upload_dataset.sh` to upload the 846GB dataset to Azure Blob Storage.
 
-## Advanced Configuration
+<!-- ## Advanced Configuration
 
 ### Multi-GPU Training
 The script automatically uses all 4 GPUs on Standard_NC16as_T4_v3:
@@ -149,21 +174,11 @@ export BATCH_SIZE=8  # Effective batch size = 4 GPUs × 8 = 32
 ```bash
 export AZ_COMPUTE_SKU=Standard_NC24ads_A100_v4  # 1x A100
 python azure_deploy_mp/submit_to_azure.py
-```
+``` -->
 
 ### Custom Hydra Config
 Edit [azure_training.py](azure_training.py) line 48-53 to pass additional Hydra parameters.
 
-## Next Steps
-
-After training completes:
-1. Download checkpoints from Azure ML Studio
-2. Evaluate on CARLA using `team_code/agent_simlingo.py`
-3. See main [SimLingo README](/workspace/simlingo/README.md) for evaluation instructions
-
-
-
----
 ---
 
 # Quick Start Guide

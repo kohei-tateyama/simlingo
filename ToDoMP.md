@@ -2,18 +2,20 @@
 
 This is a `.md` file to I remeber what to do next.
 
+**Compeltely random stuff listed down.**
+
 ## Checklist
 
 Use the checklist below to track progress on finishing `japanese_driving_autopilot.py`. Check an item by changing `- [ ]` to `- [x]`.
 
 - [x] Change the per-frame JSON output format to match training dataset (gzipped per-frame files `measurements/0000.json.gz` and `boxes/0000.json.gz`, plus top-level `records.json.gz` and `results.json.gz`).
 - [x] Save up to 6 images per timestep into `rgb/` (names `0000.jpg` .. `0007.jpg`), and merge those implement multiple cameras producing those images.
-- [ ] Move all the `.sh` into a folder `scripts/`
-- [ ] Create multiple autonomous path to collect data from CARLA. 
-- [ ] Think of a way to insert a `prompt` or `text` field to per-frame measurements and document how to set it.
-- [ ] Run an end-to-end recording (using keyboard) and validate outputs.
+- [x] Move all the `.sh` into a folder `scripts/`
+- [x] Create multiple autonomous path to collect data from CARLA. 
+- [x] Think of a way to insert a `prompt` or `text` field to per-frame. [2BTESTED]
+- [x] Run an end-to-end recording (using keyboard) and validate outputs.
 - [x] Write the docs on this part.
-- [ ] `.sh` file to run the possible combination of the `japanese_driving_autopilot_cameras.py`
+- [x] `.sh` file to run the possible combination of the `japanese_driving_autopilot_cameras.py`
 
 ## Quick Commands
 

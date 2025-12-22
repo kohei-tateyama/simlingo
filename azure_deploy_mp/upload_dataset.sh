@@ -1,11 +1,13 @@
 #!/bin/bash
-# Quick script to upload SimLingo dataset to Azure Blob Storage
+# Upload Simlingo dataset to Azure (Blob Storage)
 set -e
 
 source "$(dirname "$0")/common.sh"
 
-info "SimLingo Dataset Upload to Azure"
 
+info "Simlingo (new) Dataset Upload to Azure"
+
+info "[Step 0]: Preparing Account"
 # Check if Azure credentials are set
 if [ -z "$AZ_SUBSCRIPTION_ID" ] || [ -z "$AZ_RESOURCE_GROUP" ] || [ -z "$AZ_WORKSPACE" ]; then
     echo "ERROR: Azure credentials not set"
@@ -18,14 +20,16 @@ fi
 STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-simlingostorage$(date +%s)}"
 CONTAINER_NAME="${CONTAINER_NAME:-simlingo-data}"
 DATASET_DIR="/workspace/simlingo/database"
+info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
+info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
+info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
 
 info "Configuration"
-echo "Storage Account: $STORAGE_ACCOUNT"
-echo "Container: $CONTAINER_NAME"
-echo "Dataset: $DATASET_DIR"
+echo "Storage Account : $STORAGE_ACCOUNT"
+echo "Container       : $CONTAINER_NAME"
+echo "Dataset         : $DATASET_DIR"
 echo ""
 
-# Check if dataset exists
 if [ ! -d "$DATASET_DIR/simlingo_v2_2025_01_10" ]; then
     echo "ERROR: Dataset not found at $DATASET_DIR/simlingo_v2_2025_01_10"
     exit 1
@@ -38,13 +42,15 @@ echo "Data size: $SIZE_DATA"
 echo "Buckets size: $SIZE_BUCKETS"
 echo ""
 
-read -p "This will upload ~846GB. Continue? [y/N]: " confirm
+read -p "This will upload. Continue? [y/N]: " confirm
 if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
     echo "Upload cancelled."
     exit 0
 fi
 
-info "Step 1: Creating Storage Account"
+#####
+
+info "[Step 1]: Creating Storage Account"
 if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$AZ_RESOURCE_GROUP" &>/dev/null; then
     echo "Storage account $STORAGE_ACCOUNT already exists"
 else
@@ -62,7 +68,9 @@ CONN_STR=$(az storage account show-connection-string \
   --resource-group "$AZ_RESOURCE_GROUP" \
   --query connectionString -o tsv)
 
-info "Step 2: Creating Container"
+#####
+
+info "[Step 2]: Creating Container"
 if az storage container exists --name "$CONTAINER_NAME" --connection-string "$CONN_STR" --query exists -o tsv | grep -q true; then
     echo "Container $CONTAINER_NAME already exists"
 else
@@ -71,7 +79,9 @@ else
       --connection-string "$CONN_STR"
 fi
 
-info "Step 3: Installing AzCopy (if needed)"
+#####
+
+info "[Step 3]: Installing AzCopy (if needed)" # Microsoft’s high-performance command-line tool for Azure Blob/File/Table storage
 if ! command -v azcopy &> /dev/null; then
     echo "Installing azcopy..."
     wget -q https://aka.ms/downloadazcopy-v10-linux
@@ -83,7 +93,9 @@ else
     echo "azcopy already installed"
 fi
 
-info "Step 4: Generating SAS Token"
+#####
+
+info "[Step 4]: Generating SAS (Shared Access Signature) Token" # This is done for uploading data securely
 EXPIRY=$(date -u -d "7 days" '+%Y-%m-%dT%H:%MZ')
 SAS_TOKEN=$(az storage container generate-sas \
   --account-name "$STORAGE_ACCOUNT" \
@@ -95,9 +107,11 @@ SAS_TOKEN=$(az storage container generate-sas \
 
 BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}"
 
-info "Step 5: Uploading Dataset (this will take hours)"
+#####
+
+info "[Step 5]: Uploading Dataset (this will take hours)"
 echo "Starting upload at $(date)"
-echo "TIP: Run this in tmux/screen to avoid interruption"
+# echo "TIP: Run this in tmux/screen to avoid interruption"
 echo ""
 
 # Upload main dataset
@@ -117,7 +131,17 @@ azcopy copy \
   --recursive \
   --log-level=INFO
 
-info "Step 6: Registering Datastore in Azure ML"
+# # Upload ours dataset
+# echo "Uploading xml_recording_japan (ours)..."
+# azcopy copy \
+#   "$DATASET_DIR/xml_recording_japan" \
+#   "${BLOB_URL}/xml_recording_japan?${SAS_TOKEN}" \
+#   --recursive \
+#   --log-level=INFO
+
+#####
+
+info "[Step 6]: Registering Datastore in Azure ML"
 
 # Get storage key
 STORAGE_KEY=$(az storage account keys list \
@@ -162,8 +186,5 @@ info "Upload Complete!"
 echo "Dataset uploaded to: ${BLOB_URL}"
 echo "Datastore name: simlingo_datastore"
 echo ""
-echo "Next steps:"
-echo "1. Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --connection-string '$CONN_STR' --output table | head"
-echo "2. Update training scripts to use datastore (see DATASET_UPLOAD.md)"
-echo ""
-echo "Storage cost: ~\$15.57/month for 846GB"
+info "Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --connection-string '$CONN_STR' --output table | head"
+# echo "Storage cost: ~\$15.57/month for 846GB"

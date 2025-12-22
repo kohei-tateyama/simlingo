@@ -1,7 +1,5 @@
 #!/bin/bash
 # Quick launch script for SimLingo training on Azure ML
-# Usage: ./launch_training.sh
-
 set -e
 
 cd /workspace/simlingo
