@@ -1,0 +1,9 @@
+# Azure ML generated files
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local test outputs
+outputs/
+logs/

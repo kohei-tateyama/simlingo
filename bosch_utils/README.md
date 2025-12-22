@@ -39,7 +39,7 @@ The folder contains an subone, namely `/tools/`, that contains keys task for col
 
 - `script/run_carla_mp_pilot_script.sh` most important one. PLEASE CHECK THE DOCUMENTATION, WE CAN VARY MANY MANY PARAM.
 - `script/open_imgs_code.sh` givin the path, open, using an application (VS code default) the pictures. Check the helper for multple options.
-- `script/getting_data_training.sh` bash filed aimed at recording nall the new data. Run mutliple times the `script/run_carla_mp_pilot_script.sh` varying inputs. 
+- `script/getting_data_training.sh` [TOBETESTED] bash filed aimed at recording nall the new data. Run mutliple times the `script/run_carla_mp_pilot_script.sh` varying inputs. 
 - `script/how_to_run_headless2_script.sh` run the simlingo agent headless. 
 - `script/run_carla_mp_viz_pilot_script.sh` [UNUSED] similar to `script/run_carla_mp_pilot_script.sh` but spawn the city and the car.
 

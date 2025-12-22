@@ -24,7 +24,6 @@ WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon H
 # Agent modes: "no-autopilot-long" -> no flag, "autopilot-long" -> --autopilot-long
 AGENTS=(no-autopilot-long autopilot-long)
 
-# Path to wrapper script (relative to repo root)
 WRAPPER=script/run_carla_mp_pilot_script.sh
 
 if [[ ! -x "$WRAPPER" && ! -f "$WRAPPER" ]]; then

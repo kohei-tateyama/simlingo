@@ -131,8 +131,8 @@ git log --oneline --decorate -n 5
 ```bash
 cd /workspace/simlingo
 git checkout feat/michele
-git add -A && git status --porcelain --branch
-git commit -m "feat(michele): japanese/uk driving (sligly more) stable" || echo "No changes to commit"
+git add -A # && git status --porcelain --branch
+git commit -m "feat(michele): major improv(s) running curve + .sh" || echo "No changes to commit"
 git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
@@ -156,7 +156,7 @@ What we can vary `japanese_driving_autopilot_cameras.py` and its _long_ version 
 
 Via wrapper script with long agent
 `bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --autopilot-long --spawn-index 42`
-
+`cd /workspace/simlingo && bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 40 --route urban --autopilot-long --spawn-index 10 --weather ClearNoon`
 ---
 
 ## Future directions and ideas
@@ -279,7 +279,21 @@ load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo
 PY
 ```
 
-to compare the content of all the *.json.gz, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`.
+to compare the content of all the *.json.gz, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`. I am investigating this here.
+```bash
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo$ du -sh /workspace/simlingo/database/simlingo_v2_2025_01_10 /workspace/simlingo/database/bucketsv2_simlingo 2>/dev/null
+846G    /workspace/simlingo/database/simlingo_v2_2025_01_10
+647M    /workspace/simlingo/database/bucketsv2_simlingo
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo$ ls -lh /workspace/simlingo/database/simlingo_v2_2025_01_10/ 2>/dev/null | head -15
+total 16K
+drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 11:21 commentary
+drwxrwsrwx 3 tko3yh workspace 4.0K Nov 20 11:24 data
+drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:41 dreamer
+drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:45 drivelm
+```
 
 
+### To move data out of this machine to my windows cetricx
+scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"  
+scp -r pim1yh@10.162.163.183:/workspace/simlingo/script/ "C:\Users\PIM1YH\Downloads\"
 
