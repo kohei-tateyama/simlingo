@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Submit SimLingo training job to Azure ML."""
 import os
 from pathlib import Path

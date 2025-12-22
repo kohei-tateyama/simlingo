@@ -132,7 +132,7 @@ git log --oneline --decorate -n 5
 cd /workspace/simlingo
 git checkout feat/michele
 git add -A # && git status --porcelain --branch
-git commit -m "feat(michele): major improv(s) running curve + .sh" || echo "No changes to commit"
+git commit -m "feat(michele): init comment Azure ML" || echo "No changes to commit"
 git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
