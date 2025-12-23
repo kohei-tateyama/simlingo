@@ -155,7 +155,7 @@ Ensure you're logged in: `az login` and have correct subscription ID.
 - Request quota increase in Azure Portal
 
 ### "Out of memory during training"
-- Reduce `BATCH_SIZE`: `export BATCH_SIZE=4`
+- Reduce `BATCH_SIZE`: `export BATCH_SIZE=4`. This will not work when > 2.
 - Reduce number of GPUs: `export NUM_GPUS=2`
 
 ### "Dataset not found"
@@ -259,6 +259,5 @@ Check quota in Azure Portal -> Subscriptions -> Usage + quotas
 - [launch_training.sh](launch_training.sh) - Launch training
 - [submit_to_azure.py](submit_to_azure.py) - Job submission script
 - [azure_training.py](azure_training.py) - Training entrypoint
-- [Dockerfile](Dockerfile) - Environment definition
 
 

@@ -1,7 +1,17 @@
 """Submit SimLingo training job to Azure ML."""
 import os
 from pathlib import Path
-PRINT_STUFF = 80
+from azure_deploy_mp.config import (
+    PRINT_STUFF,
+    SUBSCRIPTION_ID as DEFAULT_SUBSCRIPTION_ID,
+    RESOURCE_GROUP as DEFAULT_RESOURCE_GROUP,
+    WORKSPACE_NAME as DEFAULT_WORKSPACE_NAME,
+    ENV_NAME,
+    DEFAULT_SKU,
+    DEFAULT_MIN_INSTANCES,
+    DEFAULT_MAX_INSTANCES,
+    DEFAULT_IDLE_TIME,
+)
 
 SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", "YOUR_SUBSCRIPTION_ID")
 RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", "YOUR_RESOURCE_GROUP")
@@ -12,17 +22,17 @@ proj_root = Path(__file__).resolve().parent.parent
 os.chdir(proj_root)
 
 # Get workspace variables from environment
-SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", SUBSCRIPTION_ID)
-RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", RESOURCE_GROUP)
-WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", WORKSPACE_NAME)
+SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", DEFAULT_SUBSCRIPTION_ID)
+RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", DEFAULT_RESOURCE_GROUP)
+WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", DEFAULT_WORKSPACE_NAME)
 
 print("=" * PRINT_STUFF)
-print("SimLingo Azure ML Job Submission")
+print("[INFO]: SimLingo Azure ML Job Submission")
 print("=" * PRINT_STUFF)
-print(f"Working directory: {os.getcwd()}")
-print(f"Subscription ID: {SUBSCRIPTION_ID}")
-print(f"Resource Group: {RESOURCE_GROUP}")
-print(f"Workspace: {WORKSPACE_NAME}")
+print(f"Working directory : {os.getcwd()}")
+print(f"Subscription ID   : {SUBSCRIPTION_ID}")
+print(f"Resource Group    : {RESOURCE_GROUP}")
+print(f"Workspace         : {WORKSPACE_NAME}")
 print("=" * PRINT_STUFF)
 
 try:
@@ -30,7 +40,7 @@ try:
     from azure.ai.ml.entities import AmlCompute
     from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 except Exception as ex:
-    print("azure.ai.ml SDK not available:", ex)
+    print("[ERROR]: azure.ai.ml SDK not available:", ex)
     raise
 
 # Authenticate
@@ -49,34 +59,38 @@ ml_client = MLClient(
 
 # Create or reuse compute cluster
 compute_name = os.environ.get("AZ_COMPUTE", "simlingo-gpu-cluster")
-compute_sku = os.environ.get("AZ_COMPUTE_SKU", "Standard_NC16as_T4_v3")
+compute_sku = os.environ.get("AZ_COMPUTE_SKU", DEFAULT_SKU)
 
 try:
     compute = ml_client.compute.get(compute_name)
-    print(f"Using existing compute '{compute_name}' ({compute.size})")
+    print(f"[INFO]: Using existing compute '{compute_name}' ({compute.size})")
 except Exception:
-    print(f"Creating compute '{compute_name}' with SKU '{compute_sku}'...")
+    print(f"[INFO]: Creating compute '{compute_name}' with SKU '{compute_sku}'...")
     compute_cluster = AmlCompute(
         name=compute_name,
         type="amlcompute",
         size=compute_sku,
-        min_instances=0,
-        max_instances=1,
-        idle_time_before_scale_down=1800,
+        min_instances=DEFAULT_MIN_INSTANCES,
+        max_instances=DEFAULT_MAX_INSTANCES,
+        idle_time_before_scale_down=DEFAULT_IDLE_TIME,
     )
     ml_client.compute.begin_create_or_update(compute_cluster).result()
-    print(f"Compute '{compute_name}' created successfully")
+    print(f"[INFO]: Compute '{compute_name}' created successfully")
 
 # Use Azure curated PyTorch GPU environment (includes torch 2.2, cuda 12.1)
-env_name = "AzureML-pytorch-2.2-cuda12.1-gpu"
-print(f"Using curated environment: {env_name}")
+env_name = os.environ.get("AZ_ENV_NAME", ENV_NAME)
+print(f"[INFO]: Using curated environment: {env_name}")
+from azure_deploy_mp.config import DEFAULT_BATCH, DEFAULT_SKU, gpus_for_sku
 
-# Training configuration
-batch_size = int(os.environ.get("BATCH_SIZE", "8"))
-num_gpus = int(os.environ.get("NUM_GPUS", "4"))
+# Training configuration (centralized defaults)
+batch_size = int(os.environ.get("BATCH_SIZE", str(DEFAULT_BATCH)))
+# Resolve default GPUs based on compute SKU unless explicitly set
+compute_sku_env = os.environ.get("AZ_COMPUTE_SKU", DEFAULT_SKU)
+default_gpus = gpus_for_sku(compute_sku_env)
+num_gpus = int(os.environ.get("NUM_GPUS", str(default_gpus)))
 experiment_name = os.environ.get("EXPERIMENT_NAME", "simlingo_seed1")
 
-print(f"Configuration: batch_size={batch_size}, num_gpus={num_gpus}")
+print(f"[INFO]: Configuration: batch_size={batch_size}, num_gpus={num_gpus}")
 
 # Install dependencies and run training
 setup_cmd = """

@@ -16,6 +16,8 @@ Use the checklist below to track progress on finishing `japanese_driving_autopil
 - [x] Run an end-to-end recording (using keyboard) and validate outputs.
 - [x] Write the docs on this part.
 - [x] `.sh` file to run the possible combination of the `japanese_driving_autopilot_cameras.py`
+- [ ] Test the azure pipeline. 
+- [ ] Run the training (one epoch, batch size 1) on Azure.
 
 ## Quick Commands
 
