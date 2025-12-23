@@ -28,8 +28,15 @@ info "Compute   : $AZ_COMPUTE ($AZ_COMPUTE_SKU)"
 info "Training  : batch_size=$BATCH_SIZE, gpus=$NUM_GPUS"
 info "Experiment: $EXPERIMENT_NAME"
 
-# Submit the job
-python azure_deploy_mp/submit_to_azure.py
+# Usage hint
+if [ "${1}" = "--help" ] || [ "${1}" = "-h" ]; then
+    echo "Usage: $0 [--dry-run]"
+    echo "  --dry-run   : Print job spec and do not submit"
+    exit 0
+fi
+
+# Submit the job (forward any args to the python submit script)
+python azure_deploy_mp/submit_to_azure.py "$@"
 
 echo ""
-info "Training job submitted!"
+info "Training job submitted (or dry-run printed)!"

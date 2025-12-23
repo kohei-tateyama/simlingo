@@ -7,6 +7,10 @@ Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azur
 ## Pre
 
 1. **Azure ML Workspace**: Have your `subscription_id`, `resource_group`, and `workspace` name ready
+```bash
+echo $AZ_SUBSCRIPTION_ID $AZ_RESOURCE_GROUP $AZ_WORKSPACE
+az account show 
+```
 2. **Azure CLI** (`setup_azure.sh`):
    ```bash
    curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
@@ -16,7 +20,6 @@ Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azur
    ```bash
    pip install azure-ai-ml azure-identity
    ```
-
 ---
 
 ## Setup
@@ -239,19 +242,6 @@ export EXPERIMENT_NAME=my_test   # Custom name
 
 ---
 
-## Troubleshooting
-
-**"Subscription not found"**
-Run `az login` again
-
-**"Out of memory"**
-Reduce batch size: `export BATCH_SIZE=2` (or 1)
-
-**"Compute creation failed"**
-Check quota in Azure Portal -> Subscriptions -> Usage + quotas
-
----
-
 ## Files
 
 - [README.md](README.md) - Full documentation
@@ -259,5 +249,58 @@ Check quota in Azure Portal -> Subscriptions -> Usage + quotas
 - [launch_training.sh](launch_training.sh) - Launch training
 - [submit_to_azure.py](submit_to_azure.py) - Job submission script
 - [azure_training.py](azure_training.py) - Training entrypoint
+
+
+---
+
+## Quick Run
+
+A compact walkthrough to upload the dataset and submit a training job. Each step includes the exact commands to run and quick notes.
+
+1) Upload dataset (long-running)
+
+Start a `tmux` session so the upload survives SSH disconnects and network blips. Run the upload inside the tmux session so it continues if you detach.
+
+```bash
+# create and attach new session
+tmux new -s simlingo-upload
+# inside tmux, start the upload
+bash azure_deploy_mp/upload_dataset.sh
+# detach (Ctrl-B then D)
+```
+
+Tips:
+- If you prefer a detached start: `tmux new -d -s simlingo-upload "bash azure_deploy_mp/upload_dataset.sh"`.
+- `azcopy` is resumable: if the connection drops, re-run the same `azcopy copy ...` command (the script prints the full command); azcopy will resume where it left off.
+- To re-attach and watch progress: `tmux attach -t simlingo-upload`.
+
+2) Dry-run submit (recommended)
+
+Before submitting a real job, inspect the generated job spec. This prints the job definition (environment, compute, command and env vars) but does not submit it.
+
+```bash
+bash azure_deploy_mp/launch_training.sh --dry-run
+# or directly
+python azure_deploy_mp/submit_to_azure.py --dry-run
+```
+
+Review the printed `command` and `environment_variables` for `BATCH_SIZE`, `NUM_GPUS`, and other settings. If anything looks off, export the desired env vars and re-run the dry-run.
+
+3) Submit training
+
+When ready, submit the training job. This will create (or reuse) the configured compute and stream logs to your terminal.
+
+```bash
+bash azure_deploy_mp/launch_training.sh
+```
+
+Monitor & verify:
+- The submit script prints a Studio URL `View in Azure ML Studio: ...` — use that to inspect logs, outputs and metrics.
+- To list jobs from the CLI: `az ml job list --workspace-name $AZ_WORKSPACE --resource-group $AZ_RESOURCE_GROUP`.
+
+Quick troubleshooting
+- If upload appears incomplete, re-run `upload_dataset.sh` or run the azcopy commands printed in the script; `azcopy` will resume partial uploads.
+- If submission fails due to authentication, run `az login` and ensure `AZ_SUBSCRIPTION_ID`, `AZ_RESOURCE_GROUP`, and `AZ_WORKSPACE` are exported in your shell.
+- For OOM errors during training, reduce `BATCH_SIZE` or `NUM_GPUS` and re-submit.
 
 

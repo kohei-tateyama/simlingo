@@ -40,6 +40,10 @@ if [ -z "$AZ_WORKSPACE" ]; then
 fi
 
 print_sep 80
+echo "A convenience helper was written to: azure_deploy_mp/quick_run.sh"
+echo "Run: bash azure_deploy_mp/quick_run.sh --dry-run   # to inspect job spec"
+echo "Or:  bash azure_deploy_mp/quick_run.sh            # to run interactive submit"
+print_sep 80
 echo "Configuration:"
 info "Subscription   : $AZ_SUBSCRIPTION_ID"
 info "Resource Group : $AZ_RESOURCE_GROUP"
@@ -47,11 +51,50 @@ info "Workspace      : $AZ_WORKSPACE"
 print_sep 80
 
 echo ""
-echo "Run these commands in your shell:"
+# Fetch defaults from python config
+read AZ_ENV_NAME_DEFAULT AZ_COMPUTE_SKU_DEFAULT AZ_MIN_DEFAULT AZ_MAX_DEFAULT AZ_IDLE_DEFAULT DEFAULT_BATCH_DEFAULT <<EOF
+$(python3 - <<'PY'
+from azure_deploy_mp import config
+print(config.ENV_NAME)
+print(config.DEFAULT_SKU)
+print(config.DEFAULT_MIN_INSTANCES)
+print(config.DEFAULT_MAX_INSTANCES)
+print(config.DEFAULT_IDLE_TIME)
+print(config.DEFAULT_BATCH)
+PY
+EOF
+
+echo "Run these commands in your shell (you can edit values below if needed):"
 print_sep 80
 echo "export AZ_SUBSCRIPTION_ID=\"$AZ_SUBSCRIPTION_ID\""
 echo "export AZ_RESOURCE_GROUP=\"$AZ_RESOURCE_GROUP\""
 echo "export AZ_WORKSPACE=\"$AZ_WORKSPACE\""
+
+# Prompt for compute/env settings with sensible defaults from config.py
+read -p "Azure ML environment name [${AZ_ENV_NAME_DEFAULT}]: " AZ_ENV_NAME
+AZ_ENV_NAME=${AZ_ENV_NAME:-$AZ_ENV_NAME_DEFAULT}
+echo "export AZ_ENV_NAME=\"$AZ_ENV_NAME\""
+
+read -p "Azure Compute SKU [${AZ_COMPUTE_SKU_DEFAULT}]: " AZ_COMPUTE_SKU
+AZ_COMPUTE_SKU=${AZ_COMPUTE_SKU:-$AZ_COMPUTE_SKU_DEFAULT}
+echo "export AZ_COMPUTE_SKU=\"$AZ_COMPUTE_SKU\""
+
+read -p "Compute min instances [${AZ_MIN_DEFAULT}]: " AZ_MIN_INSTANCES
+AZ_MIN_INSTANCES=${AZ_MIN_INSTANCES:-$AZ_MIN_DEFAULT}
+echo "export AZ_MIN_INSTANCES=\"$AZ_MIN_INSTANCES\""
+
+read -p "Compute max instances [${AZ_MAX_DEFAULT}]: " AZ_MAX_INSTANCES
+AZ_MAX_INSTANCES=${AZ_MAX_INSTANCES:-$AZ_MAX_DEFAULT}
+echo "export AZ_MAX_INSTANCES=\"$AZ_MAX_INSTANCES\""
+
+read -p "Compute idle seconds before scale-down [${AZ_IDLE_DEFAULT}]: " AZ_IDLE_SECONDS
+AZ_IDLE_SECONDS=${AZ_IDLE_SECONDS:-$AZ_IDLE_DEFAULT}
+echo "export AZ_IDLE_SECONDS=\"$AZ_IDLE_SECONDS\""
+
+read -p "Default batch size [${DEFAULT_BATCH_DEFAULT}]: " DEFAULT_BATCH
+DEFAULT_BATCH=${DEFAULT_BATCH:-$DEFAULT_BATCH_DEFAULT}
+echo "export DEFAULT_BATCH=\"$DEFAULT_BATCH\""
+
 print_sep 80
 
 echo ""

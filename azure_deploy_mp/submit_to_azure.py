@@ -1,5 +1,7 @@
 """Submit SimLingo training job to Azure ML."""
 import os
+import json
+import argparse
 from pathlib import Path
 from azure_deploy_mp.config import (
     PRINT_STUFF,
@@ -113,18 +115,48 @@ job = command(
     },
 )
 
-print("\n" + "=" * PRINT_STUFF)
-print(f"Submitting job...")
-returned_job = ml_client.jobs.create_or_update(job)
-print(f"Job submitted successfully!")
-print(f"Job Name: {returned_job.name}")
-print(f"View in Azure ML Studio: {returned_job.studio_url}")
-print("=" * PRINT_STUFF)
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--dry-run', action='store_true', help='Print job spec and exit without submitting')
+    return p.parse_args()
 
-# Stream logs
-print("\nStreaming job logs (Ctrl+C to stop)...\n")
-try:
-    ml_client.jobs.stream(returned_job.name)
-except KeyboardInterrupt:
-    print("\nLog streaming stopped. Job continues running.")
-    print(f"View status at: {returned_job.studio_url}")
+
+def job_to_dict(job_obj):
+    # Azure ML SDK job objects are not always JSON serializable; extract key fields
+    return {
+        'code': getattr(job_obj, 'code', None),
+        'command': getattr(job_obj, 'command', None),
+        'environment': getattr(job_obj, 'environment', None),
+        'compute': getattr(job_obj, 'compute', None),
+        'display_name': getattr(job_obj, 'display_name', None),
+        'experiment_name': getattr(job_obj, 'experiment_name', None),
+        'environment_variables': getattr(job_obj, 'environment_variables', None),
+    }
+
+
+if __name__ == '__main__':
+    args = parse_args()
+
+    print("\n" + "=" * PRINT_STUFF)
+    print(f"Prepared job spec")
+    job_spec = job_to_dict(job)
+    print(json.dumps(job_spec, indent=2))
+
+    if args.dry_run:
+        print("\nDry run: not submitting job.")
+        exit(0)
+
+    print(f"Submitting job...")
+    returned_job = ml_client.jobs.create_or_update(job)
+    print(f"Job submitted successfully!")
+    print(f"Job Name: {returned_job.name}")
+    print(f"View in Azure ML Studio: {returned_job.studio_url}")
+    print("=" * PRINT_STUFF)
+
+    # Stream logs
+    print("\nStreaming job logs (Ctrl+C to stop)...\n")
+    try:
+        ml_client.jobs.stream(returned_job.name)
+    except KeyboardInterrupt:
+        print("\nLog streaming stopped. Job continues running.")
+        print(f"View status at: {returned_job.studio_url}")
