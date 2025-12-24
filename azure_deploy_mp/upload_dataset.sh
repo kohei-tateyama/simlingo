@@ -94,7 +94,7 @@ else
 fi
 
 #####
-
+## I will use a Credential-based SAS token for secure upload
 info "[Step 4]: Generating SAS (Shared Access Signature) Token" # This is done for uploading data securely
 EXPIRY=$(date -u -d "7 days" '+%Y-%m-%dT%H:%MZ')
 SAS_TOKEN=$(az storage container generate-sas \
@@ -143,13 +143,14 @@ azcopy copy \
 
 info "[Step 6]: Registering Datastore in Azure ML"
 
-# Get storage key
+# Get storage key super important!
 STORAGE_KEY=$(az storage account keys list \
   --account-name "$STORAGE_ACCOUNT" \
   --resource-group "$AZ_RESOURCE_GROUP" \
   --query '[0].value' -o tsv)
 
 # Create datastore via Python SDK
+# https://learn.microsoft.com/en-us/azure/machine-learning/how-to-datastore?view=azureml-api-2&tabs=sdk-identity-based-access%2Csdk-adls-identity-access%2Csdk-azfiles-accountkey%2Csdk-adlsgen1-identity-access%2Csdk-onelake-identity-access
 python3 << EOF
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import AzureBlobDatastore
@@ -175,10 +176,10 @@ try:
     )
     
     ml_client.datastores.create_or_update(datastore)
-    print("Datastore registered successfully!")
+    print("[INFO]: Datastore registered successfully!")
 except Exception as e:
-    print(f"Failed to register datastore: {e}")
-    print("You can register manually in Azure ML Studio")
+    print(f"[ERROR]: Failed to register datastore: {e}")
+    print("[INFO]: You can register manually in Azure ML Studio")
 EOF
 
 echo ""

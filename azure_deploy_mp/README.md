@@ -32,6 +32,10 @@ bash azure_deploy_mp/setup_azure.sh
 export AZ_SUBSCRIPTION_ID="your-subscription-id"
 export AZ_RESOURCE_GROUP="your-resource-group"
 export AZ_WORKSPACE="your-workspace-name"
+
+echo $AZ_SUBSCRIPTION_ID $AZ_RESOURCE_GROUP $AZ_WORKSPACE
+unset AZ_SUBSCRIPTION_ID AZ_RESOURCE_GROUP AZ_WORKSPACE
+
 ```
 This script `setup_azure.sh` will run the prerequisistes. 
 
@@ -184,7 +188,7 @@ Edit [azure_training.py](azure_training.py) line 48-53 to pass additional Hydra 
 
 ---
 
-# Quick Start Guide
+# Start Guide (Kind of verbose)
 
 Operative procedure to run simlingo training.
 
@@ -250,31 +254,66 @@ export EXPERIMENT_NAME=my_test   # Custom name
 - [submit_to_azure.py](submit_to_azure.py) - Job submission script
 - [azure_training.py](azure_training.py) - Training entrypoint
 
-
+---
 ---
 
 ## Quick Run
 
-A compact walkthrough to upload the dataset and submit a training job. Each step includes the exact commands to run and quick notes.
+0. Run interactive setup (once per shell/session)
+
+```bash
+bash azure_deploy_mp/setup_azure.sh
+
+az login
+az account set --subscription "XC_Development_XC-AS/ENG-JP_676317_DataAI"
+az account show
+az configure --defaults group=rg-deveco-jp-mlops-prd workspace=mlws-vkzvjsr-jpe-p-c515af2
+
+export AZ_SUBSCRIPTION_ID="your-subscription-id"
+export AZ_RESOURCE_GROUP="your-resource-group"
+export AZ_WORKSPACE="your-workspace-name"
+
+echo $AZ_SUBSCRIPTION_ID $AZ_RESOURCE_GROUP $AZ_WORKSPACE
+# unset AZ_SUBSCRIPTION_ID AZ_RESOURCE_GROUP AZ_WORKSPACE
+```
+Veryfy the permission here.
+
+```bash
+# Check workspace access
+az ml workspace show --name mlws-vkzvjsr-jpe-p-c515af2 --resource-group rg-deveco-jp-mlops-prd
+
+# Check storage access
+az storage container show \
+  --account-name daijpepdde0b7efc169e98db \
+  --name data-ai-vla \
+  --auth-mode login
+
+# Check ACR access (ABAC-scoped roles don't support listing all repositories)
+az acr repository show-tags \
+  --name daip5d5219fe9583105d6a83 \
+  --repository data-ai-vla/simlingo-training \
+  --output table 2>&1 || echo "No repositories exist yet - you can create them with 'docker push'"
+```
+
+From here, we can run the actual simlingo task. 
 
 1) Upload dataset (long-running)
 
-Start a `tmux` session so the upload survives SSH disconnects and network blips. Run the upload inside the tmux session so it continues if you detach.
+Start a `tmux` session so the upload survives SSH disconnects and network blips. 
+Run the upload inside the `tmux` session so it continues if you detach.
 
 ```bash
 # create and attach new session
 tmux new -s simlingo-upload
 # inside tmux, start the upload
-bash azure_deploy_mp/upload_dataset.sh
-# detach (Ctrl-B then D)
+bash azure_deploy_mp/upload_dataset.sh # detach (Ctrl-B then D)
 ```
-
-Tips:
+<!-- Tips:
 - If you prefer a detached start: `tmux new -d -s simlingo-upload "bash azure_deploy_mp/upload_dataset.sh"`.
-- `azcopy` is resumable: if the connection drops, re-run the same `azcopy copy ...` command (the script prints the full command); azcopy will resume where it left off.
-- To re-attach and watch progress: `tmux attach -t simlingo-upload`.
+- `azcopy` is resumable: if the connection drops, re-run the same `azcopy copy ...` command; `azcopy` will resume where it left off.
+- To re-attach and watch progress: `tmux attach -t simlingo-upload`. -->
 
-2) Dry-run submit (recommended)
+2) Dry-run submit
 
 Before submitting a real job, inspect the generated job spec. This prints the job definition (environment, compute, command and env vars) but does not submit it.
 
@@ -284,11 +323,12 @@ bash azure_deploy_mp/launch_training.sh --dry-run
 python azure_deploy_mp/submit_to_azure.py --dry-run
 ```
 
-Review the printed `command` and `environment_variables` for `BATCH_SIZE`, `NUM_GPUS`, and other settings. If anything looks off, export the desired env vars and re-run the dry-run.
+Review the printed `command` and `environment_variables` for `BATCH_SIZE`, `NUM_GPUS`, and other settings. 
+If anything looks off, export the desired env vars and re-run the dry-run.
 
-3) Submit training
+3) Submit
 
-When ready, submit the training job. This will create (or reuse) the configured compute and stream logs to your terminal.
+Once ready, submit the training job. This will create (or reuse) the configured compute and stream logs to your terminal.
 
 ```bash
 bash azure_deploy_mp/launch_training.sh
@@ -297,10 +337,47 @@ bash azure_deploy_mp/launch_training.sh
 Monitor & verify:
 - The submit script prints a Studio URL `View in Azure ML Studio: ...` — use that to inspect logs, outputs and metrics.
 - To list jobs from the CLI: `az ml job list --workspace-name $AZ_WORKSPACE --resource-group $AZ_RESOURCE_GROUP`.
+- Open https://wandb.ai and sign in with your account and navigate to the `simlingo-azure` project 
 
-Quick troubleshooting
-- If upload appears incomplete, re-run `upload_dataset.sh` or run the azcopy commands printed in the script; `azcopy` will resume partial uploads.
-- If submission fails due to authentication, run `az login` and ensure `AZ_SUBSCRIPTION_ID`, `AZ_RESOURCE_GROUP`, and `AZ_WORKSPACE` are exported in your shell.
-- For OOM errors during training, reduce `BATCH_SIZE` or `NUM_GPUS` and re-submit.
+## Weights & Biases (W&B)
 
+This project logs metrics to Weights & Biases. By default the job sets `WANDB_PROJECT=simlingo-azure`.
+
+```bash
+export WANDB_API_KEY="<your-wandb-api-key>"
+# optional: set project name (job also sets this automatically)
+export WANDB_PROJECT=simlingo-azure
+# run training locally or submit the job — W&B logs will appear under your account
+python azure_deploy_mp/azure_training.py
+```
+
+### Docker / Custom Environment (conda)
+#### [NOT IMPLEMENTED]
+
+- The repo uses Azure's curated PyTorch environment by default (`ENV_NAME` in `config.py`). At the time, we **do not need** to build or register a Docker image to run the supplied workflow.
+- Use a custom Docker image only if you need **reproducible startup times or preinstalled packages**. 
+  Build & push the image to a registry (ACR or Docker Hub), then register it or reference the image URI in your job environment. Example (register once, optional):
+
+```python
+from azure.ai.ml import MLClient, Environment
+from azure.identity import DefaultAzureCredential
+
+ml = MLClient(DefaultAzureCredential(), subscription_id, resource_group, workspace_name)
+env = Environment(name="simlingo-custom", image="myregistry.azurecr.io/simlingo:latest")
+ml.environments.create_or_update(env)
+```
+
+Use the registered name or full image URI in `AZ_ENV_NAME` to have jobs use your custom image.
+
+
+
+
+
+<!-- ```bash
+bash azure_deploy_mp/setup_azure.sh
+az login
+az account set --subscription "XC_Development_XC-AS/ENG-JP_676317_DataAI"
+az account show
+az configure --defaults group=rg-deveco-jp-mlops-prd workspace=mlws-vkzvjsr-jpe-p-c515af2
+``` -->
 

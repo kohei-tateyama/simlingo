@@ -242,3 +242,4 @@ dependencies:
     - xmlschema==1.0.18
     - yarl==1.9.4
     - zipp==3.17.0
+    # - azure-ai-ml==1.15.0
