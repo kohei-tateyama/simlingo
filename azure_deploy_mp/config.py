@@ -16,8 +16,12 @@ SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", "YOUR_SUBSCRIPTION_ID")
 RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", "YOUR_RESOURCE_GROUP")
 WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", "YOUR_WORKSPACE_NAME")
 
-WANDB_API_KEY = os.environ.get("WANDB_API_KEY", "<your-wandb-api-key>")
+WANDB_API_KEY = os.environ.get("WANDB_API_KEY", "YOUR_WANDB_API_KEY")
 WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "simlingo-azure")
+
+STORAGE_ACCOUNT = os.environ.get("STORAGE_ACCOUNT", "YOUR_STORAGE_ACCOUNT_NAME")
+CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "YOUR_CONTAINER_NAME")
+DATASET_DIR = os.environ.get("DATASET_DIR", "/workspace/simlingo/database")
 
 # Azure ML Environment: use curated environment (no Docker build needed) or custom ACR image
 # Curated: "AzureML-pytorch-2.2-cuda12.1-gpu" (PyTorch 2.2, CUDA 12.1, pre-installed)

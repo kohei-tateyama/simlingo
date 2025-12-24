@@ -1,5 +1,6 @@
 # Azure ML generated files
 .env
+.env.example
 __pycache__/
 *.pyc
 .DS_Store

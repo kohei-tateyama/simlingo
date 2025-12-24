@@ -17,22 +17,21 @@ if [ -z "$AZ_SUBSCRIPTION_ID" ] || [ -z "$AZ_RESOURCE_GROUP" ] || [ -z "$AZ_WORK
 fi
 
 # Configuration
-STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-simlingostorage$(date +%s)}"
-CONTAINER_NAME="${CONTAINER_NAME:-simlingo-data}"
-DATASET_DIR="/workspace/simlingo/database"
-info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
-info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
-info "PLEASE ADD YOUR DATASET HERE $DATASET_DIR"
+# Default to project storage/account from manual_sven.md but allow overrides
+STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-YOUR_STORAGE_ACCOUNT_NAME}"
+CONTAINER_NAME="${CONTAINER_NAME:-YOUR_CONTAINER_NAME}"
+DATASET_DIR="${DATASET_DIR:-/workspace/simlingo/database}"
 
 info "Configuration"
 echo "Storage Account : $STORAGE_ACCOUNT"
 echo "Container       : $CONTAINER_NAME"
-echo "Dataset         : $DATASET_DIR"
+echo "Dataset dir     : $DATASET_DIR"
 echo ""
 
+
 if [ ! -d "$DATASET_DIR/simlingo_v2_2025_01_10" ]; then
-    echo "ERROR: Dataset not found at $DATASET_DIR/simlingo_v2_2025_01_10"
-    exit 1
+  echo "ERROR: Dataset not found at $DATASET_DIR/simlingo_v2_2025_01_10"
+  exit 1
 fi
 
 # Check sizes
@@ -50,10 +49,11 @@ fi
 
 #####
 
-info "[Step 1]: Creating Storage Account"
+info "[Step 1]: Ensure Storage Account exists"
 if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$AZ_RESOURCE_GROUP" &>/dev/null; then
-    echo "Storage account $STORAGE_ACCOUNT already exists"
+    echo "Storage account $STORAGE_ACCOUNT exists"
 else
+    echo "Storage account $STORAGE_ACCOUNT not found in resource group $AZ_RESOURCE_GROUP"
     echo "Creating storage account $STORAGE_ACCOUNT..."
     az storage account create \
       --name "$STORAGE_ACCOUNT" \
@@ -62,21 +62,28 @@ else
       --sku Standard_LRS
 fi
 
-# Get connection string
-CONN_STR=$(az storage account show-connection-string \
-  --name "$STORAGE_ACCOUNT" \
-  --resource-group "$AZ_RESOURCE_GROUP" \
-  --query connectionString -o tsv)
+# Try to use Azure AD auth for storage operations (preferred for this project)
+CONN_STR=""
 
 #####
 
-info "[Step 2]: Creating Container"
-if az storage container exists --name "$CONTAINER_NAME" --connection-string "$CONN_STR" --query exists -o tsv | grep -q true; then
-    echo "Container $CONTAINER_NAME already exists"
+info "[Step 2]: Creating Container (using Azure AD auth if possible)"
+if az storage container exists --account-name "$STORAGE_ACCOUNT" --name "$CONTAINER_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
+  echo "Container $CONTAINER_NAME already exists"
 else
-    az storage container create \
-      --name "$CONTAINER_NAME" \
-      --connection-string "$CONN_STR"
+  echo "Creating container $CONTAINER_NAME (auth-mode login)"
+  az storage container create \
+    --account-name "$STORAGE_ACCOUNT" \
+    --name "$CONTAINER_NAME" \
+    --auth-mode login || {
+    echo "Falling back to connection-string based container creation"
+    if [ -n "$CONN_STR" ]; then
+      az storage container create --name "$CONTAINER_NAME" --connection-string "$CONN_STR"
+    else
+      echo "ERROR: unable to create container with AD auth and no connection string available" >&2
+      exit 1
+    fi
+  }
 fi
 
 #####
@@ -95,41 +102,72 @@ fi
 
 #####
 ## I will use a Credential-based SAS token for secure upload
-info "[Step 4]: Generating SAS (Shared Access Signature) Token" # This is done for uploading data securely
+info "[Step 4]: Prepare upload method (prefer AD auth; fall back to SAS/azcopy)"
 EXPIRY=$(date -u -d "7 days" '+%Y-%m-%dT%H:%MZ')
-SAS_TOKEN=$(az storage container generate-sas \
-  --account-name "$STORAGE_ACCOUNT" \
-  --name "$CONTAINER_NAME" \
-  --permissions rwdl \
-  --expiry "$EXPIRY" \
-  --connection-string "$CONN_STR" \
-  -o tsv)
-
+SAS_TOKEN=""
 BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}"
+
+# Try to generate SAS using AD credentials (may require permission)
+if SAS_TOKEN=$(az storage container generate-sas \
+      --account-name "$STORAGE_ACCOUNT" \
+      --name "$CONTAINER_NAME" \
+      --permissions rwdl \
+      --expiry "$EXPIRY" \
+      --auth-mode login -o tsv 2>/dev/null); then
+    echo "Generated SAS token via AD auth (for azcopy fallback)"
+else
+    echo "Could not generate SAS token via AD auth; will use az cli upload with --auth-mode login"
+    SAS_TOKEN=""
+fi
 
 #####
 
 info "[Step 5]: Uploading Dataset (this will take hours)"
 echo "Starting upload at $(date)"
-# echo "TIP: Run this in tmux/screen to avoid interruption"
+echo "TIP: Run this in tmux/screen to avoid interruption"
 echo ""
 
-# Upload main dataset
-echo "Uploading simlingo_v2_2025_01_10..."
-azcopy copy \
-  "$DATASET_DIR/simlingo_v2_2025_01_10" \
-  "${BLOB_URL}/simlingo_v2_2025_01_10?${SAS_TOKEN}" \
-  --recursive \
-  --log-level=INFO
+# target paths in container follow manual_sven.md: datasets/raw/<dataset> and datasets/raw/<buckets>
+MAIN_DST_PATH="datasets/raw/simlingo_v2_2025_01_10"
+BUCKETS_DST_PATH="datasets/raw/bucketsv2_simlingo"
 
-# Upload buckets
-echo ""
-echo "Uploading bucketsv2_simlingo..."
-azcopy copy \
-  "$DATASET_DIR/bucketsv2_simlingo" \
-  "${BLOB_URL}/bucketsv2_simlingo?${SAS_TOKEN}" \
-  --recursive \
-  --log-level=INFO
+echo "Uploading simlingo_v2_2025_01_10 to ${BLOB_URL}/${MAIN_DST_PATH}"
+# Prefer az CLI AD-authenticated batch upload
+if az storage blob upload-batch \
+   --account-name "$STORAGE_ACCOUNT" \
+   --destination "$CONTAINER_NAME" \
+   --source "$DATASET_DIR/simlingo_v2_2025_01_10" \
+   --destination-path "$MAIN_DST_PATH" \
+   --auth-mode login; then
+  echo "Main dataset uploaded via az storage (AD auth)"
+else
+  # Fallback to azcopy if SAS available
+  if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
+    echo "Falling back to azcopy using SAS token"
+    azcopy copy "$DATASET_DIR/simlingo_v2_2025_01_10" "${BLOB_URL}/${MAIN_DST_PATH}?${SAS_TOKEN}" --recursive --log-level=INFO
+  else
+    echo "ERROR: Failed to upload main dataset via az CLI and no azcopy+SAS available" >&2
+    exit 1
+  fi
+fi
+
+echo "Uploading bucketsv2_simlingo to ${BLOB_URL}/${BUCKETS_DST_PATH}"
+if az storage blob upload-batch \
+   --account-name "$STORAGE_ACCOUNT" \
+   --destination "$CONTAINER_NAME" \
+   --source "$DATASET_DIR/bucketsv2_simlingo" \
+   --destination-path "$BUCKETS_DST_PATH" \
+   --auth-mode login; then
+  echo "Buckets uploaded via az storage (AD auth)"
+else
+  if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
+    echo "Falling back to azcopy using SAS token for buckets"
+    azcopy copy "$DATASET_DIR/bucketsv2_simlingo" "${BLOB_URL}/${BUCKETS_DST_PATH}?${SAS_TOKEN}" --recursive --log-level=INFO
+  else
+    echo "ERROR: Failed to upload buckets via az CLI and no azcopy+SAS available" >&2
+    exit 1
+  fi
+fi
 
 # # Upload ours dataset
 # echo "Uploading xml_recording_japan (ours)..."
