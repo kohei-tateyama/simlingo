@@ -49,3 +49,41 @@ bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 40 --route 
 code /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_urban_duration_40_training/ClearNoon_weather/ego_10/GPS.jps
 bash ./script/open_imgs_code.sh /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_urban_duration_40_training/ClearNoon_weather/ego_10/  
 ```
+
+### To run the data collection
+
+I strongly suggest to use `tmux`, whcih is already installed in the machine 
+
+#### Starting the data collection
+```bash 
+cd workspace/simlingo
+tmux new -s datajob -d 'bash -lc "source ~/miniconda3/etc/profile.d/conda.sh && conda activate simlingo && cd /workspace/simlingo && bash script/getting_data_training.sh > /media/external_ssd/getting_data_training.log 2>&1"'
+tmux ls
+tail -f /media/external_ssd/getting_data_training.log
+```
+You can clearly close this terminal and on an other window
+```bash
+tmux ls
+tail -n 200 /media/external_ssd/getting_data_training.log
+docker ps --filter name=carla-server
+docker logs -f carla-server
+```
+Or the previous code can be step-by-step as follows
+`tmux new -s datajob`
+Now, we are inside the `tmux` window, and we can operate ad when we `ssh-`ing something 
+```bash
+source ~/miniconda3/etc/profile.d/conda.sh # linux 
+conda activate simlingo
+```
+Run the tasks 
+`bash script/getting_data_training.sh > /media/external_ssd/getting_data_training.log 2>&1`
+
+#### Tips, useful
+
+You can also detach: press `Ctrl-b` then `d`.
+
+To reattach interactively when needed
+`tmux attach -t datajob`
+
+To kill `Ctrl-C` inside the session (which can be reattached below) or, very mean,  
+`tmux kill-session -t datajob`

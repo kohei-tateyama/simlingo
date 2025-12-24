@@ -7,6 +7,37 @@ set -uo pipefail
 # Edit arrays below to change the combinations.
 # NOTE: This script continues execution even if individual tasks fail.
 
+# External SSD mount point and minimum free space threshold
+EXTERNAL_SSD="/media/external_ssd"
+MIN_FREE_GB=10  # Stop if less than 10GB free
+
+# Function to check disk space
+check_disk_space() {
+    if [ ! -d "$EXTERNAL_SSD" ]; then
+        echo "[WARNING] External SSD not mounted at $EXTERNAL_SSD"
+        return 0  # Continue if not using external SSD
+    fi
+    
+    local available_gb=$(df -BG "$EXTERNAL_SSD" | awk 'NR==2 {print $4}' | sed 's/G//')
+    local used_percent=$(df "$EXTERNAL_SSD" | awk 'NR==2 {print $5}' | sed 's/%//')
+    
+    echo "[DISK] External SSD: ${available_gb}GB available (${used_percent}% used)"
+    
+    if [ "$available_gb" -lt "$MIN_FREE_GB" ]; then
+        echo ""
+        echo "========================================"
+        echo "[ERROR] DISK SPACE CRITICAL!"
+        echo "========================================"
+        echo "External SSD at $EXTERNAL_SSD has only ${available_gb}GB free"
+        echo "Minimum required: ${MIN_FREE_GB}GB"
+        echo "Stopping execution to prevent data loss."
+        echo "========================================"
+        return 1
+    fi
+    
+    return 0
+}
+
 DRY_RUN=0
 if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
   DRY_RUN=1
@@ -45,6 +76,14 @@ for agent in "${AGENTS[@]}"; do
       for weather in "${WEATHERS[@]}"; do
         for spawn_idx in "${SPAWN_INDICES[@]}"; do
           for duration in "${DURATIONS[@]}"; do
+            # Check disk space before each task
+            if ! check_disk_space; then
+              echo ""
+              echo "[INFO] Stopping batch job due to insufficient disk space."
+              echo "[INFO] Completed $SUCCESS_COUNT/$TOTAL_TASKS tasks before stopping."
+              exit 2
+            fi
+            
             AGENT_FLAG=""
             if [[ "$agent" == "autopilot-long" ]]; then
               AGENT_FLAG="--autopilot-long"
@@ -86,8 +125,11 @@ echo "========================================"
 echo "All jobs processed."
 echo "========================================"
 echo "Total tasks: $TOTAL_TASKS"
-echo "Successful : $SUCCESS_COUNT"
-echo "Failed     : $FAILURE_COUNT"
+echo "Successful:  $SUCCESS_COUNT"
+echo "Failed:      $FAILURE_COUNT"
+
+# Final disk space check
+check_disk_space || true
 
 if [[ $FAILURE_COUNT -gt 0 ]]; then
   echo ""

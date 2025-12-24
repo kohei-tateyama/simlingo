@@ -132,10 +132,12 @@ git log --oneline --decorate -n 5
 ```
 
 **This is a one only push quite useful right now.**
+**this this this**
 ```bash
 cd /workspace/simlingo
 git checkout feat/michele && git add -A # && git status --porcelain --branch
-git commit -m "feat(michele): init comment Azure ML" || echo "No changes to commit" && git push myfork feat/michele
+# git commit -m "feat(michele): init comment Azure ML" || echo "No changes to commit" && git push myfork feat/michele
+git commit -m "feat(michele): major changes in the data collection folder" || echo "No changes to commit" && git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
 ```bash
