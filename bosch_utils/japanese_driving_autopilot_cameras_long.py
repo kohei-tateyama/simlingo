@@ -6,7 +6,7 @@ import threading
 import argparse
 from PIL import Image as PILImage
 import carla 
-
+import shutil
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla"
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla/agents"
 
@@ -25,6 +25,34 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         super().__init__(*args, **kwargs)
         # Use a distinct folder prefix for long-run autopilot outputs
         try:
+            ## this is one of the worst thing I have ever seen, to be modified.
+            try:
+                ego_parent = os.path.join(
+                    RECORDING_OUTPUT_DIR,
+                    f"database/simlingo_v3_2026_01_01/auto_short_multicam_jp/"
+                    f"training_{self.town}_scenario/"
+                    f"routes_{self.route_type}_duration_{self.duration}_training/"
+                    f"{self.weather}_weather/ego_{self.spawn_idx}"
+                )
+                boxes_dir = os.path.join(ego_parent, 'boxes')
+                parent_dir = os.path.join(RECORDING_OUTPUT_DIR,
+                                        "database/simlingo_v3_2026_01_01/auto_short_multicam_jp/")
+
+                if os.path.isdir(boxes_dir):
+                    # If boxes_dir is empty, nuke the parent_dir
+                    if not any(os.scandir(boxes_dir)):
+                        try:
+                            shutil.rmtree(parent_dir)   # recursive delete
+                            print(f"[INFO]: Force removed folder '{parent_dir}' because boxes_dir was empty")
+                        except Exception as e:
+                            print(f"[ERROR]: Could not remove '{parent_dir}': {e}")
+                    else:
+                        print(f"[INFO]: Skipping removal, boxes_dir '{boxes_dir}' is not empty")
+            except Exception as e:
+                print(f"[WARNING]: Cleanup failed: {e}")
+
+
+            
             self.foldername = f"database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
             self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
             os.makedirs(self.folderpath, exist_ok=True)

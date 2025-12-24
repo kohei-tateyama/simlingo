@@ -25,11 +25,13 @@ import time
 # Import the patching functions from patch_multicamera
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from bosch_utils.tools.patch_multicamera import load_camera_images, create_geometric_patch, create_simple_layout_patch
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
 import cv2
 from bosch_utils.config import IMAGE_EXT
 
 
-def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
+# def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
+def find_latest_dataset(base_dir=RECORDING_OUTPUT_DIR):
     """Find the most recently modified dataset folder"""
     base_path = Path(base_dir)
     if not base_path.exists():
@@ -94,7 +96,7 @@ def batch_patch(dataset_path, layout='geometric', output_name='patched.png', ver
     dataset_path = Path(dataset_path)
     
     if verbose:
-        print(f"[INFO]: Scanning dataset: {dataset_path}")
+        print(f"[INFO]: Scanning dataset    : {dataset_path}")
     
     # Find all rgb folders
     rgb_folders = find_rgb_folders(dataset_path)
@@ -105,8 +107,8 @@ def batch_patch(dataset_path, layout='geometric', output_name='patched.png', ver
     
     if verbose:
         print(f"[INFO]: Found {len(rgb_folders)} rgb folders to patch")
-        print(f"[INFO]: Layout: {layout}")
-        print(f"[INFO]: Output filename: {output_name}")
+        print(f"[INFO]: Layout          : {layout}")
+        print(f"[INFO]: Output filename : {output_name}")
     
     # Patch each folder
     success_count = 0
@@ -127,8 +129,8 @@ def batch_patch(dataset_path, layout='geometric', output_name='patched.png', ver
     
     if verbose:
         print(f"[INFO]: Patching complete!")
-        print(f"[INFO]: Successfully patched: {success_count}/{len(rgb_folders)} folders")
-        print(f"[INFO]: Total time: {elapsed:.1f}s ({success_count/elapsed:.1f} frames/s)")
+        print(f"[INFO]: Successfully patched : {success_count}/{len(rgb_folders)} folders")
+        print(f"[INFO]: Total time           : {elapsed:.1f}s ({success_count/elapsed:.1f} frames/s)")
     
     return success_count == len(rgb_folders)
 

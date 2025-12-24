@@ -10,7 +10,7 @@ import os
 import gzip
 from PIL import Image as PILImage
 
-RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_xml"
+RECORDING_OUTPUT_DIR = os.environ.get("RECORDING_OUTPUT_DIR", "/workspace/simlingo/recording_japan_xml")
 
 # # Highway route (default)
 # python japanese_driving_autopilot.py --autopilot --route highway

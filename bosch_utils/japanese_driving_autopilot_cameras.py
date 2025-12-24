@@ -256,7 +256,10 @@ class JapaneseStyleAutopilot:
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
         self.foldername = f"database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+        # self.foldername = f"database/simlingo_v3_2026_01_01/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
+        
+        print(f'[INFO]: Created the folder: {self.folderpath}')
 
         os.makedirs(self.folderpath, exist_ok=True)
         # Create training-format subfolders

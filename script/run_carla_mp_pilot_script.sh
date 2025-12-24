@@ -1,10 +1,14 @@
 #!/bin/bash
 
+# Exit on unset variable errors, but allow commands to fail
+set -u
+
 # Robust bootstrap so the script works when located in script/
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
+## sudo chown $(id -u):$(id -g) /media/external_ssd
 # =============================================================================
 ## This script is an updated versionn of the how_to_run_headless.sh and it allows runnning the simlingo agent as well as other code for gathering data in headless mode.
 # This script is also a bnetter verison fo run_carla_autopilot.sh
@@ -22,7 +26,7 @@ export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
-export SAVE_PATH=/workspace/simlingo/outputs/test_run/
+export SAVE_PATH="${RECORDING_OUTPUT_DIR:-/workspace/simlingo/outputs/test_run/}"
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # Fix conda activation for non-interactive scripts
@@ -53,6 +57,20 @@ err() {
 sep() {
     printf "%b\n" "${BLUE}$(printf '=%.0s' {1..80})${RESET}"
 }
+
+# ============================================================================
+# TRAP HANDLER FOR CLEANUP
+# ============================================================================
+# Ensures cleanup runs even if script is interrupted or fails
+cleanup_on_exit() {
+    local exit_code=$?
+    echo ""
+    warn "Script exiting (code: $exit_code) - ensuring CARLA cleanup..."
+    stop_carla 2>/dev/null || true
+    exit $exit_code
+}
+
+trap cleanup_on_exit EXIT INT TERM
 
 # ============================================================================
 # PARSE COMMAND LINE ARGUMENTS
@@ -270,6 +288,10 @@ start_carla() {
     info "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS on port 2000"
     sep
 
+    # Remove any existing carla-server container (running or stopped)
+    info "Removing any existing carla-server container..."
+    docker rm -f carla-server 2>/dev/null || true
+
     # Start CARLA in headless mode - FORCE port 2000
     mkdir -p ${WORK_DIR}/carla_logs
 
@@ -283,6 +305,7 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
+        -v ${SAVE_PATH}:${SAVE_PATH} \
         carla-bench2drive:0.9.15 \
         bash -c "cd /home/carla && mkdir -p CarlaUE4/Saved/Logs && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
 
@@ -569,8 +592,11 @@ case $MODE in
         ;;
 esac
 
-# Cleanup
+# Cleanup (also handled by trap, but explicit call for clean exit)
 stop_carla
+
+# Disable trap before final exit to avoid double-cleanup
+trap - EXIT
 
 # Final status
 echo ""

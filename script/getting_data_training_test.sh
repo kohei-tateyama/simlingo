@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -u -o pipefail
 
+## sudo chown $(id -u):$(id -g) /media/external_ssd
 # Script to run many data collection jobs via script/run_carla_mp_pilot_script.sh
 # Usage:
 #   ./script/getting_data_training.sh [--dry-run]
-# Edit arrays below to change the combinations.
-# NOTE: This script continues execution even if individual tasks fail.
+
+
+## For a quick test 
+# bash script/getting_data_training_test.sh --dry-run # not running
+
+# export SPAWN_INDICES=(42)
+# export DURATIONS=(10)
+# bash script/getting_data_training_test.sh
 
 DRY_RUN=0
 if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
@@ -13,21 +20,21 @@ if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
   echo "DRY RUN: commands will be printed but not executed"
 fi
 
-ROUTE_TYPES=(highway urban simple)
-TOWNS=(Town01 Town02 Town03 Town04 Town10 Town11 Town12 Town13)
-SPAWN_INDICES=(42 10 25)
-DURATIONS=(10 20 30 40 50 120 180 300)
-WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon HardRainNoon
-        ClearSunset CloudySunset WetSunset WetCloudySunset SoftRainSunset MidRainSunset HardRainSunset
-        ClearNight CloudyNight WetNight WetCloudyNight SoftRainNight MidRainyNight HardRainNight DustStorm)
+ROUTE_TYPES=(highway)
+TOWNS=(Town12 Town13)
+SPAWN_INDICES=(42)
+DURATIONS=(10)
+WEATHERS=(ClearNoon CloudyNoon)
 
 # Agent modes: "no-autopilot-long" -> no flag, "autopilot-long" -> --autopilot-long
 AGENTS=(no-autopilot-long autopilot-long)
 
 WRAPPER=script/run_carla_mp_pilot_script.sh
 
-if [[ ! -x "$WRAPPER" && ! -f "$WRAPPER" ]]; then
-  echo "Warning: wrapper script $WRAPPER not found in repo root. Adjust WRAPPER path if needed."
+if [[ ! -f "$WRAPPER" ]]; then
+  echo "Warning: wrapper script $WRAPPER not found. Adjust WRAPPER path if needed."
+elif [[ ! -x "$WRAPPER" ]]; then
+  echo "Note: wrapper script $WRAPPER exists but is not executable. It will be invoked via 'bash'."
 fi
 
 # Small pause between launches to avoid accidental overload
@@ -50,7 +57,11 @@ for agent in "${AGENTS[@]}"; do
               AGENT_FLAG="--autopilot-long"
             fi
 
-            CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" $AGENT_FLAG --fps 20 --spawn-index "$spawn_idx" --weather "$weather" )
+            # Build command array; append AGENT_FLAG only when non-empty to avoid word-splitting
+            CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" --fps 20 --spawn-index "$spawn_idx" --weather "$weather")
+            if [[ -n "$AGENT_FLAG" ]]; then
+              CMD+=("$AGENT_FLAG")
+            fi
 
             # Print command for logging / review
             TASK_ID="town=$town route=$route_type weather=$weather spawn=$spawn_idx duration=${duration}s agent=$agent"
@@ -86,8 +97,8 @@ echo "========================================"
 echo "All jobs processed."
 echo "========================================"
 echo "Total tasks: $TOTAL_TASKS"
-echo "Successful : $SUCCESS_COUNT"
-echo "Failed     : $FAILURE_COUNT"
+echo "Successful:  $SUCCESS_COUNT"
+echo "Failed:      $FAILURE_COUNT"
 
 if [[ $FAILURE_COUNT -gt 0 ]]; then
   echo ""
