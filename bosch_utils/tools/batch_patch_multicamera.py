@@ -96,7 +96,8 @@ def batch_patch(dataset_path, layout='geometric', output_name='patched.png', ver
     dataset_path = Path(dataset_path)
     
     if verbose:
-        print(f"[INFO]: Scanning dataset    : {dataset_path}")
+        # print(f"[INFO]: Scanning dataset    : {dataset_path}")
+        print(f"[INFO]: Scanning dataset: {dataset_path}")
     
     # Find all rgb folders
     rgb_folders = find_rgb_folders(dataset_path)

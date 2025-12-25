@@ -56,10 +56,10 @@ WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon H
 # AGENTS=(no-autopilot-long autopilot-long)  # Commented out: using only autopilot-long
 AGENTS=(autopilot-long)
 
-WRAPPER=run_carla_mp_pilot.sh
+WRAPPER=script/run_carla_mp_pilot_script.sh
 
 if [[ ! -x "$WRAPPER" && ! -f "$WRAPPER" ]]; then
-  echo "Warning: wrapper script $WRAPPER not found in repo root. Adjust WRAPPER path if needed."
+  echo "Warning: wrapper script $WRAPPER not found. Adjust WRAPPER path if needed."
 fi
 
 # Small pause between launches to avoid accidental overload

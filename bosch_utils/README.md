@@ -60,6 +60,8 @@ cd workspace/simlingo
 tmux new -s datajob -d 'bash -lc "source ~/miniconda3/etc/profile.d/conda.sh && conda activate simlingo && cd /workspace/simlingo && bash script/getting_data_training.sh > /media/external_ssd/getting_data_training.log 2>&1"'
 tmux ls
 tail -f /media/external_ssd/getting_data_training.log
+# Or 
+tmux new -s datajob -d 'bash -lc "source ~/miniconda3/etc/profile.d/conda.sh && conda activate simlingo && cd /workspace/simlingo && bash script/getting_data_training.sh > /media/external_ssd/getting_data_training.log 2>&1"' && tmux ls && tail -f /media/external_ssd/getting_data_training.log
 ```
 You can clearly close this terminal and on an other window
 ```bash
@@ -87,3 +89,4 @@ To reattach interactively when needed
 
 To kill `Ctrl-C` inside the session (which can be reattached below) or, very mean,  
 `tmux kill-session -t datajob`
+`tmux kill-server`

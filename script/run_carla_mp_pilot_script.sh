@@ -348,6 +348,7 @@ try:
     maps = client.get_available_maps()
     
     print(f'[INFO]: CARLA connection successful on port 2000')
+    print(f'[INFO]: DO NOT CHECK THE NEXT TOWN')
     print(f'[INFO]: Server version  : {version}')
     print(f'[INFO]: Total maps      : {len(maps)}')
     
@@ -359,8 +360,10 @@ try:
     town13_maps = [m for m in maps if 'Town13' in m]
     if town13_maps:
         print(f'[INFO]: Town13 found: {town13_maps}')
+        print(f'[INFO]: DO NOT CHECK THIS TOWN')
     else:
         print(f'[WARNING]: Town13 NOT found!')
+        print(f'[INFO]: DO NOT CHECK THIS TOWN')
         print(f'Available maps: {[m.split("/")[-1] for m in maps[:10]]}')
         sys.exit(1)
         
@@ -445,6 +448,10 @@ run_autopilot() {
 
     cd /workspace/simlingo
 
+    # Initialize variables to avoid unbound variable errors with set -u
+    AUTOPILOT_OUTPUT=""
+    AUTOPILOT_EXIT_CODE=0
+
     if [ "$MULTICAMERA" = true ]; then
         info "MULTICAMERA mode (6 cameras) is currently USED in this script."
         # python bosch_utils/japanese_driving_autopilot_cameras.py \
@@ -455,19 +462,21 @@ run_autopilot() {
 
         if [ "$AUTOPILOT_LONG" = false ]; then
             info "Also running SHORT HARDCODED version of the autopilot for extended data collection."
-            python bosch_utils/japanese_driving_autopilot_cameras.py \
+            AUTOPILOT_OUTPUT=$(python bosch_utils/japanese_driving_autopilot_cameras.py \
                 --autopilot \
                 --duration "$duration" \
                 --route "$route" \
                 --town "$AUTOPILOT_TOWN" \
                 --fps "$AUTOPILOT_FPS" \
                 $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
-                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" )
+                $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" ) 2>&1)
+            AUTOPILOT_EXIT_CODE=$?
+            echo "$AUTOPILOT_OUTPUT"
         fi
         
         if [ "$AUTOPILOT_LONG" = true ]; then
             info "Also running LONG version of the autopilot for extended data collection."
-            python bosch_utils/japanese_driving_autopilot_cameras_long.py \
+            AUTOPILOT_OUTPUT=$(python bosch_utils/japanese_driving_autopilot_cameras_long.py \
                 --autopilot \
                 --duration "$duration" \
                 --route "$route" \
@@ -475,20 +484,23 @@ run_autopilot() {
                 --fps "$AUTOPILOT_FPS" \
                 $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
                 $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" ) \
-                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf '%s' "--random-spawn" )
+                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf '%s' "--random-spawn" ) 2>&1)
+            AUTOPILOT_EXIT_CODE=$?
+            echo "$AUTOPILOT_OUTPUT"
         fi
     else
         info "MONOCAMERA mode is currently USED in this script."
-        python bosch_utils/japanese_driving_autopilot.py \
+        AUTOPILOT_OUTPUT=$(python bosch_utils/japanese_driving_autopilot.py \
             --autopilot \
             --duration "$duration" \
             --route "$route" \
-            --fps "$AUTOPILOT_FPS"
+            --fps "$AUTOPILOT_FPS" 2>&1)
+        AUTOPILOT_EXIT_CODE=$?
+        echo "$AUTOPILOT_OUTPUT"
     fi
-    AUTOPILOT_EXIT_CODE=$?
     
     # Capture dataset path from autopilot output (avoids slow auto-discovery)
-    DATASET_PATH=$(grep -oP '__DATASET_PATH__=\K.*' <<< "$AUTOPILOT_OUTPUT" | tail -1)
+    DATASET_PATH=$(echo "$AUTOPILOT_OUTPUT" | grep '__DATASET_PATH__=' | sed 's/.*__DATASET_PATH__=//' | tail -1)
     
     echo ""
     sep
