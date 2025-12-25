@@ -283,7 +283,7 @@ load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo
 PY
 ```
 
-to compare the content of all the *.json.gz, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`. I am investigating this here.
+to compare the content of all the `*.json.gz`, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`. I am investigating this here.
 ```bash
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo$ du -sh /workspace/simlingo/database/simlingo_v2_2025_01_10 /workspace/simlingo/database/bucketsv2_simlingo 2>/dev/null
 846G    /workspace/simlingo/database/simlingo_v2_2025_01_10
@@ -294,10 +294,116 @@ drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 11:21 commentary
 drwxrwsrwx 3 tko3yh workspace 4.0K Nov 20 11:24 data
 drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:41 dreamer
 drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:45 drivelm
+### OR
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/commentary/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_4438_route0_01_12_02_15_25/commentary$ zcat ./0010.json.gz
+{
+    "image": "database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_4438_route0_01_12_02_15_25/rgb/0010.jpg",
+    "commentary": "Follow the route. Accelerate to follow the black SUV that is to the front.",
+    "commentary_template": "Follow the route. Accelerate to follow the <OBJECT>.",
+    "cause_object_visible_in_image": true,
+    "cause_object": {
+        "class": "car",
+        "color_rgb": [
+            0,
+            0,
+            0
+        ],
+        "color_name": "black",
+        "next_action": "Straight",
+        "vehicle_cuts_in": false,
+        "road_id": 363,
+        "lane_id": -1,
+        "lane_type": 2,
+        "lane_type_str": "Driving",
+        "is_in_junction": false,
+        "junction_id": -1,
+        "distance_to_junction": 3.9721195697784424,
+        "next_junction_id": 3742,
+        "next_road_ids": [
+            3750
+        ],
+        "next_next_road_ids": [
+            364
+        ],
+        "same_road_as_ego": true,
+        "same_direction_as_ego": true,
+        "lane_relative_to_ego": 0,
+        "light_state": [
+            1,
+            2,
+            128
+        ],
+        "traffic_light_state": "Green",
+        "is_at_traffic_light": false,
+        "base_type": "car",
+        "number_of_wheels": "4",
+        "extent": [
+            2.782914400100708,
+            1.0749834775924683,
+            1.0225735902786255
+        ],
+        "position": [
+            11.37559178339336,
+            0.41371028731013837,
+            0.07765749225703189
+        ],
+        "yaw": 0.06254087609109393,
+        "num_points": 128,
+        "distance": 11.383377148734748,
+        "speed": 2.6731059512255886,
+        "brake": 0.0,
+        "steer": 0.006922694388777018,
+        "throttle": 0.8500000238418579,
+        "id": 3701,
+        "role_name": "background",
+        "type_id": "vehicle.nissan.patrol_2021",
+        "matrix": [
+            [
+                0.08387532830238342,
+                -0.9964762330055237,
+                -0.00033479504054412246,
+                -3342.4765625
+            ],
+            [
+                0.9964737296104431,
+                0.0838758647441864,
+                -0.002229610225185752,
+                1592.404296875
+            ],
+            [
+                0.0022498348262161016,
+                -0.000146605190820992,
+                0.9999974966049194,
+                350.3906555175781
+            ],
+            [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
+        ]
+    },
+    "cause_object_string": "black SUV that is to the front",
+    "scenario_name": "BlockedIntersection",
+    "placeholder": {
+        "<OBJECT>": "black SUV that is to the front"
+    }
 ```
 
 
 ### To move data out of this machine to my windows cetricx
-scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"  
-scp -r pim1yh@10.162.163.183:/workspace/simlingo/script/ "C:\Users\PIM1YH\Downloads\"
+`scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"`
+`scp -r pim1yh@10.162.163.183:/workspace/simlingo/script/ "C:\Users\PIM1YH\Downloads\"`
 
+Working witht the ssd.
+
+```bash
+sudo umount /media/external_ssd
+sudo mount -o uid=$(id -u),gid=$(id -g),dmask=0022,fmask=0133 /dev/sdb2 /media/external_ssd
+touch /media/external_ssd/test.txt && rm /media/external_ssd/test.txt && echo "rite OK"
+
+sudo chown -R pim1yh:pim1yh /media/external_ssd/database
+
+rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
+```

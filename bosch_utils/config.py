@@ -27,6 +27,13 @@ RECORDING_OUTPUT_DIR = (
     or str(_REPO_ROOT / 'recording_japan_xml')
 )
 
+SIMLINGO_VERSION_DIR = (
+    cfg.get('SIMLINGO_VERSION_DIR')
+    or os.environ.get('SIMLINGO_VERSION_DIR')
+    or str(_REPO_ROOT / 'simlingo_v3_2026_01_01')
+)
+
+
 # Default run/dataset directory (optional). If present in the YAML, use it.
 DEFAULT_RUN_DIR = cfg.get('DEFAULT_RUN_DIR') or os.environ.get('DEFAULT_RUN_DIR') or None
 

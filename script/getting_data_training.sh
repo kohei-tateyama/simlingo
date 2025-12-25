@@ -53,9 +53,10 @@ WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon H
         ClearNight CloudyNight WetNight WetCloudyNight SoftRainNight MidRainyNight HardRainNight DustStorm)
 
 # Agent modes: "no-autopilot-long" -> no flag, "autopilot-long" -> --autopilot-long
-AGENTS=(no-autopilot-long autopilot-long)
+# AGENTS=(no-autopilot-long autopilot-long)  # Commented out: using only autopilot-long
+AGENTS=(autopilot-long)
 
-WRAPPER=script/run_carla_mp_pilot_script.sh
+WRAPPER=run_carla_mp_pilot.sh
 
 if [[ ! -x "$WRAPPER" && ! -f "$WRAPPER" ]]; then
   echo "Warning: wrapper script $WRAPPER not found in repo root. Adjust WRAPPER path if needed."
@@ -89,7 +90,7 @@ for agent in "${AGENTS[@]}"; do
               AGENT_FLAG="--autopilot-long"
             fi
 
-            CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" $AGENT_FLAG --fps 20 --spawn-index "$spawn_idx" --weather "$weather" )
+            CMD=(bash "$WRAPPER" --mode autopilot --duration "$duration" --multicamera --route "$route_type" $AGENT_FLAG --fps 20 --town "$town" --spawn-index "$spawn_idx" --weather "$weather" )
 
             # Print command for logging / review
             TASK_ID="town=$town route=$route_type weather=$weather spawn=$spawn_idx duration=${duration}s agent=$agent"

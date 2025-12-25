@@ -17,7 +17,7 @@ import yaml
 
 
 from pathlib import Path
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR
 
 
 def _resolve_weather_param(name: str):
@@ -184,7 +184,7 @@ class JapaneseStyleAutopilot:
 
             preferred_map = None
             for m in available_maps:
-                if self.tow in m:
+                if self.town in m:
                     preferred_map = m
                     break
 
@@ -255,8 +255,8 @@ class JapaneseStyleAutopilot:
         # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
-        self.foldername = f"database/simlingo_v3_2026_01_01/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
-        # self.foldername = f"database/simlingo_v3_2026_01_01/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+        self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+        # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         
         print(f'[INFO]: Created the folder: {self.folderpath}')
@@ -1837,6 +1837,8 @@ def main():
     parser.add_argument('--route', type=str, default='highway',
                        choices=['highway', 'urban', 'simple'],
                        help='Route type: highway, urban, or simple (default: highway)')
+    parser.add_argument('--town', type=str, default='Town13',
+                       help='CARLA town/map name (default: Town13)')
     parser.add_argument('--fps', type=float, default=20.0,
                        help='Target frames per second for recording (default: 20 - enforced)')
     parser.add_argument('--weather', type=str, default='SoftRainNight',
@@ -1856,6 +1858,7 @@ def main():
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
+        town=args.town,
         fps=args.fps,
         weather=args.weather,
         spawn_idx=args.spawn_index

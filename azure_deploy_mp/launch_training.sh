@@ -19,8 +19,9 @@ info "Using Azure workspace: $AZ_WORKSPACE"
 export BATCH_SIZE=${BATCH_SIZE:-8}
 export NUM_GPUS=${NUM_GPUS:-4}
 export EXPERIMENT_NAME=${EXPERIMENT_NAME:-simlingo_seed1}
-export AZ_COMPUTE=${AZ_COMPUTE:-simlingo-gpu-cluster}
-export AZ_COMPUTE_SKU=${AZ_COMPUTE_SKU:-Standard_NC16as_T4_v3}
+# Use actual compute from manual_sven.md
+export AZ_COMPUTE=${AZ_COMPUTE:-gpu-cluster-t4}
+export AZ_COMPUTE_SKU=${AZ_COMPUTE_SKU:-Standard_NC24ads_A100_v4}
 
 info "SimLingo Azure ML Training Submission"
 info "Workspace : $AZ_WORKSPACE"

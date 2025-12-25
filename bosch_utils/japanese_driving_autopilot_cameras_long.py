@@ -12,7 +12,7 @@ import shutil
 
 from bosch_utils.japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras import _resolve_weather_param
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
     def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, random_spawn=False, **kwargs):
@@ -29,14 +29,14 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             try:
                 ego_parent = os.path.join(
                     RECORDING_OUTPUT_DIR,
-                    f"database/simlingo_v3_2026_01_01/auto_short_multicam_jp/"
+                    f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/"
                     f"training_{self.town}_scenario/"
                     f"routes_{self.route_type}_duration_{self.duration}_training/"
                     f"{self.weather}_weather/ego_{self.spawn_idx}"
                 )
                 boxes_dir = os.path.join(ego_parent, 'boxes')
                 parent_dir = os.path.join(RECORDING_OUTPUT_DIR,
-                                        "database/simlingo_v3_2026_01_01/auto_short_multicam_jp/")
+                                        f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/")
 
                 if os.path.isdir(boxes_dir):
                     # If boxes_dir is empty, nuke the parent_dir
@@ -53,7 +53,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
 
 
             
-            self.foldername = f"database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+            self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
             self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
             os.makedirs(self.folderpath, exist_ok=True)
             os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
@@ -326,6 +326,8 @@ def main():
     parser.add_argument('--route', type=str, default='highway',
                        choices=['highway', 'urban', 'simple'],
                        help='Route type: highway, urban, or simple (default: highway)')
+    parser.add_argument('--town', type=str, default='Town13',
+                       help='CARLA town/map name (default: Town13)')
     parser.add_argument('--fps', type=float, default=20.0,
                        help='Target frames per second for recording (default: 20 - enforced)')
     parser.add_argument('--weather', type=str, default='',
@@ -344,6 +346,7 @@ def main():
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
+        town=args.town,
         fps=args.fps,
         spawn_idx=args.spawn_index,
         random_spawn=args.random_spawn,

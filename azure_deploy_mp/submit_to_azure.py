@@ -1,162 +1,186 @@
-"""Submit SimLingo training job to Azure ML."""
+
 import os
-import json
-import argparse
+import sys
+import subprocess
 from pathlib import Path
-from azure_deploy_mp.config import (
-    PRINT_STUFF,
-    SUBSCRIPTION_ID as DEFAULT_SUBSCRIPTION_ID,
-    RESOURCE_GROUP as DEFAULT_RESOURCE_GROUP,
-    WORKSPACE_NAME as DEFAULT_WORKSPACE_NAME,
-    ENV_NAME,
-    DEFAULT_SKU,
-    DEFAULT_MIN_INSTANCES,
-    DEFAULT_MAX_INSTANCES,
-    DEFAULT_IDLE_TIME,
-)
 
-SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", "YOUR_SUBSCRIPTION_ID")
-RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", "YOUR_RESOURCE_GROUP")
-WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", "YOUR_WORKSPACE_NAME")
+# Make workspace identifiers configurable via environment variables
+# Use actual values from manual_sven.md
+SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", "2378c487-e6cc-41e8-9251-2d62a3135b3f")
+RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", "rg-deveco-jp-mlops-prd")
+WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", "mlws-vkzvjsr-jpe-p-c515af2")
 
-# Run from project root
+# Run from project root (parent of azure_deploy/)
 proj_root = Path(__file__).resolve().parent.parent
 os.chdir(proj_root)
 
-# Get workspace variables from environment
-SUBSCRIPTION_ID = os.environ.get("AZ_SUBSCRIPTION_ID", DEFAULT_SUBSCRIPTION_ID)
-RESOURCE_GROUP = os.environ.get("AZ_RESOURCE_GROUP", DEFAULT_RESOURCE_GROUP)
-WORKSPACE_NAME = os.environ.get("AZ_WORKSPACE", DEFAULT_WORKSPACE_NAME)
+# Optional CARLA path wiring, only if CARLA_ROOT is set
+carla_root = os.environ.get("CARLA_ROOT", "")
+if carla_root:
+    os.environ["PYTHONPATH"] = f"{carla_root}/PythonAPI/carla/:" + os.environ.get("PYTHONPATH", "")
 
-print("=" * PRINT_STUFF)
-print("[INFO]: SimLingo Azure ML Job Submission")
-print("=" * PRINT_STUFF)
-print(f"Working directory : {os.getcwd()}")
-print(f"Subscription ID   : {SUBSCRIPTION_ID}")
-print(f"Resource Group    : {RESOURCE_GROUP}")
-print(f"Workspace         : {WORKSPACE_NAME}")
-print("=" * PRINT_STUFF)
+# Runtime env vars (defaulted if not present)
+os.environ["WORK_DIR"] = str(proj_root)
+os.environ["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") + f":{os.environ['WORK_DIR']}"
+os.environ.setdefault("MASTER_ADDR", "localhost")
+os.environ.setdefault("NCCL_DEBUG", "INFO")
+os.environ.setdefault("OMP_NUM_THREADS", "64")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("HYDRA_FULL_ERROR", "1")
+os.environ.setdefault("WANDB__SERVICE_WAIT", "100")
 
+print("Working dir:", os.getcwd())
+print("Python:", sys.version)
+
+print("Checking CUDA:", end=" ")
 try:
-    from azure.ai.ml import MLClient, command
-    from azure.ai.ml.entities import AmlCompute
-    from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
-except Exception as ex:
-    print("[ERROR]: azure.ai.ml SDK not available:", ex)
-    raise
+    import torch
+    print(torch.cuda.is_available(), "devices:", torch.cuda.device_count())
+except Exception as e:
+    print("torch import failed:", e)
 
-# Authenticate
-try:
-    credential = DefaultAzureCredential()
-    credential.get_token("https://management.azure.com/.default")
-except Exception:
-    credential = InteractiveBrowserCredential()
-
-ml_client = MLClient(
-    credential=credential,
-    subscription_id=SUBSCRIPTION_ID,
-    resource_group_name=RESOURCE_GROUP,
-    workspace_name=WORKSPACE_NAME,
-)
-
-# Create or reuse compute cluster
-compute_name = os.environ.get("AZ_COMPUTE", "simlingo-gpu-cluster")
-compute_sku = os.environ.get("AZ_COMPUTE_SKU", DEFAULT_SKU)
-
-try:
-    compute = ml_client.compute.get(compute_name)
-    print(f"[INFO]: Using existing compute '{compute_name}' ({compute.size})")
-except Exception:
-    print(f"[INFO]: Creating compute '{compute_name}' with SKU '{compute_sku}'...")
-    compute_cluster = AmlCompute(
-        name=compute_name,
-        type="amlcompute",
-        size=compute_sku,
-        min_instances=DEFAULT_MIN_INSTANCES,
-        max_instances=DEFAULT_MAX_INSTANCES,
-        idle_time_before_scale_down=DEFAULT_IDLE_TIME,
-    )
-    ml_client.compute.begin_create_or_update(compute_cluster).result()
-    print(f"[INFO]: Compute '{compute_name}' created successfully")
-
-# Use Azure curated PyTorch GPU environment (includes torch 2.2, cuda 12.1)
-env_name = os.environ.get("AZ_ENV_NAME", ENV_NAME)
-print(f"[INFO]: Using curated environment: {env_name}")
-from azure_deploy_mp.config import DEFAULT_BATCH, DEFAULT_SKU, gpus_for_sku
-
-# Training configuration (centralized defaults)
-batch_size = int(os.environ.get("BATCH_SIZE", str(DEFAULT_BATCH)))
-# Resolve default GPUs based on compute SKU unless explicitly set
-compute_sku_env = os.environ.get("AZ_COMPUTE_SKU", DEFAULT_SKU)
-default_gpus = gpus_for_sku(compute_sku_env)
-num_gpus = int(os.environ.get("NUM_GPUS", str(default_gpus)))
-experiment_name = os.environ.get("EXPERIMENT_NAME", "simlingo_seed1")
-
-print(f"[INFO]: Configuration: batch_size={batch_size}, num_gpus={num_gpus}")
-
-# Install dependencies and run training
-setup_cmd = """
-pip install pytorch-lightning==2.1.0 hydra-core==1.3.2 wandb opencv-python-headless timm transformers einops peft sentencepiece protobuf flash-attn==2.5.6 && \
-python azure_deploy_mp/azure_training.py
-"""
-
-job = command(
-    code="./",
-    command=setup_cmd,
-    environment=env_name,
-    compute=compute_name,
-    display_name=f"simlingo_{experiment_name}",
-    experiment_name="simlingo",
-    environment_variables={
-        "BATCH_SIZE": str(batch_size),
-        "NUM_GPUS": str(num_gpus),
-        "EXPERIMENT_NAME": experiment_name,
-        "WANDB_PROJECT": "simlingo-azure",
-    },
-)
-
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument('--dry-run', action='store_true', help='Print job spec and exit without submitting')
-    return p.parse_args()
-
-
-def job_to_dict(job_obj):
-    # Azure ML SDK job objects are not always JSON serializable; extract key fields
-    return {
-        'code': getattr(job_obj, 'code', None),
-        'command': getattr(job_obj, 'command', None),
-        'environment': getattr(job_obj, 'environment', None),
-        'compute': getattr(job_obj, 'compute', None),
-        'display_name': getattr(job_obj, 'display_name', None),
-        'experiment_name': getattr(job_obj, 'experiment_name', None),
-        'environment_variables': getattr(job_obj, 'environment_variables', None),
-    }
-
-
-if __name__ == '__main__':
-    args = parse_args()
-
-    print("\n" + "=" * PRINT_STUFF)
-    print(f"Prepared job spec")
-    job_spec = job_to_dict(job)
-    print(json.dumps(job_spec, indent=2))
-
-    if args.dry_run:
-        print("\nDry run: not submitting job.")
-        exit(0)
-
-    print(f"Submitting job...")
-    returned_job = ml_client.jobs.create_or_update(job)
-    print(f"Job submitted successfully!")
-    print(f"Job Name: {returned_job.name}")
-    print(f"View in Azure ML Studio: {returned_job.studio_url}")
-    print("=" * PRINT_STUFF)
-
-    # Stream logs
-    print("\nStreaming job logs (Ctrl+C to stop)...\n")
+# If USE_ACR_IMAGE is set, use that prebuilt image name (full ACR path)
+use_acr = os.environ.get("USE_ACR_IMAGE", "")
+if use_acr:
+    print("Using prebuilt ACR image:", use_acr)
+    # Build a simple job spec that references the existing image instead of building
     try:
-        ml_client.jobs.stream(returned_job.name)
-    except KeyboardInterrupt:
-        print("\nLog streaming stopped. Job continues running.")
-        print(f"View status at: {returned_job.studio_url}")
+        from azure.ai.ml import MLClient, command
+        from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
+    except Exception as ex:
+        print("azure.ai.ml SDK not available:", ex)
+        raise
+
+    # Authenticate
+    try:
+        credential = DefaultAzureCredential()
+        credential.get_token("https://management.azure.com/.default")
+    except Exception:
+        credential = InteractiveBrowserCredential()
+
+    ml_client = MLClient(
+        credential=credential,
+        subscription_id=SUBSCRIPTION_ID,
+        resource_group_name=RESOURCE_GROUP,
+        workspace_name=WORKSPACE_NAME,
+    )
+
+    # Create or reuse compute (use actual compute from manual_sven.md)
+    compute_name = os.environ.get("AZ_COMPUTE", "gpu-cluster-t4")
+    try:
+        _ = ml_client.compute.get(compute_name)
+        print(f"Compute '{compute_name}' exists")
+    except Exception:
+        from azure.ai.ml.entities import AmlCompute
+        print(f"Creating compute '{compute_name}'...")
+        compute_cluster = AmlCompute(
+            name=compute_name,
+            type="amlcompute",
+            size=os.environ.get("AZ_COMPUTE_SKU", "Standard_NC24ads_A100_v4"),
+            min_instances=0,
+            max_instances=4,  # manual says 0-4 nodes
+            idle_time_before_scale_down=300,
+        )
+        ml_client.compute.begin_create_or_update(compute_cluster).result()
+
+    # Command job referencing the image
+    print("Submitting command job using image", use_acr)
+    job = command(
+        code="./",
+        command="python azure_training.py",
+        environment={'image': use_acr},
+        compute=compute_name,
+        display_name="simlingo_training_seed1",
+        experiment_name="simlingo",
+    )
+
+    returned_job = ml_client.jobs.create_or_update(job)
+    print("Job submitted!", returned_job.name)
+    print("Studio:", returned_job.studio_url)
+    ml_client.jobs.stream(returned_job.name)
+else:
+    # Use Azure ML curated CUDA 12 image instead of building from Dockerfile
+    # This is faster and recommended per manual_sven.md commentary
+    try:
+        from azure.ai.ml import MLClient, command
+        from azure.ai.ml.entities import Environment, AmlCompute
+        from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
+    except Exception as ex:
+        print("azure.ai.ml SDK not available:", ex)
+        raise
+
+    try:
+        credential = DefaultAzureCredential()
+        credential.get_token("https://management.azure.com/.default")
+    except Exception:
+        credential = InteractiveBrowserCredential()
+
+    ml_client = MLClient(
+        credential=credential,
+        subscription_id=SUBSCRIPTION_ID,
+        resource_group_name=RESOURCE_GROUP,
+        workspace_name=WORKSPACE_NAME,
+    )
+
+    # Use Azure ML curated image with CUDA 12 (recommended approach)
+    # Options: mcr.microsoft.com/azureml/curated/acft-hf-nlp-gpu:latest (CUDA 12.1 + PyTorch 2.1+)
+    #          mcr.microsoft.com/azureml/openmpi4.1.0-cuda12.1-cudnn8-ubuntu22.04:latest
+    curated_image = os.environ.get(
+        "CURATED_IMAGE",
+        "mcr.microsoft.com/azureml/curated/acft-hf-nlp-gpu:59"  # CUDA 12.1 + PyTorch 2.1
+    )
+    print(f"Using curated image: {curated_image}")
+
+    compute_name = os.environ.get("AZ_COMPUTE", "gpu-cluster-t4")
+    try:
+        _ = ml_client.compute.get(compute_name)
+        print(f"Compute '{compute_name}' exists")
+    except Exception:
+        print(f"Creating compute '{compute_name}'...")
+        compute_cluster = AmlCompute(
+            name=compute_name,
+            type="amlcompute",
+            size=os.environ.get("AZ_COMPUTE_SKU", "Standard_NC24ads_A100_v4"),
+            min_instances=0,
+            max_instances=4,
+            idle_time_before_scale_down=300,
+        )
+        ml_client.compute.begin_create_or_update(compute_cluster).result()
+
+    # Mount the uploaded dataset
+    # Path should match what was uploaded in upload_dataset.sh
+    from azure.ai.ml import Input
+    from azure.ai.ml.constants import AssetTypes
+    
+    dataset_path = os.environ.get(
+        "DATASET_PATH",
+        "azureml://datastores/workspaceblobstore/paths/datasets/processed/simlingo_v2_2025_01_10/"
+    )
+    print(f"Mounting dataset from: {dataset_path}")
+    
+    # Submit job using curated image with runtime pip install for SimLingo deps
+    job = command(
+        code="./",
+        command=(
+            "pip install -q torch==2.2.0 flash-attn==2.7.0.post2 && "
+            "pip install -q -r requirements.txt && "
+            "python azure_training.py"
+        ),
+        inputs={
+            "training_data": Input(
+                type=AssetTypes.URI_FOLDER,
+                path=dataset_path,
+                mode="ro_mount"
+            )
+        },
+        environment={'image': curated_image},
+        compute=compute_name,
+        display_name=os.environ.get("EXPERIMENT_NAME", "simlingo_training_seed1"),
+        experiment_name="data-ai-vla-experiments",
+    )
+
+    print("Submitting job...")
+    returned_job = ml_client.jobs.create_or_update(job)
+    print(f"Job submitted! Job name: {returned_job.name}")
+    print(f"View job in Azure ML Studio: {returned_job.studio_url}")
+    ml_client.jobs.stream(returned_job.name)

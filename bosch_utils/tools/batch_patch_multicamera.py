@@ -25,7 +25,7 @@ import time
 # Import the patching functions from patch_multicamera
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from bosch_utils.tools.patch_multicamera import load_camera_images, create_geometric_patch, create_simple_layout_patch
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
 import cv2
 from bosch_utils.config import IMAGE_EXT
 

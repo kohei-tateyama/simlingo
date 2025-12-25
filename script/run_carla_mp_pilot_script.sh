@@ -78,6 +78,7 @@ trap cleanup_on_exit EXIT INT TERM
 MODE="evaluation"  # Default mode
 AUTOPILOT_DURATION=60
 AUTOPILOT_ROUTE="highway"
+AUTOPILOT_TOWN="Town13"
 MULTICAMERA=true
 AUTOPILOT_LONG=false
 AUTOPILOT_WEATHER=""
@@ -160,6 +161,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--route)
             AUTOPILOT_ROUTE="$2"
+            shift 2
+            ;;
+        --town)
+            AUTOPILOT_TOWN="$2"
             shift 2
             ;;
         --autopilot-all)
@@ -456,6 +461,7 @@ run_autopilot() {
                 --autopilot \
                 --duration "$duration" \
                 --route "$route" \
+                --town "$AUTOPILOT_TOWN" \
                 --fps "$AUTOPILOT_FPS" \
                 $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
                 $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" )
@@ -467,6 +473,7 @@ run_autopilot() {
                 --autopilot \
                 --duration "$duration" \
                 --route "$route" \
+                --town "$AUTOPILOT_TOWN" \
                 --fps "$AUTOPILOT_FPS" \
                 $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
                 $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" ) \
