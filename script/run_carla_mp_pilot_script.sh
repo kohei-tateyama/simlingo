@@ -8,7 +8,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-## sudo chown $(id -u):$(id -g) /media/external_ssd
 # =============================================================================
 ## This script is an updated versionn of the how_to_run_headless.sh and it allows runnning the simlingo agent as well as other code for gathering data in headless mode.
 # This script is also a bnetter verison fo run_carla_autopilot.sh
@@ -26,7 +25,7 @@ export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
 export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
-export SAVE_PATH="${RECORDING_OUTPUT_DIR:-/workspace/simlingo/outputs/test_run/}"
+export SAVE_PATH=/workspace/simlingo/outputs/test_run/
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # Fix conda activation for non-interactive scripts
@@ -310,7 +309,6 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
-        -v ${SAVE_PATH}:${SAVE_PATH} \
         carla-bench2drive:0.9.15 \
         bash -c "cd /home/carla && mkdir -p CarlaUE4/Saved/Logs && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
 
@@ -488,6 +486,10 @@ run_autopilot() {
             --fps "$AUTOPILOT_FPS"
     fi
     AUTOPILOT_EXIT_CODE=$?
+    
+    # Capture dataset path from autopilot output (avoids slow auto-discovery)
+    DATASET_PATH=$(grep -oP '__DATASET_PATH__=\K.*' <<< "$AUTOPILOT_OUTPUT" | tail -1)
+    
     echo ""
     sep
     if [ $AUTOPILOT_EXIT_CODE -eq 0 ]; then
@@ -497,7 +499,15 @@ run_autopilot() {
         if [ "$MULTICAMERA" = true ]; then
             echo ""
             info "Starting post-processing: Patching multicamera RGB images..."
-            python bosch_utils/tools/batch_patch_multicamera.py --auto-latest --layout geometric
+            
+            if [ -n "$DATASET_PATH" ] && [ -d "$DATASET_PATH" ]; then
+                info "Using dataset path: $DATASET_PATH"
+                python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
+            else
+                warn "Dataset path not captured, falling back to auto-discovery..."
+                python bosch_utils/tools/batch_patch_multicamera.py --auto-latest --layout geometric
+            fi
+            
             PATCH_EXIT_CODE=$?
             if [ $PATCH_EXIT_CODE -eq 0 ]; then
                 info "Multicamera patching completed successfully!"

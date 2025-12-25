@@ -1877,6 +1877,10 @@ def main():
     except Exception:
         pass
     sim.run()
+    
+    # Output dataset path for shell script to capture and pass to post-processing
+    # This avoids expensive auto-discovery on external SSD
+    print(f"\n__DATASET_PATH__={sim.folderpath}")
 
 if __name__ == '__main__':
     main()
