@@ -83,7 +83,7 @@ DEFAULT_MODEL = "/workspace/vla_data_generation/Qwen3VL-32B-Instruct-Q4_K_M.gguf
 DEFAULT_MMPROJ = "/workspace/vla_data_generation/mmproj-Qwen3VL-32B-Instruct-F16.gguf"
 
 class LlamaVisionInference:
-    """Wrapper for llama.cpp multimodal inference"""
+    """Wrapper for llama.cpp multimodal inference using llama-server (HTTP API)"""
     
     def __init__(self, 
                  llama_bin: str = DEFAULT_LLAMA_BIN,
@@ -92,7 +92,8 @@ class LlamaVisionInference:
                  threads: int = 8,
                  ctx_size: int = 4096,
                  n_gpu_layers: int = 16,
-                 predict_tokens: int = 512):
+                 predict_tokens: int = 512,
+                 server_port: int = 8081):
         self.llama_bin = llama_bin
         self.model_path = model_path
         self.mmproj_path = mmproj_path
@@ -100,14 +101,30 @@ class LlamaVisionInference:
         self.ctx_size = ctx_size
         self.n_gpu_layers = n_gpu_layers
         self.predict_tokens = predict_tokens
+        self.server_port = server_port
+        self.server_url = f"http://127.0.0.1:{server_port}"
+        self.server_process = None
         
-        # Verify binary exists
-        if not Path(llama_bin).exists():
-            raise FileNotFoundError(f"llama binary not found: {llama_bin}")
+        # Use llama-server instead of llama-cli
+        server_bin = Path(llama_bin).parent / "llama-server"
+        if not server_bin.exists():
+            # Fallback: try finding it
+            server_bin = Path(llama_bin).parent / "server"
+        if not server_bin.exists():
+            raise FileNotFoundError(
+                f"llama-server not found. Expected at {server_bin}\n"
+                f"Make sure llama.cpp is compiled with server support."
+            )
+        self.server_bin = str(server_bin)
+        
+        # Verify files exist
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model not found: {model_path}")
         if not Path(mmproj_path).exists():
             raise FileNotFoundError(f"MMProj not found: {mmproj_path}")
+        
+        # Start the server
+        self._start_server()
     
     def generate_commentary(self, image_path: str, retry_on_oom: bool = True) -> Tuple[str, Dict]:
         """
@@ -180,52 +197,133 @@ Focus on being concise but specific. Mention object colors, positions (front/rea
 <|image|>
 You are an expert autonomous driving perception system. This image is a stitched surround-view layout consisting of 6 cameras: [Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center].
 
-Analyze the 360-degree environment and generate a driving commentary. Your response should include:
-
-1. **Surround Analysis**: Identify key objects across all views (vehicles, pedestrians, traffic signs, road markings).
-2. **Reasoning**: Explain the driving decision logic based on observed objects and traffic rules.
-4. **Action**: Provide a single, clear action command with numbers.
+Analyze the 360-degree environment and generate a driving commentary. 
 
 Format your response as:
 Commentary: [Your full driving commentary with reasoning]
 Action: [Single action command like "Accelerate to follow the lead vehicle" or "Brake for pedestrian crossing"]
 
-Focus on being concise but specific. Mention object colors, positions (front/rear/left/right), and relative distances when relevant.<|im_end|>
+Focus on being concise but specific. Mention object colors, positions (front/rear/left/right), and relative distances when relevant.
+
+IMPORTANT: After providing the Action line, immediately end your response with <|im_end|> token. Do not wait for user input or continue the conversation.<|im_end|>
 <|im_start|>assistant"""
     
+    def _start_server(self):
+        """Start llama-server in background if not already running"""
+        import urllib.request
+        import signal
+        
+        # Check if server already running
+        try:
+            req = urllib.request.Request(f"{self.server_url}/health", method='GET')
+            urllib.request.urlopen(req, timeout=2)
+            logging.info(f"Server already running at {self.server_url}")
+            return
+        except:
+            pass
+        
+        # Start server
+        logging.info(f"Starting llama-server on port {self.server_port}...")
+        
+        cmd = [
+            self.server_bin,
+            "-m", self.model_path,
+            "--mmproj", self.mmproj_path,
+            "-ngl", str(self.n_gpu_layers),
+            "-t", str(self.threads),
+            "-c", str(self.ctx_size),
+            "--port", str(self.server_port),
+            "--host", "127.0.0.1",
+            "-n", str(self.predict_tokens),
+        ]
+        
+        # Start server in background, suppress output
+        self.server_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid if hasattr(os, 'setsid') else None
+        )
+        
+        # Wait for server to be ready
+        max_wait = 60
+        for i in range(max_wait):
+            try:
+                time.sleep(1)
+                req = urllib.request.Request(f"{self.server_url}/health", method='GET')
+                urllib.request.urlopen(req, timeout=2)
+                logging.info(f"Server ready after {i+1}s")
+                return
+            except:
+                continue
+        
+        raise RuntimeError(f"Server failed to start after {max_wait}s")
+    
+    def _stop_server(self):
+        """Stop the llama-server"""
+        if self.server_process:
+            logging.debug("Stopping llama-server...")
+            try:
+                os.killpg(os.getpgid(self.server_process.pid), signal.SIGTERM)
+            except:
+                self.server_process.terminate()
+            self.server_process.wait(timeout=10)
+    
+    def __del__(self):
+        """Cleanup: stop server on deletion"""
+        self._stop_server()
+    
     def _run_llama_inference(self, image_path: str, prompt: str, n_gpu_layers: int) -> str:
-        """Run llama.cpp inference subprocess"""
-        # Use shell command with stdin redirect to force non-interactive mode
-        import shlex
-        shell_cmd = (
-            f"{shlex.quote(self.llama_bin)} "
-            f"--model {shlex.quote(self.model_path)} "
-            f"--mmproj {shlex.quote(self.mmproj_path)} "
-            f"--image {shlex.quote(image_path)} "
-            f"--threads {self.threads} "
-            f"--ctx-size {self.ctx_size} "
-            f"--n-gpu-layers {n_gpu_layers} "
-            f"--log-disable "
-            f"--predict {self.predict_tokens} "
-            f"--prompt {shlex.quote(prompt)} "
-            f"</dev/null 2>&1"
+        """Run inference via llama-server HTTP API (no hanging, no timeouts needed!)"""
+        import urllib.request
+        import urllib.parse
+        import base64
+        
+        logging.debug("Encoding image...")
+        
+        # Read and base64 encode image
+        with open(image_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        # Build request payload for llama-server
+        payload = {
+            "prompt": prompt,
+            "image_data": [{"data": image_data, "id": 10}],
+            "n_predict": self.predict_tokens,
+            "temperature": 0.7,
+            "stop": ["<|im_end|>", "<|endoftext|>"],
+            "cache_prompt": True,
+        }
+        
+        logging.debug(f"Sending request to {self.server_url}/completion...")
+        
+        # Make HTTP POST request
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            f"{self.server_url}/completion",
+            data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
         )
         
-        logging.debug(f"Running llama-cli with stdin from /dev/null...")
-        
-        result = subprocess.run(
-            shell_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
-        
-        if result.returncode != 0:
-            logging.error(f"llama.cpp failed: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
-        
-        return result.stdout
+        try:
+            response = urllib.request.urlopen(req, timeout=120)
+            result = json.loads(response.read().decode('utf-8'))
+            
+            # Extract generated text
+            output = result.get('content', '')
+            
+            if not output:
+                raise RuntimeError(f"Empty response from server: {result}")
+            
+            logging.debug(f"Generated {len(output)} characters")
+            return output
+            
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            raise RuntimeError(f"Server error {e.code}: {error_body}")
+        except Exception as e:
+            raise RuntimeError(f"Request failed: {e}")
     
     def _extract_commentary(self, raw_output: str) -> str:
         """Extract clean commentary from llama.cpp output"""

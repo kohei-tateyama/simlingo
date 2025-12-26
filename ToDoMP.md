@@ -499,3 +499,48 @@ sudo chown -R pim1yh:pim1yh /media/external_ssd/database
 
 rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
 ```
+
+# Last day before new years break -> When to start back
+
+- keep testing the `python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg`. Enforcing the strcture used from simlingo. Enforce the commentary_augmented.json and all the simlingo/data/auguemnted from the simlingo team in a japanese fashion.
+- check the upload on azure ~400000/20000000 with 24 h of uploading 
+- check the data collection from CARLA. 30% usage in the external ssd of 4TB
+
+```bash 
+(simlingo) pim1yh@YH0V0013:/workspace/simlingo$ tmux ls
+azure_upload: 1 windows (created Thu Dec 25 17:26:41 2025)
+datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
+````
+
+
+(base) pim1yh@YH0V0013:/workspace$ python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg -v
+[INFO] Starting llama-server on port 8081...
+[INFO] Server ready after 4s
+[INFO] Processing image: patched.jpg
+[INFO] Generating commentary with llama.cpp...
+====================================================================================================
+====================================================================================================
+[INFO] Saved commentary to /media/external_ssd/database/simlingo_v4_2026_01_01/commentary/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.json.gz (43.78s)
+====================================================================================================
+====================================================================================================
+[INFO] ✓ Successfully processed: /media/external_ssd/database/simlingo_v4_2026_01_01/commentary/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.json.gz
+(base) pim1yh@YH0V0013:/workspace$ zcat /media/external_ssd/database/simlingo_v4_2026_01_01/commentary/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.json.gz
+{
+  "image": "/media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg",
+  "commentary": "The front camera view shows a clear road ahead with no immediate obstacles, while the front-left and front-right cameras indicate open lanes with no vehicles in close proximity. The rear-center and rear-left cameras reveal a white sedan approximately 15 meters behind, maintaining a steady distance. The rear-right camera shows an empty lane. The surrounding environment appears to be a multi-lane highway with no visible pedestrians or cyclists. All camera views confirm a stable, unobstructed driving environment with no signs of traffic congestion or hazards.",
+  "commentary_template": "The front camera view shows a clear road ahead with no immediate obstacles, while the front-left and front-right cameras indicate open lanes with no <OBJECT>s in close proximity. The rear-center and rear-left cameras reveal a white sedan approximately 15 meters behind, maintaining a steady distance. The rear-right camera shows an empty lane. The surrounding environment appears to be a multi-lane highway with no visible pedestrians or cyclists. All camera views confirm a stable, unobstructed driving environment with no signs of traffic congestion or hazards.",
+  "cause_object_visible_in_image": true,
+  "cause_object": {},
+  "cause_object_string": "vehicle",
+  "scenario_name": "RouteFollowing",
+  "placeholder": {
+    "<OBJECT>": "vehicle"
+  },
+  "provenance": {
+    "generator": "image_describer2_todo.py",
+    "llama_model": "Qwen3VL-32B-Instruct-Q4_K_M.gguf",
+    "n_gpu_layers": 16,
+    "generated_at": "2025-12-26T07:30:58Z",
+    "detections_count": 0
+  }
+}
