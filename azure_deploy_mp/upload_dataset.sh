@@ -17,13 +17,15 @@ if [ -z "$AZ_SUBSCRIPTION_ID" ] || [ -z "$AZ_RESOURCE_GROUP" ] || [ -z "$AZ_WORK
 fi
 
 # Configuration
-# Default to project storage/account from manual_sven.md but allow overrides
-STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-YOUR_STORAGE_ACCOUNT_NAME}"
-CONTAINER_NAME="${CONTAINER_NAME:-YOUR_CONTAINER_NAME}"
+# Use actual project values from manual_sven.md
+STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-daijpepdde0b7efc169e98db}"
+STORAGE_RESOURCE_GROUP="${STORAGE_RESOURCE_GROUP:-rg-deveco-jp-datastore-prd}"
+CONTAINER_NAME="${CONTAINER_NAME:-data-ai-vla}"
 DATASET_DIR="${DATASET_DIR:-/workspace/simlingo/database}"
 
 info "Configuration"
 echo "Storage Account : $STORAGE_ACCOUNT"
+echo "Storage RG      : $STORAGE_RESOURCE_GROUP"
 echo "Container       : $CONTAINER_NAME"
 echo "Dataset dir     : $DATASET_DIR"
 echo ""
@@ -50,14 +52,14 @@ fi
 #####
 
 info "[Step 1]: Ensure Storage Account exists"
-if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$AZ_RESOURCE_GROUP" &>/dev/null; then
+if az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" &>/dev/null; then
     echo "Storage account $STORAGE_ACCOUNT exists"
 else
-    echo "Storage account $STORAGE_ACCOUNT not found in resource group $AZ_RESOURCE_GROUP"
+    echo "Storage account $STORAGE_ACCOUNT not found in resource group $STORAGE_RESOURCE_GROUP"
     echo "Creating storage account $STORAGE_ACCOUNT..."
     az storage account create \
       --name "$STORAGE_ACCOUNT" \
-      --resource-group "$AZ_RESOURCE_GROUP" \
+      --resource-group "$STORAGE_RESOURCE_GROUP" \
       --location eastus \
       --sku Standard_LRS
 fi
@@ -127,9 +129,10 @@ echo "Starting upload at $(date)"
 echo "TIP: Run this in tmux/screen to avoid interruption"
 echo ""
 
-# target paths in container follow manual_sven.md: datasets/raw/<dataset> and datasets/raw/<buckets>
-MAIN_DST_PATH="datasets/raw/simlingo_v2_2025_01_10"
-BUCKETS_DST_PATH="datasets/raw/bucketsv2_simlingo"
+# target paths in container follow manual_sven.md: datasets/processed/<dataset>
+# Use processed/ since this is training-ready data (already collected/formatted)
+MAIN_DST_PATH="datasets/processed/simlingo_v2_2025_01_10"
+BUCKETS_DST_PATH="datasets/processed/bucketsv2_simlingo"
 
 echo "Uploading simlingo_v2_2025_01_10 to ${BLOB_URL}/${MAIN_DST_PATH}"
 # Prefer az CLI AD-authenticated batch upload
@@ -184,7 +187,7 @@ info "[Step 6]: Registering Datastore in Azure ML"
 # Get storage key super important!
 STORAGE_KEY=$(az storage account keys list \
   --account-name "$STORAGE_ACCOUNT" \
-  --resource-group "$AZ_RESOURCE_GROUP" \
+  --resource-group "$STORAGE_RESOURCE_GROUP" \
   --query '[0].value' -o tsv)
 
 # Create datastore via Python SDK

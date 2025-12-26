@@ -8,7 +8,7 @@ This script combines:
 - YOLO detection for object identification (optional)
 - Structured driving scene analysis
 
-Output JSON format matches simlingo v2:
+Output JSON format matches simlingo v4:
 {
     "image": "path/to/rgb/0010.jpg",
     "commentary": "Follow the route. Accelerate to follow the black SUV...",
@@ -24,29 +24,32 @@ Requirements:
 - llama.cpp compiled with multimodal support (llama-completion binary)
 - Qwen3VL model (.gguf) and mmproj file
 - PIL (Pillow) for image handling
-- Optional: ultralytics (YOLO) for object detection
+- [Optional]: ultralytics (YOLO) for object detection
 
 
 # Process a single image
-python news/image_describer2_todo.py path/to/rgb/0010.jpg
+python /workspace/simlingo/bosch_utils/tools/image_describer2_todo.py path/to/rgb/patched.jpg
+Real example, TRY
+python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg
+ƒ
 
 # Process entire directory
-python news/image_describer2_todo.py path/to/rgb/ --recursive
+python workspace/simlingo/bosch_utils/tools/image_describer2_todo.py path/to/rgb/ --recursive
 
 # Lower GPU usage to avoid OOM
-python news/image_describer2_todo.py image.jpg --n-gpu-layers 8 --threads 4
+python /workspace/simlingo/bosch_utils/tools/image_describer2_todo.py image.jpg --n-gpu-layers 8 --threads 4
 
 # Use custom model paths
-python news/image_describer2_todo.py image.jpg \
+python /workspace/simlingo/bosch_utils/tools/image_describer2_todo.py image.jpg \
   --model /path/to/model.gguf \
   --mmproj /path/to/mmproj.gguf \
   --llama-bin /path/to/llama-completion
 
 # CPU-only mode
-python news/image_describer2_todo.py image.jpg --n-gpu-layers 0
+python /workspace/simlingo/bosch_utils/tools/image_describer2_todo.py image.jpg --n-gpu-layers 0
 
 # Custom output directory
-python news/image_describer2_todo.py image.jpg --output-dir /custom/path/commentary
+python /workspace/simlingo/bosch_utils/tools/image_describer2_todo.py image.jpg --output-dir /custom/path/commentary
 """
 
 import subprocess
@@ -74,10 +77,10 @@ except Exception:
 
 
 # Default paths (can be overridden via CLI args or environment variables)
-DEFAULT_LLAMA_BIN = "/workspace/vla_data_generation/llama.cpp/build/bin/llama-completion"
+# DEFAULT_LLAMA_BIN = "/workspace/vla_data_generation/llama.cpp/build/bin/llama-completion" ## error 
+DEFAULT_LLAMA_BIN = "/workspace/vla_data_generation/llama.cpp/build/bin/llama-cli"
 DEFAULT_MODEL = "/workspace/vla_data_generation/Qwen3VL-32B-Instruct-Q4_K_M.gguf"
 DEFAULT_MMPROJ = "/workspace/vla_data_generation/mmproj-Qwen3VL-32B-Instruct-F16.gguf"
-
 
 class LlamaVisionInference:
     """Wrapper for llama.cpp multimodal inference"""
@@ -150,7 +153,8 @@ class LlamaVisionInference:
         
         raise RuntimeError("All inference attempts failed (OOM or other errors)")
     
-    def _build_driving_prompt(self) -> str:
+    def _build_driving_prompt_compelte(self) -> str:
+        ## This can be deeply revised.
         """Build the prompt for autonomous driving commentary generation"""
         return """<|im_start|>user
 <|image|>
@@ -169,25 +173,49 @@ Action: [Single action command like "Accelerate to follow the lead vehicle" or "
 
 Focus on being concise but specific. Mention object colors, positions (front/rear/left/right), and relative distances when relevant.<|im_end|>
 <|im_start|>assistant"""
+
+    def _build_driving_prompt(self) -> str:
+        """Build the prompt for autonomous driving commentary generation"""
+        return """<|im_start|>user
+<|image|>
+You are an expert autonomous driving perception system. This image is a stitched surround-view layout consisting of 6 cameras: [Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center].
+
+Analyze the 360-degree environment and generate a driving commentary. Your response should include:
+
+1. **Surround Analysis**: Identify key objects across all views (vehicles, pedestrians, traffic signs, road markings).
+2. **Reasoning**: Explain the driving decision logic based on observed objects and traffic rules.
+4. **Action**: Provide a single, clear action command with numbers.
+
+Format your response as:
+Commentary: [Your full driving commentary with reasoning]
+Action: [Single action command like "Accelerate to follow the lead vehicle" or "Brake for pedestrian crossing"]
+
+Focus on being concise but specific. Mention object colors, positions (front/rear/left/right), and relative distances when relevant.<|im_end|>
+<|im_start|>assistant"""
     
     def _run_llama_inference(self, image_path: str, prompt: str, n_gpu_layers: int) -> str:
         """Run llama.cpp inference subprocess"""
-        cmd = [
-            self.llama_bin,
-            '--model', self.model_path,
-            '--mmproj', self.mmproj_path,
-            '--image', image_path,
-            '--threads', str(self.threads),
-            '--ctx-size', str(self.ctx_size),
-            '--n-gpu-layers', str(n_gpu_layers),
-            '--predict', str(self.predict_tokens),
-            '--prompt', prompt
-        ]
+        # Use shell command with stdin redirect to force non-interactive mode
+        import shlex
+        shell_cmd = (
+            f"{shlex.quote(self.llama_bin)} "
+            f"--model {shlex.quote(self.model_path)} "
+            f"--mmproj {shlex.quote(self.mmproj_path)} "
+            f"--image {shlex.quote(image_path)} "
+            f"--threads {self.threads} "
+            f"--ctx-size {self.ctx_size} "
+            f"--n-gpu-layers {n_gpu_layers} "
+            f"--log-disable "
+            f"--predict {self.predict_tokens} "
+            f"--prompt {shlex.quote(prompt)} "
+            f"</dev/null 2>&1"
+        )
         
-        logging.debug(f"Running: {' '.join(cmd[:6])}...")
+        logging.debug(f"Running llama-cli with stdin from /dev/null...")
         
         result = subprocess.run(
-            cmd,
+            shell_cmd,
+            shell=True,
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -390,10 +418,34 @@ def process_image(image_path: str,
     if output_dir:
         out_dir = Path(output_dir)
     else:
-        # Place commentary folder next to the image folder.
-        # Use Path operations rather than string concatenation to avoid ambiguous paths.
-        img_dir = img_path.parent
-        out_dir = img_dir.parent / (img_dir.name + '_commentary')
+        # For simlingo v4 structure: replace dataset type (e.g., 'auto_long_multicam_jp') with 'commentary'
+        # Input:  /media/.../simlingo_v4.../auto_long_multicam_jp/training_.../ego_42/rgb/0000/patched.jpg
+        # Output: /media/.../simlingo_v4.../commentary/auto_long_multicam_jp/training_.../ego_42/rgb/0000.json.gz
+        img_dir = img_path.parent  # e.g., .../rgb/0000
+        
+        # Try to detect simlingo structure by looking for 'simlingo' in path
+        path_parts = img_path.parts
+        try:
+            # Find the database root (contains 'simlingo')
+            simlingo_idx = None
+            for i, part in enumerate(path_parts):
+                if 'simlingo' in part.lower():
+                    simlingo_idx = i
+                    break
+            
+            if simlingo_idx is not None and simlingo_idx + 1 < len(path_parts):
+                # Reconstruct path: database_root/commentary/rest_of_path
+                database_root = Path(*path_parts[:simlingo_idx + 1])
+                dataset_type = path_parts[simlingo_idx + 1]  # e.g., 'auto_long_multicam_jp'
+                rest_of_path = path_parts[simlingo_idx + 2:-1]  # exclude filename
+                
+                out_dir = database_root / 'commentary' / dataset_type / Path(*rest_of_path)
+            else:
+                # Fallback: place commentary folder next to rgb folder
+                out_dir = img_dir.parent / (img_dir.name + '_commentary')
+        except Exception:
+            # Fallback: place commentary folder next to rgb folder
+            out_dir = img_dir.parent / (img_dir.name + '_commentary')
 
     # Ensure output directory exists and is writable
     try:
@@ -418,7 +470,11 @@ def process_image(image_path: str,
         json.dump(structured_data, f, indent=2, ensure_ascii=False)
     
     elapsed = time.time() - t0
+    print('=' * 100)
+    print('=' * 100)
     logging.info(f"Saved commentary to {out_path} ({elapsed:.2f}s)")
+    print('=' * 100)
+    print('=' * 100)
     
     return structured_data, str(out_path)
 

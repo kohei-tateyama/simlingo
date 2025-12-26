@@ -2,6 +2,8 @@
 image_describer_todo.py
 Trying to udnerstand how to generate image descriptions locally to augment dataset automatically.
 
+THIS FUNCTION HAS NEVER BEEN USED AND IT IS IS DEPRECADED.
+
 Pipeline and requirements:
 - PIL (Pillow) for image I/O (pillow==10.2.0 in simlingo environment).
 - Optional: BLIP captioning via Hugging Face `transformers` (transformers==4.46.3) and `torch` (torch==2.2.0) for local image-to-text.
