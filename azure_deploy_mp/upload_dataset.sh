@@ -109,17 +109,34 @@ EXPIRY=$(date -u -d "7 days" '+%Y-%m-%dT%H:%MZ')
 SAS_TOKEN=""
 BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}"
 
-# Try to generate SAS using AD credentials (may require permission)
+## Try to generate SAS using AD credentials (may require permission)
 if SAS_TOKEN=$(az storage container generate-sas \
-      --account-name "$STORAGE_ACCOUNT" \
-      --name "$CONTAINER_NAME" \
-      --permissions rwdl \
-      --expiry "$EXPIRY" \
-      --auth-mode login -o tsv 2>/dev/null); then
-    echo "Generated SAS token via AD auth (for azcopy fallback)"
+    --account-name "$STORAGE_ACCOUNT" \
+    --name "$CONTAINER_NAME" \
+    --permissions rwdl \
+    --expiry "$EXPIRY" \
+    --auth-mode login -o tsv 2>/dev/null); then
+  echo "Generated SAS token via AD auth (for azcopy fallback)"
 else
-    echo "Could not generate SAS token via AD auth; will use az cli upload with --auth-mode login"
+  echo "Could not generate SAS token via AD auth. Trying account key to create SAS..."
+  # Try to obtain account key and generate SAS using it (fallback)
+  if STORAGE_KEY=$(az storage account keys list --account-name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query '[0].value' -o tsv 2>/dev/null); then
+    echo "Obtained storage account key; generating SAS from account key"
+    if SAS_TOKEN=$(az storage container generate-sas \
+        --account-name "$STORAGE_ACCOUNT" \
+        --name "$CONTAINER_NAME" \
+        --permissions rwdl \
+        --expiry "$EXPIRY" \
+        --account-key "$STORAGE_KEY" -o tsv 2>/dev/null); then
+      echo "Generated SAS token via account key"
+    else
+      echo "Failed to generate SAS via account key; will proceed with az storage upload (AD auth) and --overwrite false fallback"
+      SAS_TOKEN=""
+    fi
+  else
+    echo "Unable to obtain storage account key; will proceed with az storage upload (AD auth) and --overwrite false fallback"
     SAS_TOKEN=""
+  fi
 fi
 
 #####
@@ -135,18 +152,54 @@ MAIN_DST_PATH="datasets/processed/simlingo_v2_2025_01_10"
 BUCKETS_DST_PATH="datasets/processed/bucketsv2_simlingo"
 
 echo "Uploading simlingo_v2_2025_01_10 to ${BLOB_URL}/${MAIN_DST_PATH}"
-# Prefer az CLI AD-authenticated batch upload
+
+## Prefer resumable azcopy sync when possible (fast, skips existing files)
+if command -v azcopy &>/dev/null; then
+  if [ -n "$SAS_TOKEN" ]; then
+    echo "Using azcopy sync (resumable) with SAS token"
+    AZCOPY_DEST="${BLOB_URL}/${MAIN_DST_PATH}?${SAS_TOKEN}"
+    if azcopy sync "$DATASET_DIR/simlingo_v2_2025_01_10" "$AZCOPY_DEST" --recursive --log-level INFO; then
+      echo "Main dataset synced via azcopy (resumable)"
+    else
+      echo "azcopy sync failed; will attempt az CLI upload-batch as fallback" >&2
+    fi
+  else
+    # No SAS token but azcopy present: try to create a short-lived SAS using account key (if available)
+    if [ -z "$STORAGE_KEY" ]; then
+      STORAGE_KEY=$(az storage account keys list --account-name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query '[0].value' -o tsv 2>/dev/null || true)
+    fi
+    if [ -n "$STORAGE_KEY" ]; then
+      echo "Creating SAS token from account key for azcopy (short expiry)"
+      if SAS_TOKEN=$(az storage container generate-sas --account-name "$STORAGE_ACCOUNT" --name "$CONTAINER_NAME" --permissions rwdl --expiry "$EXPIRY" --account-key "$STORAGE_KEY" -o tsv 2>/dev/null); then
+        AZCOPY_DEST="${BLOB_URL}/${MAIN_DST_PATH}?${SAS_TOKEN}"
+        echo "Using azcopy sync (resumable) with account-key-derived SAS"
+        if azcopy sync "$DATASET_DIR/simlingo_v2_2025_01_10" "$AZCOPY_DEST" --recursive --log-level INFO; then
+          echo "Main dataset synced via azcopy (resumable)"
+        else
+          echo "azcopy sync with account-key SAS failed; will attempt az CLI upload-batch as fallback" >&2
+        fi
+      else
+        echo "Failed to create SAS via account key; will proceed with az CLI upload-batch (AD auth)" >&2
+      fi
+    else
+      echo "No SAS and no account key available; will proceed with az CLI upload-batch (AD auth)" >&2
+    fi
+  fi
+fi
+
+# If azcopy sync wasn't used or failed, try az CLI upload-batch but do NOT overwrite existing blobs
 if az storage blob upload-batch \
    --account-name "$STORAGE_ACCOUNT" \
    --destination "$CONTAINER_NAME" \
    --source "$DATASET_DIR/simlingo_v2_2025_01_10" \
    --destination-path "$MAIN_DST_PATH" \
-   --auth-mode login; then
-  echo "Main dataset uploaded via az storage (AD auth)"
+   --auth-mode login \
+   --overwrite false; then
+  echo "Main dataset uploaded/updated via az storage (AD auth) - existing blobs were not overwritten"
 else
-  # Fallback to azcopy if SAS available
+  # If upload-batch failed and azcopy+SAS exists, try azcopy copy as a last resort
   if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
-    echo "Falling back to azcopy using SAS token"
+    echo "Falling back to azcopy copy using SAS token"
     azcopy copy "$DATASET_DIR/simlingo_v2_2025_01_10" "${BLOB_URL}/${MAIN_DST_PATH}?${SAS_TOKEN}" --recursive --log-level=INFO
   else
     echo "ERROR: Failed to upload main dataset via az CLI and no azcopy+SAS available" >&2
@@ -155,16 +208,49 @@ else
 fi
 
 echo "Uploading bucketsv2_simlingo to ${BLOB_URL}/${BUCKETS_DST_PATH}"
+
+if command -v azcopy &>/dev/null; then
+  if [ -n "$SAS_TOKEN" ]; then
+    echo "Using azcopy sync for buckets (resumable)"
+    AZCOPY_DEST_B="${BLOB_URL}/${BUCKETS_DST_PATH}?${SAS_TOKEN}"
+    if azcopy sync "$DATASET_DIR/bucketsv2_simlingo" "$AZCOPY_DEST_B" --recursive --log-level INFO; then
+      echo "Buckets synced via azcopy (resumable)"
+    else
+      echo "azcopy sync for buckets failed; will attempt az CLI upload-batch as fallback" >&2
+    fi
+  else
+    if [ -z "$STORAGE_KEY" ]; then
+      STORAGE_KEY=$(az storage account keys list --account-name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query '[0].value' -o tsv 2>/dev/null || true)
+    fi
+    if [ -n "$STORAGE_KEY" ]; then
+      if SAS_TOKEN=$(az storage container generate-sas --account-name "$STORAGE_ACCOUNT" --name "$CONTAINER_NAME" --permissions rwdl --expiry "$EXPIRY" --account-key "$STORAGE_KEY" -o tsv 2>/dev/null); then
+        AZCOPY_DEST_B="${BLOB_URL}/${BUCKETS_DST_PATH}?${SAS_TOKEN}"
+        echo "Using azcopy sync for buckets with account-key-derived SAS"
+        if azcopy sync "$DATASET_DIR/bucketsv2_simlingo" "$AZCOPY_DEST_B" --recursive --log-level INFO; then
+          echo "Buckets synced via azcopy (resumable)"
+        else
+          echo "azcopy sync for buckets failed; will attempt az CLI upload-batch as fallback" >&2
+        fi
+      else
+        echo "Failed to create SAS for buckets; will proceed with az CLI upload-batch (AD auth)" >&2
+      fi
+    else
+      echo "No SAS and no account key available; will proceed with az CLI upload-batch (AD auth) for buckets" >&2
+    fi
+  fi
+fi
+
 if az storage blob upload-batch \
    --account-name "$STORAGE_ACCOUNT" \
    --destination "$CONTAINER_NAME" \
    --source "$DATASET_DIR/bucketsv2_simlingo" \
    --destination-path "$BUCKETS_DST_PATH" \
-   --auth-mode login; then
-  echo "Buckets uploaded via az storage (AD auth)"
+   --auth-mode login \
+   --overwrite false; then
+  echo "Buckets uploaded/updated via az storage (AD auth) - existing blobs were not overwritten"
 else
   if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
-    echo "Falling back to azcopy using SAS token for buckets"
+    echo "Falling back to azcopy copy using SAS token for buckets"
     azcopy copy "$DATASET_DIR/bucketsv2_simlingo" "${BLOB_URL}/${BUCKETS_DST_PATH}?${SAS_TOKEN}" --recursive --log-level=INFO
   else
     echo "ERROR: Failed to upload buckets via az CLI and no azcopy+SAS available" >&2

@@ -305,7 +305,10 @@ def get_scenario_name(measurement_file_current):
     except:
         print(measurement_file_current)
 
-
+    ##########################################################################################################################
+    #############################################TODO TODO TODO TODO TODO TODO ###############################################
+    ##########################################################################################################################
+    # find the right path to the route file. some are in leaderboard/data, but make sure the routes and the data is matching.
     routefile_path = f'data/simlingo/{route_folder}/{route_file}.xml'
 
     # load route file

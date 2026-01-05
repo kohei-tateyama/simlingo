@@ -45,7 +45,8 @@ if [[ ${1:-} == "--dry-run" || ${1:-} == "-n" ]]; then
 fi
 
 ROUTE_TYPES=(highway urban simple)
-TOWNS=(Town01 Town02 Town03 Town04 Town10 Town11 Town12 Town13)
+# TOWNS=(Town01 Town02 Town03 Town04 Town10 Town11 Town12 Town13)
+TOWNS=(Town03 Town04 Town10 Town11 Town12 Town13) # some of this data are ok (before break holiday new year 2025-2026)
 SPAWN_INDICES=(42 10 25)
 DURATIONS=(10 20 30 40 50 120 180 300)
 WEATHERS=(ClearNoon CloudyNoon WetNoon WetCloudyNoon SoftRainNoon MidRainyNoon HardRainNoon

@@ -499,11 +499,13 @@ sudo chown -R pim1yh:pim1yh /media/external_ssd/database
 
 rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
 ```
-
+# New start 
+# 2026
 # Last day before new years break -> When to start back
 
 - keep testing the `python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg`. Enforcing the strcture used from simlingo. Enforce the commentary_augmented.json and all the simlingo/data/auguemnted from the simlingo team in a japanese fashion.
-- check the upload on azure ~400000/20000000 with 24 h of uploading 
+Take these tempalte `simlingo/data/augmented_templates/commentary_augmented.json`.
+- check the upload on azure ~400 000/20 000 000 with 24 h of uploading 
 - check the data collection from CARLA. 30% usage in the external ssd of 4TB
 
 ```bash 

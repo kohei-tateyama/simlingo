@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Batch patch multicamera RGB folders in a dataset directory.
 
@@ -52,20 +53,28 @@ def find_latest_dataset(base_dir=RECORDING_OUTPUT_DIR):
 
 def find_rgb_folders(dataset_path):
     """Find all rgb/<frame> folders containing multicamera images"""
-    rgb_path = Path(dataset_path) / "rgb"
-    if not rgb_path.exists():
+    p = Path(dataset_path)
+
+    required_cameras = [f'F{IMAGE_EXT}', f'B{IMAGE_EXT}', f'LF{IMAGE_EXT}', f'RF{IMAGE_EXT}', f'LB{IMAGE_EXT}', f'RB{IMAGE_EXT}']
+
+    # Case 1: dataset_path is a single frame folder that already contains the 6 images
+    if p.is_dir() and all((p / cam).exists() for cam in required_cameras):
+        return [p]
+
+    # Determine the rgb search base: prefer explicit rgb/ subfolder, otherwise use provided path
+    rgb_path = (p / 'rgb') if (p / 'rgb').exists() else p
+
+    if not rgb_path.exists() or not rgb_path.is_dir():
         print(f"[ERROR]: rgb folder not found in {dataset_path}")
         return []
-    
+
     # Find all frame folders (e.g., rgb/0000, rgb/0001, ...)
     frame_folders = []
     for item in sorted(rgb_path.iterdir()):
         if item.is_dir():
-            # Check if it contains the 6 camera images
-            required_cameras = [f'F{IMAGE_EXT}', f'B{IMAGE_EXT}', f'LF{IMAGE_EXT}', f'RF{IMAGE_EXT}', f'LB{IMAGE_EXT}', f'RB{IMAGE_EXT}']
             if all((item / cam).exists() for cam in required_cameras):
                 frame_folders.append(item)
-    
+
     return frame_folders
 
 

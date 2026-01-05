@@ -82,7 +82,9 @@ Run the tasks
 
 #### Tips, useful
 
-You can also detach: press `Ctrl-b` then `d`.
+To detach: press `Ctrl-b` then `d`.
+of better 
+`tmux detach-client -s azure_upload`
 
 To reattach interactively when needed
 `tmux attach -t datajob`

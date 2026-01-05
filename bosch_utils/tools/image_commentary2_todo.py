@@ -1,6 +1,7 @@
 """
 image_describer2_todo.py
 Generate driving commentary for multi-camera images using llama.cpp (Qwen3VL model).
+Run from the (base) env of the machine.
 
 This script combines:
 - llama.cpp inference (similar to infer.sh approach)
@@ -386,11 +387,148 @@ def detect_objects_yolo(image_path: str) -> List[Dict]:
         return []
 
 
-def parse_commentary_to_structured(commentary: str, image_path: str, detections: List[Dict]) -> Dict:
+def load_boxes_for_frame(image_path: str) -> List[Dict]:
+    """
+    Load corresponding boxes/*.json.gz file for the given rgb image
+    
+    Input:  .../rgb/0010.jpg  or  .../rgb/0010/patched.jpg
+    Output: .../boxes/0010.json.gz
+    
+    Returns:
+        List of bounding box dictionaries (vehicles, walkers, ego_car, weather, ego_info)
+    """
+    try:
+        img_path = Path(image_path)
+        
+        # Extract frame number from path
+        # Case 1: .../rgb/0010.jpg -> frame = 0010
+        # Case 2: .../rgb/0010/patched.jpg -> frame = 0010
+        if img_path.parent.name == 'rgb':
+            # Case 1: image is directly in rgb folder
+            frame_num = img_path.stem  # '0010'
+        else:
+            # Case 2: image is in rgb/XXXX/ subfolder
+            frame_num = img_path.parent.name  # '0010'
+        
+        # Navigate to boxes directory
+        # .../rgb/... -> .../boxes/XXXX.json.gz
+        rgb_parent = img_path.parent if img_path.parent.name == 'rgb' else img_path.parent.parent
+        dataset_root = rgb_parent.parent
+        boxes_dir = dataset_root / 'boxes'
+        boxes_file = boxes_dir / f'{frame_num}.json.gz'
+        
+        if not boxes_file.exists():
+            logging.warning(f"Boxes file not found: {boxes_file}")
+            return []
+        
+        # Load gzipped JSON
+        with gzip.open(boxes_file, 'rt', encoding='utf-8') as f:
+            boxes_data = json.load(f)
+        
+        logging.debug(f"Loaded {len(boxes_data)} boxes from {boxes_file.name}")
+        return boxes_data
+        
+    except Exception as e:
+        logging.warning(f"Failed to load boxes data: {e}")
+        return []
+
+
+def find_closest_vehicle_in_front(boxes: List[Dict], ego_yaw: float = 0.0) -> Optional[Dict]:
+    """
+    Find the closest vehicle from boxes data
+    
+    Args:
+        boxes: List of box dictionaries (from boxes/*.json.gz)
+        ego_yaw: Ego vehicle yaw (default 0 since boxes are in ego frame)
+    
+    Returns:
+        Vehicle dict with enriched metadata, or None
+    """
+    closest_vehicle = None
+    min_distance = float('inf')
+    
+    for box in boxes:
+        box_class = box.get('class', '')
+        
+        # Skip ego_car, weather, ego_info entries
+        if box_class in ['ego_car', 'weather', 'ego_info', 'walker']:
+            continue
+        
+        # Only consider vehicles ('car' or 'vehicle')
+        if box_class not in ['car', 'vehicle']:
+            continue
+        
+        # Find closest vehicle by distance (any direction)
+        distance = box.get('distance', float('inf'))
+        if distance < min_distance:
+            min_distance = distance
+            closest_vehicle = box
+    
+    return closest_vehicle
+
+
+def enrich_cause_object_from_boxes(commentary: str, boxes: List[Dict]) -> Tuple[Dict, str, bool]:
+    """
+    Extract cause_object from boxes data based on commentary content
+    
+    Returns:
+        (cause_object_dict, cause_object_string, cause_object_visible)
+    """
+    cause_object = {}
+    cause_object_string = ""
+    cause_object_visible = False
+    
+    # Find closest vehicle in front (most likely cause object for driving commentary)
+    vehicle = find_closest_vehicle_in_front(boxes)
+    
+    if vehicle:
+        cause_object_visible = True
+        
+        # Build rich cause_object matching simlingo format
+        cause_object = {
+            'class': vehicle.get('class', 'car'),
+            'extent': vehicle.get('extent', [0, 0, 0]),
+            'position': vehicle.get('position', [0, 0, 0]),
+            'yaw': vehicle.get('yaw', 0.0),
+            'num_points': vehicle.get('num_points', -1),
+            'distance': vehicle.get('distance', -1),
+            'speed': vehicle.get('speed', 0.0),
+            'brake': vehicle.get('brake', 0.0),
+            'id': vehicle.get('id', -1),
+            'matrix': vehicle.get('matrix', [])
+        }
+        
+        # Add optional fields if present
+        for optional_field in ['steer', 'throttle', 'type_id', 'role_name', 
+                               'color_rgb', 'color_name', 'next_action',
+                               'vehicle_cuts_in', 'road_id', 'lane_id', 
+                               'lane_type', 'lane_type_str', 'is_in_junction',
+                               'junction_id', 'distance_to_junction', 
+                               'next_junction_id', 'next_road_ids', 
+                               'next_next_road_ids', 'same_road_as_ego',
+                               'same_direction_as_ego', 'lane_relative_to_ego',
+                               'light_state', 'traffic_light_state',
+                               'is_at_traffic_light', 'base_type', 'number_of_wheels']:
+            if optional_field in vehicle:
+                cause_object[optional_field] = vehicle[optional_field]
+        
+        # Build cause_object_string from vehicle metadata
+        color_name = vehicle.get('color_name', '')
+        vehicle_type = vehicle.get('base_type', 'vehicle')
+        
+        if color_name:
+            cause_object_string = f"{color_name} {vehicle_type} that is to the front"
+        else:
+            cause_object_string = f"{vehicle_type} that is to the front"
+    
+    return cause_object, cause_object_string, cause_object_visible
+
+
+def parse_commentary_to_structured(commentary: str, image_path: str, detections: List[Dict], boxes: List[Dict] = None) -> Dict:
     """
     Parse the generated commentary into structured simlingo format
     
-    This is a simplified version - in production you'd want more sophisticated parsing
+    Now uses boxes data to populate rich cause_object metadata
     """
     # Extract action if present in format "Action: ..."
     action = ""
@@ -401,40 +539,43 @@ def parse_commentary_to_structured(commentary: str, image_path: str, detections:
         commentary_clean = parts[0].strip()
         action = parts[1].strip().split('\n')[0].strip()
     
-    # Try to identify mentioned objects for cause_object
+    # Try to extract cause_object from boxes data first
     cause_object = {}
     cause_object_string = ""
     cause_object_visible = False
     
-    # Simple heuristic: look for common object mentions
-    object_keywords = ['vehicle', 'car', 'suv', 'truck', 'pedestrian', 'cyclist', 'traffic light']
-    for keyword in object_keywords:
-        if keyword.lower() in commentary.lower():
-            cause_object_visible = True
-            # Try to find color + object pattern
-            words = commentary_clean.lower().split()
-            for i, word in enumerate(words):
-                if keyword in word and i > 0:
-                    # Check if previous word might be a color
-                    potential_color = words[i-1]
-                    if potential_color in ['black', 'white', 'red', 'blue', 'gray', 'silver', 'green']:
-                        cause_object_string = f"{potential_color} {keyword}"
-                        break
-            if not cause_object_string:
-                cause_object_string = keyword
-            break
+    if boxes:
+        cause_object, cause_object_string, cause_object_visible = enrich_cause_object_from_boxes(commentary_clean, boxes)
     
-    # Build cause_object from YOLO detections if available
-    if detections and cause_object_visible:
-        # Find most relevant detection (for now, just take first car/vehicle)
-        for det in detections:
-            if det['class'] in ['car', 'truck', 'bus']:
-                cause_object = {
-                    'class': det['class'],
-                    'confidence': det['confidence'],
-                    'bbox': det['bbox'],
-                }
+    # Fallback: Simple heuristic if no boxes data available
+    if not cause_object_visible:
+        object_keywords = ['vehicle', 'car', 'suv', 'truck', 'pedestrian', 'cyclist', 'traffic light']
+        for keyword in object_keywords:
+            if keyword.lower() in commentary.lower():
+                cause_object_visible = True
+                # Try to find color + object pattern
+                words = commentary_clean.lower().split()
+                for i, word in enumerate(words):
+                    if keyword in word and i > 0:
+                        # Check if previous word might be a color
+                        potential_color = words[i-1]
+                        if potential_color in ['black', 'white', 'red', 'blue', 'gray', 'silver', 'green']:
+                            cause_object_string = f"{potential_color} {keyword}"
+                            break
+                if not cause_object_string:
+                    cause_object_string = keyword
                 break
+        
+        # Build minimal cause_object from YOLO detections if available
+        if detections and cause_object_visible and not cause_object:
+            for det in detections:
+                if det['class'] in ['car', 'truck', 'bus']:
+                    cause_object = {
+                        'class': det['class'],
+                        'confidence': det['confidence'],
+                        'bbox': det['bbox'],
+                    }
+                    break
     
     # Build placeholder dict
     placeholder = {}
@@ -496,12 +637,16 @@ def process_image(image_path: str,
         detections = detect_objects_yolo(str(img_path))
         logging.debug(f"Detected {len(detections)} objects")
     
+    # Load boxes data for the frame
+    boxes_data = load_boxes_for_frame(str(img_path))
+    logging.debug(f"Loaded {len(boxes_data)} boxes for frame")
+    
     # Generate commentary with llama.cpp
     logging.info("Generating commentary with llama.cpp...")
     commentary, llama_metadata = llama_inference.generate_commentary(str(img_path))
     
-    # Parse to structured format
-    structured_data = parse_commentary_to_structured(commentary, str(img_path), detections)
+    # Parse to structured format (now includes boxes data)
+    structured_data = parse_commentary_to_structured(commentary, str(img_path), detections, boxes_data)
     
     # Add metadata
     structured_data['provenance'] = {

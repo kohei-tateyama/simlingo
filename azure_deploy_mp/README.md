@@ -307,6 +307,11 @@ Run the upload inside the `tmux` session so it continues if you detach.
 tmux new -s simlingo-upload
 # inside tmux, start the upload
 bash azure_deploy_mp/upload_dataset.sh # detach (Ctrl-B then D)
+
+tmux new -s azure_upload -d 'bash -lc "source ~/miniconda3/etc/profile.d/conda.sh && conda activate simlingo && cd /workspace/simlingo && export AZ_SUBSCRIPTION_ID=\"2378c487-e6cc-41e8-9251-2d62a3135b3f\" && export AZ_RESOURCE_GROUP=\"rg-deveco-jp-mlops-prd\" && export AZ_WORKSPACE=\"mlws-vkzvjsr-jpe-p-c515af2\" && export STORAGE_ACCOUNT=\"daijpepdde0b7efc169e98db\" && export STORAGE_RESOURCE_GROUP=\"rg-deveco-jp-datastore-prd\" && export CONTAINER_NAME=\"data-ai-vla\" && export DATASET_DIR=\"/workspace/simlingo/database\" && bash azure_deploy_mp/upload_dataset.sh > /workspace/simlingo/azure_deploy_mp/azure_upload.log 2>&1"' 
+
+tail -f /workspace/simlingo/azure_deploy_mp/azure_upload.log
+
 ```
 <!-- Tips:
 - If you prefer a detached start: `tmux new -d -s simlingo-upload "bash azure_deploy_mp/upload_dataset.sh"`.
