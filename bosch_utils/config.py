@@ -30,7 +30,7 @@ RECORDING_OUTPUT_DIR = (
 SIMLINGO_VERSION_DIR = (
     cfg.get('SIMLINGO_VERSION_DIR')
     or os.environ.get('SIMLINGO_VERSION_DIR')
-    or str(_REPO_ROOT / 'simlingo_v3_2026_01_01')
+    or str(_REPO_ROOT / 'simlingo_v5_2026_01_05')
 )
 
 

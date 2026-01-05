@@ -10,8 +10,8 @@ import shutil
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla"
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla/agents"
 
-from bosch_utils.japanese_driving_autopilot_cameras import JapaneseStyleAutopilot
-from bosch_utils.japanese_driving_autopilot_cameras import _resolve_weather_param
+from bosch_utils.japanese_driving_autopilot_cameras_backup import JapaneseStyleAutopilot
+from bosch_utils.japanese_driving_autopilot_cameras_backup import _resolve_weather_param
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):

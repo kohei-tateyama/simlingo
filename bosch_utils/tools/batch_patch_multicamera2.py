@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
 """
-Batch patch multicamera RGB folders in a dataset directory.
 
 This script finds all rgb/<frame> folders in a dataset and creates patched
 images using patch_multicamera.py. It runs after data collection completes.
@@ -9,11 +7,15 @@ Usage:
     # Patch a specific dataset folder
     python bosch_utils/tools/batch_patch_multicamera.py /path/to/dataset/folder
     
+    ###
+    python /workspace/simlingo/bosch_utils/tools/batch_patch_multicamera2.py /workspace/simlingo/recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/rgb/0000 --layout three_quarter --output-name patched2
+    
     # Auto-discover latest dataset in recording_japan_xml
     python bosch_utils/tools/batch_patch_multicamera.py --auto-latest
     
     # Specify layout (geometric or grid)
     python bosch_utils/tools/batch_patch_multicamera.py /path/to/dataset --layout grid
+    
 """
 
 import sys
@@ -28,6 +30,65 @@ from bosch_utils.tools.patch_multicamera import load_camera_images, create_geome
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
 import cv2
 from bosch_utils.config import IMAGE_EXT
+import numpy as np
+
+
+def create_three_quarter_patch(images: dict):
+    """
+    Compose images into the requested 3/4 (left) vs 1/4 (right) layout.
+
+    - Left 3/4: split vertically into two halves: F (top) and B (bottom).
+    - Right 1/4: stack LF, LR, BF, BR vertically.
+    """
+    # Determine base image size
+    base = images.get('F') if images.get('F') is not None else images.get('B')
+    if base is None:
+        raise ValueError("No base image available (F or B required)")
+
+    H, W = base.shape[:2]
+    left_w = int(W * 0.75)
+    right_w = W - left_w
+
+    # Create blank canvas
+    canvas = 255 * np.ones((H, W, 3), dtype=base.dtype)
+
+    def place(img, y, x, h, w, label, increase_height=False):
+        if img is not None:  # Explicitly check for None
+            resized = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+            canvas[y:y+h, x:x+w] = resized
+
+            # Add label
+            label_bg_h = int(h * 0.1 if increase_height else h * 0.05)  # Increased height for right-side labels
+            label_bg_w = int(w * 0.15)  # Width of the label background
+            label_bg_x = x + 5  # Padding from the top-left corner of the image
+            label_bg_y = y + 5
+
+            # Draw white rectangle for label background
+            cv2.rectangle(canvas, (label_bg_x, label_bg_y),
+                          (label_bg_x + label_bg_w, label_bg_y + label_bg_h),
+                          (255, 255, 255), -1)
+
+            # Add text label
+            font_scale = 0.4
+            thickness = 1
+            text_color = (0, 0, 0)  # Black text
+            cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_AA)
+
+    # Left 3/4: F (top) and B (bottom)
+    top_h = H // 2
+    bottom_h = H - top_h
+    place(images.get('F'), 0, 0, top_h, left_w, 'F')
+    place(images.get('B'), top_h, 0, bottom_h, left_w, 'B')
+
+    # Right 1/4: stack LF, LR, BF, BR vertically
+    stacked_h = H // 4
+    place(images.get('LB'), 0, left_w, stacked_h, right_w, 'LB', increase_height=True)
+    place(images.get('LF'), stacked_h, left_w, stacked_h, right_w, 'LF', increase_height=True)
+    place(images.get('RB'), 2 * stacked_h, left_w, stacked_h, right_w, 'RB', increase_height=True)
+    place(images.get('RF'), 3 * stacked_h, left_w, stacked_h, right_w, 'RF', increase_height=True)
+
+    return canvas
 
 
 # def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
@@ -55,10 +116,19 @@ def find_rgb_folders(dataset_path):
     """Find all rgb/<frame> folders containing multicamera images"""
     p = Path(dataset_path)
 
-    required_cameras = [f'F{IMAGE_EXT}', f'B{IMAGE_EXT}', f'LF{IMAGE_EXT}', f'RF{IMAGE_EXT}', f'LB{IMAGE_EXT}', f'RB{IMAGE_EXT}']
+    # Accept both JPG and PNG extensions (some recordings use PNG)
+    alt_exts = [IMAGE_EXT, '.png'] if IMAGE_EXT != '.png' else ['.png', '.jpg']
+
+    def has_all_cameras(folder: Path) -> bool:
+        # detect which extension exists in this folder and validate presence
+        for ext in alt_exts:
+            cams = [f'F{ext}', f'B{ext}', f'LF{ext}', f'RF{ext}', f'LB{ext}', f'RB{ext}']
+            if all((folder / cam).exists() for cam in cams):
+                return True
+        return False
 
     # Case 1: dataset_path is a single frame folder that already contains the 6 images
-    if p.is_dir() and all((p / cam).exists() for cam in required_cameras):
+    if p.is_dir() and has_all_cameras(p):
         return [p]
 
     # Determine the rgb search base: prefer explicit rgb/ subfolder, otherwise use provided path
@@ -72,24 +142,34 @@ def find_rgb_folders(dataset_path):
     frame_folders = []
     for item in sorted(rgb_path.iterdir()):
         if item.is_dir():
-            if all((item / cam).exists() for cam in required_cameras):
+            if has_all_cameras(item):
                 frame_folders.append(item)
+
+    # If no subfolders are found, check if the current folder itself contains images
+    if not frame_folders and has_all_cameras(rgb_path):
+        frame_folders.append(rgb_path)
 
     return frame_folders
 
 
-def patch_single_folder(folder_path, layout='geometric', output_name='patched.png'):
+def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
     """Patch a single rgb/<frame> folder"""
     try:
+        # Ensure output_name has a valid extension
+        if not output_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            output_name += IMAGE_EXT
+
         # Load images
         images = load_camera_images(folder_path)
-        
+
         # Create patch based on layout
         if layout == 'geometric':
             patched = create_geometric_patch(images)
+        elif layout == 'three_quarter':
+            patched = create_three_quarter_patch(images)
         else:
             patched = create_simple_layout_patch(images)
-        
+
         # Save output
         output_path = folder_path / output_name
         cv2.imwrite(str(output_path), patched)
@@ -166,7 +246,7 @@ Examples:
     parser.add_argument('--auto-latest', action='store_true',
                        help='Automatically find and patch the latest dataset')
     parser.add_argument('--layout', type=str, default='geometric',
-                       choices=['geometric', 'grid'],
+                       choices=['geometric', 'grid', 'three_quarter'],
                        help='Patching layout (default: geometric)')
     parser.add_argument('--output-name', type=str, default='patched' + IMAGE_EXT,
                        help=f'Output filename for patched images (default: patched{IMAGE_EXT})')

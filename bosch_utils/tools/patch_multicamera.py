@@ -56,11 +56,24 @@ def load_camera_images(folder_path):
     
     images = {}
     for cam_key in CAMERA_CONFIG.keys():
-        img_path = folder / f"{cam_key}{IMAGE_EXT}"
-        if not img_path.exists():
-            raise FileNotFoundError(f"Camera image not found: {img_path}")
-        
-        img = cv2.imread(str(img_path))
+        # Try multiple common extensions (preferred IMAGE_EXT, then png, jpg)
+        exts = [IMAGE_EXT]
+        if '.png' not in exts:
+            exts.append('.png')
+        if '.jpg' not in exts:
+            exts.append('.jpg')
+
+        img = None
+        img_path = None
+        for ext in exts:
+            candidate = folder / f"{cam_key}{ext}"
+            if candidate.exists():
+                img_path = candidate
+                img = cv2.imread(str(candidate))
+                break
+
+        if img is None:
+            raise FileNotFoundError(f"Camera image not found: {folder}/{cam_key} with extensions {exts}")
         if img is None:
             raise ValueError(f"Failed to load image: {img_path}")
         images[cam_key] = img
