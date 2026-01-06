@@ -10,8 +10,10 @@ import shutil
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla"
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla/agents"
 
-from bosch_utils.japanese_driving_autopilot_cameras_backup import JapaneseStyleAutopilot
+# from bosch_utils.japanese_driving_autopilot_cameras_backup import JapaneseStyleAutopilot
+from bosch_utils.japanese_driving_autopilot_cameras_mp import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras_backup import _resolve_weather_param
+
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
@@ -23,7 +25,6 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         self.fps = kwargs['fps']
         self.random_spawn = bool(random_spawn)
         super().__init__(*args, **kwargs)
-        # Use a distinct folder prefix for long-run autopilot outputs
         try:
             ## this is one of the worst thing I have ever seen, to be modified.
             try:
@@ -89,8 +90,10 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             # Import lazily to avoid hard dependency at module import time
             from agents.navigation.global_route_planner import GlobalRoutePlanner
             # CARLA 0.9.13+ API: pass map directly (no DAO)
-            # Use finer sampling (0.5m) to capture road curvature and intersections
-            grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=0.5)
+            # Use 2.0m sampling - 0.5m is TOO SLOW on large maps (can take 5+ minutes!)
+            print("[INFO]: Initializing GlobalRoutePlanner (this may take 10-30 seconds on large maps)...")
+            grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=2.0)
+            print("[INFO]: GlobalRoutePlanner initialized successfully")
             spawn_points = self.world.get_map().get_spawn_points()
             if len(spawn_points) < 2:
                 raise RuntimeError('Not enough spawn points to plan route')

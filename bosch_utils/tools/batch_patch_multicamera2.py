@@ -63,16 +63,17 @@ def create_three_quarter_patch(images: dict):
             label_bg_x = x + 5  # Padding from the top-left corner of the image
             label_bg_y = y + 5
 
-            # Draw white rectangle for label background
-            cv2.rectangle(canvas, (label_bg_x, label_bg_y),
-                          (label_bg_x + label_bg_w, label_bg_y + label_bg_h),
-                          (255, 255, 255), -1)
+            # # Draw white rectangle for label background
+            # cv2.rectangle(canvas, (label_bg_x, label_bg_y),
+            #               (label_bg_x + label_bg_w, label_bg_y + label_bg_h),
+            #               (255, 255, 255), -1)
 
             # Add text label
-            font_scale = 0.4
-            thickness = 1
-            text_color = (0, 0, 0)  # Black text
-            cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 5),
+            font_scale = 0.5
+            thickness = 2
+            # text_color = (0, 0, 0)  # Black text
+            text_color = (0, 255, 255)  # Yellow text
+            cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_AA)
 
     # Left 3/4: F (top) and B (bottom)
@@ -179,30 +180,29 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
         return False
 
 
-def batch_patch(dataset_path, layout='geometric', output_name='patched.png', verbose=True):
+def batch_patch(dataset_path, layout='three_quarter', output_name='patched.png', verbose=True):
     """Patch all rgb folders in a dataset"""
     dataset_path = Path(dataset_path)
-    
+
     if verbose:
-        # print(f"[INFO]: Scanning dataset    : {dataset_path}")
         print(f"[INFO]: Scanning dataset: {dataset_path}")
-    
+
     # Find all rgb folders
     rgb_folders = find_rgb_folders(dataset_path)
-    
+
     if not rgb_folders:
         print(f"[ERROR]: No multicamera rgb folders found in {dataset_path}")
         return False
-    
+
     if verbose:
         print(f"[INFO]: Found {len(rgb_folders)} rgb folders to patch")
         print(f"[INFO]: Layout          : {layout}")
         print(f"[INFO]: Output filename : {output_name}")
-    
+
     # Patch each folder
     success_count = 0
     start_time = time.time()
-    
+
     for i, folder in enumerate(rgb_folders):
         if verbose and (i % 20 == 0 or i == len(rgb_folders) - 1):
             elapsed = time.time() - start_time
@@ -210,17 +210,17 @@ def batch_patch(dataset_path, layout='geometric', output_name='patched.png', ver
             eta = (len(rgb_folders) - i - 1) / rate if rate > 0 else 0
             print(f"[INFO]: Patching {i+1}/{len(rgb_folders)} ({100*(i+1)/len(rgb_folders):.1f}%) | "
                   f"Rate: {rate:.1f} frames/s | ETA: {eta:.1f}s")
-        
+
         if patch_single_folder(folder, layout=layout, output_name=output_name):
             success_count += 1
-    
+
     elapsed = time.time() - start_time
-    
+
     if verbose:
         print(f"[INFO]: Patching complete!")
         print(f"[INFO]: Successfully patched : {success_count}/{len(rgb_folders)} folders")
         print(f"[INFO]: Total time           : {elapsed:.1f}s ({success_count/elapsed:.1f} frames/s)")
-    
+
     return success_count == len(rgb_folders)
 
 
@@ -245,11 +245,11 @@ Examples:
                        help='Path to dataset folder containing rgb/ subfolder')
     parser.add_argument('--auto-latest', action='store_true',
                        help='Automatically find and patch the latest dataset')
-    parser.add_argument('--layout', type=str, default='geometric',
+    parser.add_argument('--layout', type=str, default='three_quarter',
                        choices=['geometric', 'grid', 'three_quarter'],
-                       help='Patching layout (default: geometric)')
-    parser.add_argument('--output-name', type=str, default='patched' + IMAGE_EXT,
-                       help=f'Output filename for patched images (default: patched{IMAGE_EXT})')
+                       help='Patching layout (default: three_quarter)')
+    parser.add_argument('--output-name', type=str, default='patched2' + IMAGE_EXT,
+                       help=f'Output filename for patched images (default: patched2{IMAGE_EXT})')
     parser.add_argument('--quiet', action='store_true',
                        help='Suppress progress messages')
     

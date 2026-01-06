@@ -138,6 +138,8 @@ cd /workspace/simlingo
 git checkout feat/michele && git add -A # && git status --porcelain --branch
 # git commit -m "feat(michele): init comment Azure ML" || echo "No changes to commit" && git push myfork feat/michele
 git commit -m "feat(michele): major changes in the data collection folder" || echo "No changes to commit" && git push myfork feat/michele
+
+git checkout feat/michele && git add -A && git commit -m "feat(michele): major changes in the data collection folder" && git push myfork feat/michele
 ```
 To update also the branch `main` from the `feat/michele` one do
 ```bash
@@ -496,6 +498,8 @@ sudo mount -o uid=$(id -u),gid=$(id -g),dmask=0022,fmask=0133 /dev/sdb2 /media/e
 touch /media/external_ssd/test.txt && rm /media/external_ssd/test.txt && echo "rite OK"
 
 sudo chown -R pim1yh:pim1yh /media/external_ssd/database
+
+sudo chown -R pim1yh:pim1yh /bosch_utils/japanese_driving_autopilot_cameras.py
 
 rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
 ```

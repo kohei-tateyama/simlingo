@@ -39,7 +39,8 @@ BLUE="\033[0;34m"
 RED="\033[0;31m"
 RESET="\033[0m"
 
-START_WAIT=${START_WAIT:-120}
+# START_WAIT=${START_WAIT:-120}
+START_WAIT=${START_WAIT:-80}
 
 info() {
     echo -e "${GREEN}[INFO]${RESET} $*"
@@ -476,6 +477,7 @@ run_autopilot() {
         
         if [ "$AUTOPILOT_LONG" = true ]; then
             info "Also running LONG version of the autopilot for extended data collection."
+            # Capture output while still showing it in real-time using process substitution
             AUTOPILOT_OUTPUT=$(python bosch_utils/japanese_driving_autopilot_cameras_long.py \
                 --autopilot \
                 --duration "$duration" \
@@ -484,9 +486,8 @@ run_autopilot() {
                 --fps "$AUTOPILOT_FPS" \
                 $( [ -n "$AUTOPILOT_WEATHER" ] && printf '%s' "--weather $AUTOPILOT_WEATHER" ) \
                 $( [ -n "$AUTOPILOT_SPAWN_INDEX" ] && printf '%s' "--spawn-index $AUTOPILOT_SPAWN_INDEX" ) \
-                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf '%s' "--random-spawn" ) 2>&1)
-            AUTOPILOT_EXIT_CODE=$?
-            echo "$AUTOPILOT_OUTPUT"
+                $( [ "$AUTOPILOT_RANDOM_SPAWN" = true ] && printf '%s' "--random-spawn" ) 2>&1 | tee /dev/tty)
+            AUTOPILOT_EXIT_CODE=${PIPESTATUS[0]}
         fi
     else
         info "MONOCAMERA mode is currently USED in this script."
@@ -515,9 +516,11 @@ run_autopilot() {
             if [ -n "$DATASET_PATH" ] && [ -d "$DATASET_PATH" ]; then
                 info "Using dataset path: $DATASET_PATH"
                 python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
+                python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter
             else
                 warn "Dataset path not captured, falling back to auto-discovery..."
                 python bosch_utils/tools/batch_patch_multicamera.py --auto-latest --layout geometric
+                python bosch_utils/tools/batch_patch_multicamera2.py --auto-latest --layout three_quarter
             fi
             
             PATCH_EXIT_CODE=$?
