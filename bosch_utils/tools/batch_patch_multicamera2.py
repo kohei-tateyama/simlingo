@@ -53,28 +53,57 @@ def create_three_quarter_patch(images: dict):
     canvas = 255 * np.ones((H, W, 3), dtype=base.dtype)
 
     def place(img, y, x, h, w, label, increase_height=False):
-        if img is not None:  # Explicitly check for None
-            resized = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
-            canvas[y:y+h, x:x+w] = resized
+        # Place an image into the canvas slot using a 'cover' strategy:
+        # resize the image to fill the slot (no stretching) then center-crop
+        # so the slot is fully covered with no padding.
+        if img is None:
+            return
 
-            # Add label
-            label_bg_h = int(h * 0.1 if increase_height else h * 0.05)  # Increased height for right-side labels
-            label_bg_w = int(w * 0.15)  # Width of the label background
-            label_bg_x = x + 5  # Padding from the top-left corner of the image
-            label_bg_y = y + 5
+        # Ensure image has 3 channels
+        if img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-            # # Draw white rectangle for label background
-            # cv2.rectangle(canvas, (label_bg_x, label_bg_y),
-            #               (label_bg_x + label_bg_w, label_bg_y + label_bg_h),
-            #               (255, 255, 255), -1)
+        ih, iw = img.shape[:2]
+        if iw == 0 or ih == 0:
+            return
 
-            # Add text label
-            font_scale = 0.5
-            thickness = 2
-            # text_color = (0, 0, 0)  # Black text
-            text_color = (0, 255, 255)  # Yellow text
-            cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_AA)
+        # Compute scale to fill the slot (cover)
+        scale = max(float(w) / float(iw), float(h) / float(ih))
+        new_w = max(1, int(round(iw * scale)))
+        new_h = max(1, int(round(ih * scale)))
+
+        # Resize while preserving aspect ratio (fills the slot)
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        # Center-crop to (w,h)
+        start_x = max(0, (new_w - w) // 2)
+        start_y = max(0, (new_h - h) // 2)
+        cropped = resized[start_y:start_y + h, start_x:start_x + w]
+
+        # If crop is smaller than slot (edge cases), pad to fit
+        if cropped.shape[0] != h or cropped.shape[1] != w:
+            slot = 255 * np.ones((h, w, 3), dtype=base.dtype)
+            ch, cw = cropped.shape[:2]
+            off_x = (w - cw) // 2
+            off_y = (h - ch) // 2
+            slot[off_y:off_y+ch, off_x:off_x+cw] = cropped
+            canvas[y:y+h, x:x+w] = slot
+        else:
+            canvas[y:y+h, x:x+w] = cropped
+
+        # Add label (positioned relative to canvas)
+        label_bg_h = int(h * 0.1 if increase_height else h * 0.05)
+        label_bg_w = int(w * 0.15)
+        label_bg_x = x + 5
+        label_bg_y = y + 5
+
+        font_scale = max(0.2, label_bg_h / 20.0)
+        thickness = 1 if font_scale < 0.6 else 2
+        text_color = (0, 255, 255)  # Yellow text
+        cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 1),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_AA)
 
     # Left 3/4: F (top) and B (bottom)
     top_h = H // 2

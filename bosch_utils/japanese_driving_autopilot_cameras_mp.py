@@ -1461,6 +1461,72 @@ class JapaneseStyleAutopilot:
                 }
                 results.append(result)
         
+        # Add traffic lights (matching simlingo format)
+        try:
+            traffic_lights = actors.filter('*traffic_light*')
+            for tl in traffic_lights:
+                if tl.get_location().distance(self.player_vehicle.get_location()) < 60.0:
+                    tl_transform = tl.get_transform()
+                    tl_location = tl_transform.location
+                    tl_rotation = tl_transform.rotation
+                    tl_extent = tl.trigger_volume.extent
+                    
+                    # Get relative position
+                    tl_matrix = np.array(tl_transform.get_matrix())
+                    relative_pos = self._get_relative_transform(ego_matrix, tl_matrix)
+                    distance = np.sqrt(relative_pos[0]**2 + relative_pos[1]**2 + relative_pos[2]**2)
+                    
+                    # Compute relative yaw
+                    relative_yaw = (tl_rotation.yaw - ego_rotation.yaw) % 360.0
+                    if relative_yaw > 180.0:
+                        relative_yaw -= 360.0
+                    relative_yaw = np.deg2rad(relative_yaw)
+                    
+                    # Check if traffic light affects ego
+                    tl_wp = carla_map.get_waypoint(tl_location, project_to_road=True, lane_type=carla.libcarla.LaneType.Any)
+                    affects_ego = False
+                    if tl_wp and ego_wp:
+                        # Traffic light affects ego if it's on same road and ahead
+                        if tl_wp.road_id == ego_wp.road_id and relative_pos[0] > 0:
+                            affects_ego = True
+                    
+                    tl_result = {
+                        'class': 'traffic_light',
+                        'extent': [tl_extent.x, tl_extent.y, tl_extent.z],
+                        'position': [relative_pos[0], relative_pos[1], relative_pos[2]],
+                        'yaw': relative_yaw,
+                        'distance': distance,
+                        'state': str(tl.state),
+                        'id': int(tl.id),
+                        'affects_ego': affects_ego,
+                        'matrix': tl_transform.get_matrix()
+                    }
+                    results.append(tl_result)
+                    
+                    # Also add traffic_light_vqa entry (VQA-specific format)
+                    if tl_wp:
+                        tl_vqa_result = {
+                            'class': 'traffic_light_vqa',
+                            'extent': [tl_extent.x, tl_extent.y, tl_extent.z],
+                            'position': [relative_pos[0], relative_pos[1], relative_pos[2]],
+                            'road_id': tl_wp.road_id,
+                            'lane_id': tl_wp.lane_id,
+                            'junction_id': tl_wp.junction_id if tl_wp.is_junction else -1,
+                            'yaw': relative_yaw,
+                            'num_points': 0,
+                            'distance': distance,
+                            'state_str': str(tl.state),
+                            'state': 0 if str(tl.state) == 'Red' else (1 if str(tl.state) == 'Yellow' else (2 if str(tl.state) == 'Green' else 3)),
+                            'same_road_as_ego': tl_wp.road_id == ego_wp.road_id,
+                            'same_direction_as_ego': (tl_wp.lane_id > 0) == (ego_wp.lane_id > 0) if tl_wp and ego_wp else False,
+                            'affects_ego': affects_ego,
+                            'lane_relative_to_ego': None  # Would need complex calculation like for vehicles
+                        }
+                        results.append(tl_vqa_result)
+        except Exception as e:
+            if self._callback_debug:
+                print(f"[DEBUG] get_bounding_boxes: Error collecting traffic lights: {e}")
+        
         # Build ego_info matching data_agent.py
         # Get traffic light state
         tl_state = 'None'
@@ -1748,7 +1814,7 @@ class JapaneseStyleAutopilot:
         measurements_path = os.path.join(self.folderpath, 'measurements', f'{frame_num:04d}.json.gz')
         try:
             with gzip.open(measurements_path, 'wt', encoding='utf-8') as f:
-                json.dump(measurements, f)
+                json.dump(measurements, f, indent=4)
         except Exception as e:
             print(f"Error saving measurements: {e}")
         
@@ -1758,11 +1824,11 @@ class JapaneseStyleAutopilot:
         # Use get_bounding_boxes() for enriched dataset format (matching simlingo_v2_2025_01_10)
         boxes_data = self.get_bounding_boxes(lidar=None)
         
-        # Save boxes as gzipped JSON
+        # Save boxes as gzipped JSON (with indentation for readability, matching simlingo format)
         boxes_path = os.path.join(self.folderpath, 'boxes', f'{frame_num:04d}.json.gz')
         try:
             with gzip.open(boxes_path, 'wt', encoding='utf-8') as f:
-                json.dump(boxes_data, f)
+                json.dump(boxes_data, f, indent=4)
         except Exception as e:
             print(f"[ERROR]: Error saving boxes: {e}")
         
@@ -1933,10 +1999,10 @@ class JapaneseStyleAutopilot:
                 'outside_route_lanes': [],
                 'min_speed_infractions': [],
                 'yield_emergency_vehicle_infractions': [],
-                'scenario_timeouts': [] #,
-                # 'route_dev': [],
-                # 'vehicle_blocked': [],
-                # 'route_timeout': []
+                'scenario_timeouts': [],
+                'route_dev': [],
+                'vehicle_blocked': [],
+                'route_timeout': []
             },
             'scores': {
                 'score_route': 100,
