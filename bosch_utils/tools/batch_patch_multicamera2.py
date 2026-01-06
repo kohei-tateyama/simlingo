@@ -1,5 +1,4 @@
 """
-
 This script finds all rgb/<frame> folders in a dataset and creates patched
 images using patch_multicamera.py. It runs after data collection completes.
 
@@ -121,6 +120,141 @@ def create_three_quarter_patch(images: dict):
     return canvas
 
 
+def create_three_quarter_patch_big(images: dict):
+    """
+    Create a 'big' three-quarter patch that arranges images in the same layout as
+    `create_three_quarter_patch` but without enforcing a fixed canvas size. The
+    canvas size is dynamically determined based on the spatial dimensions of the
+    input images.
+
+    - Left 3/4: split vertically into two halves: F (top) and B (bottom).
+    - Right 1/4: stack LF, LR, BF, BR vertically.
+
+    The spatial dimensions of the images are preserved.
+    """
+    # Determine the maximum dimensions for each section
+    def size_of(k):
+        img = images.get(k)
+        if img is None:
+            return 0, 0
+        return img.shape[0], img.shape[1]
+
+    fh, fw = size_of('F')
+    bh, bw = size_of('B')
+    lb_h, lb_w = size_of('LB')
+    lf_h, lf_w = size_of('LF')
+    rb_h, rb_w = size_of('RB')
+    rf_h, rf_w = size_of('RF')
+
+    # For 'big' patch we will place every image at its native size (no crop,
+    # no resize) and stack tightly. This removes internal white padding — the
+    # canvas will be the minimal bounding box containing all placed images.
+
+    # We want F and B to be displayed at double size. Compute their scaled
+    # dimensions first, then compute left/right column sizes and canvas.
+    scale_fb = 2.0
+    sfh = int(round(fh * scale_fb)) if fh > 0 else 0
+    sfw = int(round(fw * scale_fb)) if fw > 0 else 0
+    sbh = int(round(bh * scale_fb)) if bh > 0 else 0
+    sbw = int(round(bw * scale_fb)) if bw > 0 else 0
+
+    # left column dimensions now based on scaled F/B
+    left_w = max(sfw, sbw)
+    left_h = sfh + sbh
+
+    # right column dimensions unchanged (native sizes)
+    right_w = max(lb_w, lf_w, rb_w, rf_w)
+    right_h = lb_h + lf_h + rb_h + rf_h
+
+    canvas_w = left_w + right_w
+    canvas_h = max(left_h, right_h)
+
+    base = next((img for img in images.values() if img is not None), None)
+    if base is None:
+        raise ValueError("No images provided")
+
+    canvas = 255 * np.ones((canvas_h, canvas_w, 3), dtype=base.dtype)
+
+    def ensure_bgr(img):
+        if img is None:
+            return None
+        if img.ndim == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        if img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        return img
+
+    def paste_native(img, y, x, label=None, increase_height=False, scale=1.0):
+        img = ensure_bgr(img)
+        if img is None:
+            return
+        ih, iw = img.shape[:2]
+        if ih <= 0 or iw <= 0:
+            return
+
+        # apply scaling (for F/B we will pass scale=2.0)
+        if scale != 1.0:
+            new_w = max(1, int(round(iw * scale)))
+            new_h = max(1, int(round(ih * scale)))
+            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            ih, iw = img.shape[:2]
+
+        # horizontally center within its column
+        col_w = left_w if x == 0 else right_w
+        off_x = x + (col_w - iw) // 2 if col_w > iw else x
+        off_y = y
+
+        # place image (clip to canvas bounds if necessary)
+        oy0 = off_y
+        ox0 = off_x
+        oy1 = min(canvas_h, off_y + ih)
+        ox1 = min(canvas_w, off_x + iw)
+        sy0 = 0
+        sx0 = 0
+        sy1 = oy1 - oy0
+        sx1 = ox1 - ox0
+        if oy0 < oy1 and ox0 < ox1:
+            canvas[oy0:oy1, ox0:ox1] = img[sy0:sy1, sx0:sx1]
+
+        # draw label
+        if label:
+            label_bg_h = int(ih * 0.05)
+            label_bg_x = x + 5
+            label_bg_y = y + 5
+            font_scale = max(0.2, label_bg_h / 20.0)
+            thickness = 1 if font_scale < 0.6 else 2
+            text_color = (0, 255, 255)
+            cv2.putText(canvas, label, (label_bg_x + 5, label_bg_y + label_bg_h - 1),
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_AA)
+
+    # Left column: place F then B at 2x scale
+    y = 0
+    if fh > 0:
+        paste_native(images.get('F'), y, 0, label='F', scale=scale_fb)
+        y += sfh
+    if bh > 0:
+        paste_native(images.get('B'), y, 0, label='B', scale=scale_fb)
+        y += sbh
+
+    # Right column: place LB, LF, RB, RF stacked tightly (native sizes)
+    y = 0
+    rx = left_w
+    if lb_h > 0:
+        paste_native(images.get('LB'), y, rx, label='LB', increase_height=True)
+        y += lb_h
+    if lf_h > 0:
+        paste_native(images.get('LF'), y, rx, label='LF', increase_height=True)
+        y += lf_h
+    if rb_h > 0:
+        paste_native(images.get('RB'), y, rx, label='RB', increase_height=True)
+        y += rb_h
+    if rf_h > 0:
+        paste_native(images.get('RF'), y, rx, label='RF', increase_height=True)
+        y += rf_h
+
+    return canvas
+
+
 # def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
 def find_latest_dataset(base_dir=RECORDING_OUTPUT_DIR):
     """Find the most recently modified dataset folder"""
@@ -195,15 +329,36 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
         # Create patch based on layout
         if layout == 'geometric':
             patched = create_geometric_patch(images)
+            # Save output
+            output_path = folder_path / output_name
+            cv2.imwrite(str(output_path), patched)
+            return True
         elif layout == 'three_quarter':
+            # Create standard-sized patch and save as output_name
             patched = create_three_quarter_patch(images)
+            output_path = folder_path / output_name
+            saved_main = cv2.imwrite(str(output_path), patched)
+
+            # Also create the 'big' patch and save with _big suffix before extension
+            name = output_name
+            stem, ext = (name.rsplit('.', 1) + [''])[:2]
+            if ext == '':
+                ext = IMAGE_EXT.lstrip('.')
+            big_name = f"{stem}_big.{ext}"
+            big_path = folder_path / big_name
+            try:
+                patched_big = create_three_quarter_patch_big(images)
+                saved_big = cv2.imwrite(str(big_path), patched_big)
+            except Exception as e:
+                print(f"[WARN]: Failed to create _big patch for {folder_path}: {e}")
+                saved_big = False
+
+            return bool(saved_main) or bool(saved_big)
         else:
             patched = create_simple_layout_patch(images)
-
-        # Save output
-        output_path = folder_path / output_name
-        cv2.imwrite(str(output_path), patched)
-        return True
+            output_path = folder_path / output_name
+            cv2.imwrite(str(output_path), patched)
+            return True
     except Exception as e:
         print(f"[ERROR]: Failed to patch {folder_path}: {e}")
         return False

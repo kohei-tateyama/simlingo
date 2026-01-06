@@ -550,3 +550,19 @@ datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
     "detections_count": 0
   }
 }
+
+
+
+======================================
+
+Cutting the .log
+
+TS=$(date +%Y%m%d_%H%M%S)
+cp azure_deploy_mp/azure_upload.log azure_deploy_mp/azure_upload.log.$TS
+
+# 2) gzip the copy in background to save space (may take time)
+gzip azure_deploy_mp/azure_upload.log.$TS &
+# 3) truncate the live log immediately (frees space)
+: > azure_deploy_mp/azure_upload.log
+du -sh azure_deploy_mp/azure_upload.log*
+df -h .
