@@ -262,6 +262,104 @@ def create_three_quarter_patch_big(images: dict):
         return canvas
 
 
+def create_patch_nuscenes(images: dict):
+    """
+    Create a 2x3 grid patch (nuscenes-style) sized exactly 1024x512.
+
+    - Grid: 2 rows x 3 columns (6 cameras)
+    - Each tile will be resized to fit its slot while preserving aspect ratio
+      and padded with white to ensure all tiles have identical shape.
+    - Expected keys in `images`: F, B, LB, LF, RB, RF (order mapped into grid)
+    """
+    # Determine camera order (left->right top then bottom)
+    cam_order = ['LF', 'F', 'RF', 'LB', 'B', 'RB']
+
+    # Collect native sizes for present images
+    widths = []
+    heights = []
+    for cam in cam_order:
+        img = images.get(cam)
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        if h > 0 and w > 0:
+            widths.append(w)
+            heights.append(h)
+
+    # Fallback defaults
+    default_tile_w = 341
+    default_tile_h = 256
+
+    if widths and heights:
+        # use median native tile size as a starting point
+        med_w = int(np.median(widths))
+        med_h = int(np.median(heights))
+        med_ar = float(med_w) / float(med_h) if med_h > 0 else 1.0
+
+        # clamp tile width to reasonable bounds to avoid huge canvases
+        tile_w = int(np.clip(med_w, 160, 512))
+        # compute tile_h to roughly respect median aspect ratio
+        tile_h = max(120, int(round(tile_w / med_ar)))
+    else:
+        tile_w = default_tile_w
+        tile_h = default_tile_h
+
+    # Build canvas for 2 rows x 3 cols
+    canvas_w = tile_w * 3
+    canvas_h = tile_h * 2
+
+    # Cap canvas height to at most half the width (2:1 ratio) to avoid excessive vertical white
+    max_h = max(120, canvas_w // 2)
+    if canvas_h > max_h:
+        canvas_h = max_h
+        tile_h = max(64, canvas_h // 2)
+
+    canvas = 255 * np.ones((canvas_h, canvas_w, 3), dtype=np.uint8)
+    offset_x = 0
+    offset_y = 0
+
+    def ensure_bgr(img):
+        if img is None:
+            return None
+        if img.ndim == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        if img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        return img
+
+    def fit_and_place(img, top, left, h, w):
+        img = ensure_bgr(img)
+        if img is None:
+            return
+        ih, iw = img.shape[:2]
+        if ih == 0 or iw == 0:
+            return
+
+        # compute scale to fit within tile (contain)
+        scale = min(float(w) / float(iw), float(h) / float(ih))
+        new_w = max(1, int(round(iw * scale)))
+        new_h = max(1, int(round(ih * scale)))
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        # create slot and paste centered
+        slot = 255 * np.ones((h, w, 3), dtype=canvas.dtype)
+        off_x = (w - new_w) // 2
+        off_y = (h - new_h) // 2
+        slot[off_y:off_y+new_h, off_x:off_x+new_w] = resized
+
+        canvas[top:top+h, left:left+w] = slot
+
+    # place each camera
+    for idx, cam in enumerate(cam_order):
+        row = 0 if idx < 3 else 1
+        col = idx % 3
+        top = offset_y + row * tile_h
+        left = offset_x + col * tile_w
+        fit_and_place(images.get(cam), top, left, tile_h, tile_w)
+
+    return canvas
+
+
 # def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
 def find_latest_dataset(base_dir=RECORDING_OUTPUT_DIR):
     """Find the most recently modified dataset folder"""
@@ -342,7 +440,11 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
             return True
         elif layout == 'three_quarter':
             # Create standard-sized patch and save as output_name
-            patched = create_three_quarter_patch(images)
+            # If user requested the nuscenes-style output name, create that instead
+            if 'nuscenes' in output_name or 'patched3_nuscenes' in output_name:
+                patched = create_patch_nuscenes(images)
+            else:
+                patched = create_three_quarter_patch(images)
             output_path = folder_path / output_name
             saved_main = cv2.imwrite(str(output_path), patched)
 
@@ -359,6 +461,16 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
             except Exception as e:
                 print(f"[WARN]: Failed to create _big patch for {folder_path}: {e}")
                 saved_big = False
+
+            # Also always create a nuscenes-style patch (1024x512) and save as <stem>_nuscenes.<ext>
+            nus_name = f"{stem}_nuscenes.{ext}"
+            nus_path = folder_path / nus_name
+            try:
+                patched_nus = create_patch_nuscenes(images)
+                saved_nus = cv2.imwrite(str(nus_path), patched_nus)
+            except Exception as e:
+                print(f"[WARN]: Failed to create nuscenes patch for {folder_path}: {e}")
+                saved_nus = False
 
             return bool(saved_main) or bool(saved_big)
         else:

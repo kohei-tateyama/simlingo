@@ -66,9 +66,13 @@ class COMsGenerator():
             Path(self.output_examples_directory).mkdir(parents=True, exist_ok=True)
 
         # all the paths to the boxes in the data
-        # self.data_boxes_paths = glob.glob(os.path.join(self.data_directory, '**/boxes/*.json.gz'), recursive=True)
-        # all the paths to the boxes in the data
-        self.data_boxes_paths_all = glob.glob(os.path.join(self.data_directory, 'data/simlingo/*/*/*/*/boxes/*.json.gz'))
+        # Try the new v5 directory structure first (auto_long_multicam_jp/...)
+        self.data_boxes_paths_all = glob.glob(os.path.join(self.data_directory, '*/*/*/*/*/boxes/*.json.gz'))
+        
+        # Fall back to old v4 structure if no files found (data/simlingo/...)
+        if len(self.data_boxes_paths_all) == 0:
+            self.data_boxes_paths_all = glob.glob(os.path.join(self.data_directory, 'data/simlingo/*/*/*/*/boxes/*.json.gz'))
+        
         print(f"Number of boxes paths: {len(self.data_boxes_paths_all)}")
         # if self.skip_existing:
         #     self.data_boxes_paths = []
@@ -142,7 +146,13 @@ class COMsGenerator():
         path = self.data_boxes_paths[path_id]
 
         if self.skip_existing:
-            save_dir = (self.output_directory + "/" + path.split("/data/")[1]).replace('boxes', 'commentary')
+            # Extract relative path - works for both v4 (data/simlingo/...) and v5 (auto_long_multicam_jp/...) structures
+            if '/data/simlingo/' in path:
+                relative_path = path.split('/data/simlingo/')[1]
+            else:
+                # For v5 structure, get path relative to data_directory
+                relative_path = os.path.relpath(path, self.data_directory)
+            save_dir = os.path.join(self.output_directory, relative_path).replace('boxes', 'commentary')
             if os.access(save_dir, os.F_OK):
                 return
 
@@ -163,7 +173,12 @@ class COMsGenerator():
             route_file_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(2)
             route_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(3)
 
-        route_folder = path_measurements.split('simlingo/')[-1].split('/Town')[0].split('/')
+        # Extract route folder - handle both v4 and v5 structures
+        if 'simlingo/' in path_measurements:
+            route_folder = path_measurements.split('simlingo/')[-1].split('/Town')[0].split('/')
+        else:
+            # For v5, extract from data_directory onwards
+            route_folder = os.path.relpath(os.path.dirname(path_measurements), self.data_directory).split('/measurements')[0].split('/')
         route_folder = '_'.join(route_folder)
 
         # Skip frames if RGB image does not exist
@@ -372,10 +387,13 @@ class COMsGenerator():
         commentary_data['scenario_name'] = scenario_name
         commentary_data['placeholder'] = placeholder
 
-        # easier to debug:
-        save_dir = (self.output_directory + "/" + path.split("/data/")[1]).replace('boxes', 'commentary')
-        # final version
-        # save_dir = path.replace('/rgb/', '/commentary/').replace('.jpg', '.json')
+        # Create save path - works for both v4 and v5 structures
+        if '/data/simlingo/' in path:
+            relative_path = path.split('/data/simlingo/')[1]
+        else:
+            # For v5 structure, get path relative to data_directory
+            relative_path = os.path.relpath(path, self.data_directory)
+        save_dir = os.path.join(self.output_directory, relative_path).replace('boxes', 'commentary')
         Path(save_dir).parent.mkdir(exist_ok=True, parents=True)
         # json.gz
         with gzip.open(save_dir, 'wt', encoding='utf-8') as f:

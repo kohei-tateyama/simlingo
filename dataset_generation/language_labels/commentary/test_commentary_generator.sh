@@ -9,8 +9,8 @@ conda activate simlingo
 # Set paths
 # DATA_DIR="/workspace/simlingo/database/simlingo_v2_2025_01_10"
 # OUTPUT_DIR="/workspace/simlingo/database/simlingo_v2_2025_01_10/commentary_test"
-DATA_DIR="/media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp"
-OUTPUT_DIR="/media/external_ssd/database/simlingo_v4_2026_01_01/commentary_auto_long_multicam_jp"
+DATA_DIR="/media/external_ssd/database/simlingo_v5_2026_01_05/"
+OUTPUT_DIR="/media/external_ssd/database/simlingo_v5_2026_01_05/commentary_test"
 
 
 # Create output directory if it doesn't exist

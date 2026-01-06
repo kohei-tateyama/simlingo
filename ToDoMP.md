@@ -490,12 +490,13 @@ drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:45 drivelm
 `scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"`
 `scp -r pim1yh@10.162.163.183:/workspace/simlingo/script/ "C:\Users\PIM1YH\Downloads\"`
 
-Working witht the ssd.
+### SSD
+Working witht the external ssd.
 
 ```bash
 sudo umount /media/external_ssd
 sudo mount -o uid=$(id -u),gid=$(id -g),dmask=0022,fmask=0133 /dev/sdb2 /media/external_ssd
-touch /media/external_ssd/test.txt && rm /media/external_ssd/test.txt && echo "rite OK"
+touch /media/external_ssd/test.txt && rm /media/external_ssd/test.txt && echo "write OK"
 
 sudo chown -R pim1yh:pim1yh /media/external_ssd/database
 
