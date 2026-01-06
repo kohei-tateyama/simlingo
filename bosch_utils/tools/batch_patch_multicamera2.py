@@ -252,7 +252,14 @@ def create_three_quarter_patch_big(images: dict):
         paste_native(images.get('RF'), y, rx, label='RF', increase_height=True)
         y += rf_h
 
-    return canvas
+    # Downscale final big canvas by 2x to reduce file dimensions (e.g., 3072x2048 -> 1536x1024)
+    try:
+        target_w = max(1, canvas.shape[1] // 2)
+        target_h = max(1, canvas.shape[0] // 2)
+        small = cv2.resize(canvas, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        return small
+    except Exception:
+        return canvas
 
 
 # def find_latest_dataset(base_dir="/workspace/simlingo/recording_japan_xml/database"):
