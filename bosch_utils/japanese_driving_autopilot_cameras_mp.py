@@ -170,11 +170,17 @@ class JapaneseStyleAutopilot:
             print(f"[INFO]: client.get_world() returned successfully")
             current_map_name = getattr(current_world.get_map(), 'name', '')
             if current_map_name:
-                print(f"[INFO]: Server already has map loaded: {current_map_name} — using it")
-                self.world = current_world
-                # self.world.set_weather(weather) # even the custom one
-                time.sleep(1)
-                skip_load = True
+                print(f"[INFO]: Server already has map loaded: {current_map_name}")
+                # Check if the loaded map matches the requested town
+                if self.town in current_map_name:
+                    print(f"[INFO]: Current map matches requested town '{self.town}' — using it")
+                    self.world = current_world
+                    # self.world.set_weather(weather) # even the custom one
+                    time.sleep(1)
+                    skip_load = True
+                else:
+                    print(f"[INFO]: Current map '{current_map_name}' does NOT match requested town '{self.town}' — will load correct map")
+                    skip_load = False
             else:
                 skip_load = False
         except Exception:

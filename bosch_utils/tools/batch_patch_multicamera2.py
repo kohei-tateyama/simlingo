@@ -446,7 +446,14 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
             else:
                 patched = create_three_quarter_patch(images)
             output_path = folder_path / output_name
-            saved_main = cv2.imwrite(str(output_path), patched)
+            # Downscale patched image by 30% 
+            try:
+                scale_main = 0.7
+                h, w = patched.shape[:2]
+                small_main = cv2.resize(patched, (max(1, int(round(w * scale_main))), max(1, int(round(h * scale_main)))), interpolation=cv2.INTER_AREA)
+                saved_main = cv2.imwrite(str(output_path), small_main)
+            except Exception:
+                saved_main = cv2.imwrite(str(output_path), patched)
 
             # Also create the 'big' patch and save with _big suffix before extension
             name = output_name
@@ -457,7 +464,13 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
             big_path = folder_path / big_name
             try:
                 patched_big = create_three_quarter_patch_big(images)
-                saved_big = cv2.imwrite(str(big_path), patched_big)
+                try:
+                    scale_big = 0.7
+                    h, w = patched_big.shape[:2]
+                    small_big = cv2.resize(patched_big, (max(1, int(round(w * scale_big))), max(1, int(round(h * scale_big)))), interpolation=cv2.INTER_AREA)
+                    saved_big = cv2.imwrite(str(big_path), small_big)
+                except Exception:
+                    saved_big = cv2.imwrite(str(big_path), patched_big)
             except Exception as e:
                 print(f"[WARN]: Failed to create _big patch for {folder_path}: {e}")
                 saved_big = False
@@ -467,7 +480,13 @@ def patch_single_folder(folder_path, layout='geometric', output_name='patched'):
             nus_path = folder_path / nus_name
             try:
                 patched_nus = create_patch_nuscenes(images)
-                saved_nus = cv2.imwrite(str(nus_path), patched_nus)
+                try:
+                    scale_nus = 0.7
+                    h, w = patched_nus.shape[:2]
+                    small_nus = cv2.resize(patched_nus, (max(1, int(round(w * scale_nus))), max(1, int(round(h * scale_nus)))), interpolation=cv2.INTER_AREA)
+                    saved_nus = cv2.imwrite(str(nus_path), small_nus)
+                except Exception:
+                    saved_nus = cv2.imwrite(str(nus_path), patched_nus)
             except Exception as e:
                 print(f"[WARN]: Failed to create nuscenes patch for {folder_path}: {e}")
                 saved_nus = False
@@ -586,3 +605,4 @@ Examples:
 
 if __name__ == "__main__":
     main()
+

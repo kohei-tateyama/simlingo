@@ -504,6 +504,7 @@ sudo chown -R pim1yh:pim1yh /bosch_utils/japanese_driving_autopilot_cameras.py
 
 rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
 ```
+
 # New start 
 # 2026
 # Last day before new years break -> When to start back
@@ -517,9 +518,9 @@ Take these tempalte `simlingo/data/augmented_templates/commentary_augmented.json
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo$ tmux ls
 azure_upload: 1 windows (created Thu Dec 25 17:26:41 2025)
 datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
-````
+```
 
-
+```bash
 (base) pim1yh@YH0V0013:/workspace$ python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg -v
 [INFO] Starting llama-server on port 8081...
 [INFO] Server ready after 4s
@@ -551,13 +552,13 @@ datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
     "detections_count": 0
   }
 }
-
-
+```
 
 ======================================
+## Tools 
 
 Cutting the .log
-
+```bash
 TS=$(date +%Y%m%d_%H%M%S)
 cp azure_deploy_mp/azure_upload.log azure_deploy_mp/azure_upload.log.$TS
 
@@ -567,3 +568,18 @@ gzip azure_deploy_mp/azure_upload.log.$TS &
 : > azure_deploy_mp/azure_upload.log
 du -sh azure_deploy_mp/azure_upload.log*
 df -h .
+```
+
+Check the usage of GPU
+
+```bash
+TOT=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i 0)
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits -i 0 \
+| while IFS=',' read -r pid name used; do
+  used=$(echo "$used" | tr -d ' ')
+  pct=$(awk -v u="$used" -v t="$TOT" 'BEGIN{printf "%.1f", u/t*100}')
+  printf "%s\t%s\t%4s MiB\t(%s%%)\n" "$pid" "$name" "$used" "$pct"
+done
+```
+When `code` for opening imgs does not work, refresh the terminal
+`export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
