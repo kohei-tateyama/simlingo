@@ -267,8 +267,6 @@ class JapaneseStyleAutopilot:
         self._actors_cache_frame = -999  # Frame number when cache was last updated
         self._actors_cache_interval = 10  # Update cache every N frames (at 20fps = every 0.5s)
         
-        # Prepare per-run artifact folders matching training format
-
         # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
@@ -279,6 +277,7 @@ class JapaneseStyleAutopilot:
         
         print(f'[INFO]: Created the folder: {self.folderpath}')
 
+        # TODO move this into the config.py/yaml
         os.makedirs(self.folderpath, exist_ok=True)
         # Create training-format subfolders
         os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
@@ -1025,7 +1024,16 @@ class JapaneseStyleAutopilot:
         vehicle_bp.set_attribute('role_name', 'hero')
         
         # Get route and spawn at start
-        route_waypoints, start_idx = self.get_predefined_route()
+        # Allow optional use of alternate planner when the instance sets
+        # `use_predefined_route2 = True` (manual toggle; no CLI flag added).
+        if getattr(self, 'use_predefined_route2', False):
+            try:
+                route_waypoints, start_idx = self.get_predefined_route2()
+            except Exception:
+                # Fallback to default planner on any error
+                route_waypoints, start_idx = self.get_predefined_route()
+        else:
+            route_waypoints, start_idx = self.get_predefined_route()
         
         spawn_points = self.world.get_map().get_spawn_points()
         spawn_point = spawn_points[start_idx] if start_idx < len(spawn_points) else spawn_points[0]
@@ -2045,6 +2053,8 @@ class JapaneseStyleAutopilot:
             import matplotlib
             matplotlib.use('Agg')  # Non-interactive backend for headless mode
             import matplotlib.pyplot as plt
+            import matplotlib.patches as mpatches
+            import matplotlib.lines as mlines
             
             # Extract X and Y coordinates
             xs = [pt[0] for pt in self._gps_trajectory]
@@ -2070,7 +2080,25 @@ class JapaneseStyleAutopilot:
             ax.set_title('Vehicle GPS Trajectory', fontsize=fst)
             ax.grid(True, alpha=alpha_grid)
             ax.axis('equal')
-            
+
+            # Mark start point with a filled circle
+            start_x, start_y = xs[0], ys[0]
+            ax.scatter([start_x], [start_y], s=120, c='green', marker='o', zorder=5, edgecolors='black')
+            ax.text(start_x, start_y, '  START', fontsize=fs, verticalalignment='center', horizontalalignment='left', color='black')
+
+            # Mark end point with an arrow from penultimate to final point
+            end_x, end_y = xs[-1], ys[-1]
+            prev_x, prev_y = xs[-2], ys[-2]
+            # Draw an arrow indicating direction to the final point
+            ax.annotate('', xy=(end_x, end_y), xytext=(prev_x, prev_y), arrowprops=dict(arrowstyle='->', color='red', linewidth=2), zorder=6)
+            ax.scatter([end_x], [end_y], s=100, c='red', marker='>', zorder=6)
+            ax.text(end_x, end_y, '  END', fontsize=fs, verticalalignment='center', horizontalalignment='left', color='black')
+
+            # Add legend entries for clarity
+            start_patch = mpatches.Circle((0, 0), radius=0.1, facecolor='green', edgecolor='black')
+            end_line = mlines.Line2D([], [], color='red', marker='>', linestyle='None')
+            ax.legend([start_patch, end_line], ['Start', 'End'], loc='best', framealpha=alpha_legend)
+
             # Save plot
             gps_path = os.path.join(self.folderpath, 'GPS.jpg')
             plt.savefig(gps_path, dpi=150, bbox_inches='tight')

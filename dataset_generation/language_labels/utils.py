@@ -305,11 +305,18 @@ def get_scenario_name(measurement_file_current):
     except:
         print(measurement_file_current)
 
-    ##########################################################################################################################
-    #############################################TODO TODO TODO TODO TODO TODO ###############################################
-    ##########################################################################################################################
-    # find the right path to the route file. some are in leaderboard/data, but make sure the routes and the data is matching.
-    routefile_path = f'data/simlingo/{route_folder}/{route_file}.xml'
+    # Determine the route file path based on the route_folder
+    # The route files are in leaderboard/data/ directory
+    # route_folder examples: 'routes_training', 'routes_validation', 'training_3_scenarios/routes_training', etc.
+    if 'routes_training' in route_folder:
+        routefile_path = 'leaderboard/data/routes_training.xml'
+    elif 'routes_validation' in route_folder:
+        routefile_path = 'leaderboard/data/routes_validation.xml'
+    elif 'routes_devtest' in route_folder:
+        routefile_path = 'leaderboard/data/routes_devtest.xml'
+    else:
+        # Fallback to old path structure for compatibility
+        routefile_path = f'data/simlingo/{route_folder}/{route_file}.xml'
 
     # load route file
     if route_folder == 'custom_parkinglane':

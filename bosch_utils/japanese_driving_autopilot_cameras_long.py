@@ -25,6 +25,12 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         self.fps = kwargs['fps']
         self.random_spawn = bool(random_spawn)
         super().__init__(*args, **kwargs)
+        # Manual toggle to select alternate planner implemented in this long-run subclass.
+        # Set to True to use get_predefined_route2() instead of get_predefined_route().
+        self.use_predefined_route2 = True # False
+        if self.use_predefined_route2:
+            print('[INFO]: Using Planner 2 ...')
+            
         try:
             ## this is one of the worst thing I have ever seen, to be modified.
             try:
@@ -196,6 +202,74 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             print('=' * self.print_length)
             return super().get_predefined_route()
 
+    def get_predefined_route2(self):
+        """Alternative route planner for testing: denser sampling and multi-goal loop.
+
+        This planner uses a finer sampling resolution to produce more waypoints
+        (useful to stress-test autopilot controllers) and constructs a multi-goal
+        loop (start -> mid -> goal -> start) so the vehicle traverses varied
+        geometry within a single run. Falls back to the parent's route on error.
+        """
+        try:
+            from agents.navigation.global_route_planner import GlobalRoutePlanner
+            print("[INFO]: Initializing GlobalRoutePlanner (alternate mode, dense sampling)...")
+            # Use denser sampling to increase path resolution for testing
+            grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=0.5)
+            spawn_points = self.world.get_map().get_spawn_points()
+            if len(spawn_points) < 3:
+                raise RuntimeError('Not enough spawn points to plan alternate route')
+
+            # Choose a start index deterministically when spawn_idx is given
+            if self.spawn_idx is not None:
+                start_idx = self.spawn_idx % len(spawn_points)
+            elif self.random_spawn:
+                import random
+                start_idx = random.randint(0, len(spawn_points) - 1)
+            else:
+                start_idx = 0
+
+            start = spawn_points[start_idx].location
+
+            # Calculate target distances (shorter segments to create loop)
+            import math, random
+            avg_speed_mps = 11.1
+            total_target = max(200.0, self.duration * avg_speed_mps)  # ensure a minimum distance
+
+            # Pick two intermediate goal candidates at roughly 1/3 and 2/3 distances
+            distances = []
+            for idx, sp in enumerate(spawn_points):
+                if idx == start_idx:
+                    continue
+                d = math.hypot(sp.location.x - start.x, sp.location.y - start.y)
+                distances.append((idx, d))
+            distances.sort(key=lambda x: x[1])
+
+            # Heuristic: pick mid and far candidates from the distribution
+            mid_candidates = distances[len(distances)//4: len(distances)//4 + 10] or distances[:10]
+            far_candidates = distances[-10:] or distances
+
+            mid_idx = random.choice([idx for idx, _ in mid_candidates])
+            far_idx = random.choice([idx for idx, _ in far_candidates])
+
+            mid = spawn_points[mid_idx].location
+            far = spawn_points[far_idx].location
+
+            # Trace a composite route: start -> mid -> far -> start
+            plan_sm = grp.trace_route(start, mid)
+            plan_mf = grp.trace_route(mid, far)
+            plan_fs = grp.trace_route(far, start)
+
+            waypoints = [wp for wp, _ in plan_sm] + [wp for wp, _ in plan_mf] + [wp for wp, _ in plan_fs]
+
+            print(f"[INFO]: Alternate planner produced {len(waypoints)} waypoints (start={start_idx}, mid={mid_idx}, far={far_idx})")
+            return waypoints, start_idx
+
+        except Exception as e:
+            import traceback
+            print('[WARNING]: alternate agents planner failed, falling back to default')
+            traceback.print_exc()
+            return super().get_predefined_route()
+
     def run(self):
         """Run autopilot simulation"""
         try:
@@ -355,6 +429,13 @@ def main():
         random_spawn=args.random_spawn,
         weather=weather_arg
     )
+    # ------------------------------------------------------------------
+    # Optional: If you want to test the alternate planner (get_predefined_route2),
+    # you can enable it here by uncommenting the next line. No CLI flag is
+    # required — this is a manual toggle so you can experiment quickly.
+    # NOTE: leave commented for normal runs (default planner is used).
+    # sim.use_predefined_route2 = True
+    # ------------------------------------------------------------------
     # Print an estimate of expected recorded frames using current inputs
     try:
         est = sim.estimate_recorded_frames(

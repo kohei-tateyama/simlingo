@@ -192,6 +192,35 @@ Action: [Single action command like "Accelerate to follow the lead vehicle" or "
 Focus on being concise but specific. Mention object colors, positions (front/rear/left/right), and relative distances when relevant.<|im_end|>
 <|im_start|>assistant"""
 
+
+#     return """<|im_start|>user
+# <|image|>
+# You are an expert autonomous-driving perception system. The input is a stitched 6-camera surround-view image in this order: Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center. The route is left-driving.
+
+# Task: Analyze the full 360° scene and produce a concise driving commentary plus one clear driving action.
+
+# Required content (must appear in the assistant's reply):
+
+# Surround Analysis — list the most relevant objects (vehicle, pedestrian, cyclist, sign, road_marking) with: type, color (if visible), approximate position (front/front-left/front-right/rear/rear-left/rear-right), and distance (near/mid/far).
+# Spatial Risks — list up to 4 prioritized hazards (short id and 1-line evidence-based reason).
+# Reasoning — one short sentence linking observations to traffic rules or safe driving logic.
+# Action — a single short imperative command (one line).
+# Output format (exact textual format expected):
+# Commentary: <one concise paragraph (≤2 sentences) summarizing surround + reasoning>
+# Action: <single short imperative command, e.g. 'Brake for pedestrian', 'Yield and slow to 5 m/s'>
+
+# Constraints (must obey):
+
+# Output must be only the assistant reply text between the assistant tokens. Do not add extra prose, code fences, or explanations.
+# Use the exact labels Commentary: and Action: (capitalized).
+# Keep Commentary concise but specific (colors, positions, near/mid/far when relevant).
+# Action must be unambiguous and actionable.
+# If nothing is detected, output:
+# Commentary: No relevant objects detected
+# Action: Maintain course
+# End the assistant reply with the assistant end token immediately after the Action line: <|im_end|>
+# <|im_start|>assistant"""
+
     def _build_driving_prompt(self) -> str:
         """Build the prompt for autonomous driving commentary generation"""
         return """<|im_start|>user
