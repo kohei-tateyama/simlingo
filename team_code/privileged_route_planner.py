@@ -728,6 +728,7 @@ class PrivilegedRoutePlanner(object):
         self.distances_to_next_stop_signs[i] = float(distance_idx) / self.points_per_meter
 
   def compute_speed_limits(self, carla_map):
+    import pathlib
     """
         Compute speed limits for each location along the route.
 
@@ -737,8 +738,13 @@ class PrivilegedRoutePlanner(object):
     # Get the name of the map
     map_name = carla_map.name.split("/")[-1]
 
-    # Load speed limit data from file
-    file_name_speed_limits = f"team_code/speed_limits/{map_name}_speed_limits.npy"
+    ## Load speed limit data from file
+    ## CHANGED FROM SIMLINGO
+    # file_name_speed_limits = f"team_code/speed_limits/{map_name}_speed_limits.npy"
+    
+    pth = pathlib.Path(__file__).parent
+    file_name_speed_limits = f"{pth}/speed_limits/{map_name}_speed_limits.npy"
+    
     file_content = np.load(file_name_speed_limits, allow_pickle=True)
     map_data = file_content.item()
 
