@@ -54,6 +54,11 @@ class COMsGenerator():
         self.output_directory = args.output_directory 
         self.output_examples_directory = args.output_examples_directory
         self.skip_existing = args.skip_existing
+        
+        # Ensure paths are absolute to avoid relative path issues
+        self.data_directory = os.path.abspath(self.data_directory)
+        self.output_directory = os.path.abspath(self.output_directory)
+        self.output_examples_directory = os.path.abspath(self.output_examples_directory)
 
         # Build camera projection matrix
         self.CAMERA_MATRIX = build_projection_matrix(self.ORIGINAL_IMAGE_SIZE[0],
@@ -68,7 +73,7 @@ class COMsGenerator():
         # all the paths to the boxes in the data
         # self.data_boxes_paths = glob.glob(os.path.join(self.data_directory, '**/boxes/*.json.gz'), recursive=True)
         # all the paths to the boxes in the data
-        boxes_path = os.path.join(self.data_directory, 'database/simlingo_v2_2025_01_10/data/simlingo/*/*/*/*/boxes/*.json.gz')
+        boxes_path = os.path.join(self.data_directory, '/*/*/*/*/boxes/*.json.gz')
         print(boxes_path)
         self.data_boxes_paths_all = glob.glob(boxes_path)
         print(f"Number of boxes paths: {len(self.data_boxes_paths_all)}")
@@ -142,9 +147,18 @@ class COMsGenerator():
         # Process each frame
         # for path in tqdm.tqdm(self.data_boxes_paths):
         path = self.data_boxes_paths[path_id]
+        
+        # Resolve symlinks and get absolute path
+        path = os.path.abspath(os.path.realpath(path))
 
         if self.skip_existing:
-            save_dir = (self.output_directory + "/" + path.split("/data/")[1]).replace('boxes', 'commentary')
+            # Extract path structure relative to data_directory
+            if path.startswith(self.data_directory):
+                relative_path = path[len(self.data_directory):].lstrip('/')
+            else:
+                # Fallback: use the full path structure
+                relative_path = path
+            save_dir = os.path.join(self.output_directory, relative_path).replace('boxes', 'commentary')
             if os.access(save_dir, os.F_OK):
                 return
 
@@ -161,15 +175,46 @@ class COMsGenerator():
             route_file_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(2)
             route_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(3)
         else:
-            scenario_name = get_scenario_name(path_measurements)
-            route_file_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(2)
-            route_number = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements).group(3)
+            # Try to extract route information if it exists (v2 format)
+            route_match = re.search(rf'Rep*(\d+)_*(\d+)_route_*(\d+)', path_measurements)
+            if route_match:
+                scenario_name = get_scenario_name(path_measurements)
+                route_file_number = route_match.group(2)
+                route_number = route_match.group(3)
+            else:
+                # v5 format - no Rep/route pattern, extract scenario from path
+                # e.g., training_Town03_scenario -> Town03_scenario
+                scenario_match = re.search(r'(Town\d+_scenario)', path_measurements)
+                if scenario_match:
+                    scenario_name = scenario_match.group(1)
+                else:
+                    scenario_name = None
+                route_file_number = "0"
+                route_number = "0"
 
-        route_folder = path_measurements.split('simlingo/')[-1].split('/Town')[0].split('/')
+        # Extract route folder - handle both v2 and v5 structures
+        if 'simlingo/' in path_measurements:
+            route_folder = path_measurements.split('simlingo/')[-1].split('/Town')[0].split('/')
+        else:
+            # For v5 or other structures, extract from data_directory using string slicing
+            if path_measurements.startswith(self.data_directory):
+                rel_path = path_measurements[len(self.data_directory):].lstrip('/')
+                route_folder = os.path.dirname(rel_path).replace('/measurements', '').split('/')
+            else:
+                # Fallback
+                route_folder = os.path.dirname(path_measurements).replace('/measurements', '').split('/')
         route_folder = '_'.join(route_folder)
 
         # Skip frames if RGB image does not exist
-        if not os.path.isfile(path.replace('boxes', 'rgb').replace('.json.gz', '.jpg')):
+        # Handle both v2 structure (rgb/0000.jpg) and v5 structure (rgb/0000/patched2_nuscenes.jpg)
+        rgb_path_v2 = path.replace('boxes', 'rgb').replace('.json.gz', '.jpg')
+        rgb_path_v5 = path.replace('boxes', 'rgb').replace('.json.gz', '/patched2_nuscenes.jpg')
+        
+        if os.path.isfile(rgb_path_v5):
+            rgb_path = rgb_path_v5
+        elif os.path.isfile(rgb_path_v2):
+            rgb_path = rgb_path_v2
+        else:
             return
 
         # Skip frames based on keyframes list
@@ -261,7 +306,8 @@ class COMsGenerator():
             return
 
         # Get perception questions
-        image_path = path.replace('boxes', 'rgb').replace('.json.gz', '.jpg')
+        # Use the rgb_path determined earlier (handles both v2 and v5 structures)
+        image_path = rgb_path
         relative_image_path = image_path
         self.current_path = image_path
 
@@ -374,10 +420,13 @@ class COMsGenerator():
         commentary_data['scenario_name'] = scenario_name
         commentary_data['placeholder'] = placeholder
 
-        # easier to debug:
-        save_dir = (self.output_directory + "/" + path.split("/data/")[1]).replace('boxes', 'commentary')
-        # final version
-        # save_dir = path.replace('/rgb/', '/commentary/').replace('.jpg', '.json')
+        # Create save path preserving structure from data_directory
+        if path.startswith(self.data_directory):
+            relative_path = path[len(self.data_directory):].lstrip('/')
+        else:
+            # Fallback: use the full path structure  
+            relative_path = path
+        save_dir = os.path.join(self.output_directory, relative_path).replace('boxes', 'commentary')
         Path(save_dir).parent.mkdir(exist_ok=True, parents=True)
         # json.gz
         with gzip.open(save_dir, 'wt', encoding='utf-8') as f:

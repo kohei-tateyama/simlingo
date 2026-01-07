@@ -8,8 +8,8 @@ cd /workspace/simlingo
 conda activate simlingo
 
 # Set paths for v2 dataset
-DATA_DIR="/media/external_ssd/database/simlingo_v5_2026_01_05/auto_long_multicam_jp"
-OUTPUT_DIR="/media/external_ssd/database/simlingo_v5_2026_01_05/auto_long_multicam_jp/commentary_test"
+DATA_DIR="/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo"
+OUTPUT_DIR="/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/commentary_test"
 
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"

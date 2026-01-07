@@ -308,12 +308,18 @@ def get_scenario_name(measurement_file_current):
     # Determine the route file path based on the route_folder
     # The route files are in leaderboard/data/ directory
     # route_folder examples: 'routes_training', 'routes_validation', 'training_3_scenarios/routes_training', etc.
-    if 'routes_training' in route_folder:
-        routefile_path = 'leaderboard/data/routes_training.xml'
-    elif 'routes_validation' in route_folder:
-        routefile_path = 'leaderboard/data/routes_validation.xml'
-    elif 'routes_devtest' in route_folder:
-        routefile_path = 'leaderboard/data/routes_devtest.xml'
+    # Extract just the filename part (e.g., 'routes_training' from 'training_3_scenarios/routes_training')
+    route_type = None
+    if isinstance(route_folder, str):
+        if 'routes_training' in route_folder:
+            route_type = 'routes_training'
+        elif 'routes_validation' in route_folder:
+            route_type = 'routes_validation'
+        elif 'routes_devtest' in route_folder:
+            route_type = 'routes_devtest'
+    
+    if route_type:
+        routefile_path = f'leaderboard/data/{route_type}.xml'
     else:
         # Fallback to old path structure for compatibility
         routefile_path = f'data/simlingo/{route_folder}/{route_file}.xml'
