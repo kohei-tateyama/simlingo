@@ -19,6 +19,7 @@ import threading
 import signal
 from pathlib import Path
 from datetime import datetime
+import shutil
 
 import cv2
 import carla
@@ -138,15 +139,43 @@ class DataAgentJapanese(AutoPilot):
         if os.environ.get("SAVE_PATH", None) is not None:
             import pathlib
             base_path = pathlib.Path(os.environ["SAVE_PATH"])
-            scenario_name = os.environ.get("SCENARIO_NAME", "test_scenario")
-            route_config = os.environ.get("ROUTE_CONFIG", "routes_test")
-            weather_config = os.environ.get("WEATHER_CONFIG", "clear_noon")
-            
+            # Allow explicit override of the target subdirectory (useful for tests)
+            # Default: put outputs under training_3_scenarios/routes_devtest to avoid
+            # proliferating many top-level run folders.
+            # If you want a custom path, set env var SAVE_SUBDIR (e.g. "training_3_scenarios/routes_devtest").
+            save_subdir = os.environ.get('SAVE_SUBDIR', None)
+
             town = os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
-            
-            # Build path: {base}/{scenario}/{route_config}/{weather}/{Town}_Rep{rep}_{route_id}
-            self.save_path = base_path / scenario_name / route_config / weather_config / f"{town}_Rep{rep}_{route_id}"
+
+            weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")
+            # Build consolidated path: training_3_scenarios/routes_devtest/<weather>/<Town>_Rep{rep}_{route_id}
+            if save_subdir:
+                # honor provided subdir (can include nested folders separated by /)
+                self.save_path = base_path / Path(save_subdir) / weather_config / f"{town}_Rep{rep}_{route_id}"
+            else:
+                consolidated_root = base_path / 'training_3_scenarios' / 'routes_devtest' / weather_config
+                consolidated_root.mkdir(parents=True, exist_ok=True)
+                self.save_path = consolidated_root / f"{town}_Rep{rep}_{route_id}"
+
+            # If SAVE_PATH was set and there are existing top-level run folders (Town*_Rep*),
+            # move them into the consolidated weather folder to avoid polluting the SAVE_PATH root.
+            try:
+                for child in sorted(base_path.iterdir()):
+                    if not child.is_dir():
+                        continue
+                    # skip known safe folders
+                    if child.name in ['training_3_scenarios', 'outputs', 'output']:
+                        continue
+                    # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
+                    if ('_Rep' in child.name) or child.name.startswith('Town'):
+                        try:
+                            shutil.move(str(child), str(consolidated_root))
+                            print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
+                        except Exception as e:
+                            print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
+            except Exception:
+                pass
             self.save_path.mkdir(parents=True, exist_ok=True)
             
             if self.datagen:
@@ -204,11 +233,13 @@ class DataAgentJapanese(AutoPilot):
         # Print output path and verify it's safe
         if self.save_path is not None:
             print("=" * 80)
-            print("[DATA_AGENT_JAPANESE] Output Configuration:")
-            print(f"  Save Path: {self.save_path}")
-            print(f"  Data Collection Mode (DATAGEN): {self.datagen}")
-            print(f"  Route Index: {route_index}")
-            print(f"  Scenario: {self.scenario_name}")
+            print("[INFO][DATA_AGENT_JAPANESE] Output Configuration:")
+            print(f"[INFO] Save Path: {self.save_path}")
+            if 'training_3_scenarios' in str(self.save_path):
+                print("[INFO] Using consolidated default: training_3_scenarios/routes_devtest (override with SAVE_SUBDIR)")
+            print(f"[INFO] Data Collection (DATAGEN): {self.datagen}")
+            print(f"[INFO] Route Index              : {route_index}")
+            print(f"[INFO] Scenario                 : {self.scenario_name}")
             
             # Check if path already has data to avoid overwriting
             if self.datagen and self.save_path.exists():
@@ -221,12 +252,12 @@ class DataAgentJapanese(AutoPilot):
                             existing_files.append(f"{subdir}/: {file_count} items")
                 
                 if existing_files:
-                    print("  [WARNING] Directory already contains data:")
+                    print("[WARNING] Directory already contains data:")
                     for item in existing_files:
                         print(f"    - {item}")
-                    print("  [WARNING] New data will be added/overwritten in this directory!")
+                    print("[WARNING] New data will be added/overwritten in this directory!")
                 else:
-                    print("  [OK] Directory exists but is empty - safe to proceed")
+                    print("[INFO][OK] Directory exists but is empty - safe to proceed")
             
             print("=" * 80)
         
@@ -243,7 +274,7 @@ class DataAgentJapanese(AutoPilot):
                 (self.save_path / 'depth').mkdir(exist_ok=True)
                 (self.save_path / 'bev_semantics').mkdir(exist_ok=True)
             
-            print(f"[DATA_AGENT_JAPANESE] Created output directories in: {self.save_path}")
+            print(f"[INFO][DATA_AGENT_JAPANESE] Created output directories in: {self.save_path}")
 
         self.tmp_visu = int(os.environ.get('TMP_VISU', 0))
 
@@ -262,12 +293,20 @@ class DataAgentJapanese(AutoPilot):
         if self.enforce_left_hand_traffic and self.tm is not None:
             try:
                 self.tm.set_global_distance_to_leading_vehicle(2.5)
-                # Apply left-side offset
-                self.tm.global_lane_offset = self._driving_side_offset
-                if self._vehicle is not None:
-                    self.tm.vehicle_lane_offset(self._vehicle, self._driving_side_offset)
-                    self.tm.ignore_lights_percentage(self._vehicle, 0)  # Obey traffic lights
-                print(f"[INFO] Japanese traffic: Left-hand driving enabled (offset={self._driving_side_offset}m)")
+                
+                # Use robust geometry-aware method to compute safe offset
+                try:
+                    offset = self.enforce_driving_side(side='left', margin=0.10)
+                    print(f"[INFO] Japanese traffic: Left-hand driving enabled (computed offset={offset:.2f}m)")
+                except Exception as e:
+                    # Fallback to conservative default
+                    self._driving_side_offset = -0.8
+                    self.tm.global_lane_offset = self._driving_side_offset
+                    if self._vehicle is not None:
+                        self.tm.vehicle_lane_offset(self._vehicle, self._driving_side_offset)
+                        self.tm.ignore_lights_percentage(self._vehicle, 0)
+                    print(f"[WARN] enforce_driving_side failed, using fallback offset={self._driving_side_offset}m: {e}")
+                    
             except Exception as e:
                 print(f"[WARN] Could not configure Japanese traffic: {e}")
 
@@ -286,6 +325,91 @@ class DataAgentJapanese(AutoPilot):
         self.ss_bev_manager.attach_ego_vehicle(self._vehicle, criteria_stop=self.stop_sign_criteria)
 
         self._local_planner = LocalPlanner(self._vehicle, opt_dict={}, map_inst=self.world_map)
+
+    def enforce_driving_side(self, side='left', margin=0.10):
+        """
+        Compute a safe lateral lane offset (meters) for left/right driving and apply it.
+        
+        Based on japanese_driving_autopilot_cameras_mp.py implementation.
+        
+        - side: 'left' or 'right'
+        - margin: small clearance from curb in metres
+        
+        The method attempts to query a representative waypoint (spawn point) to get lane width,
+        and obtains ego vehicle half-width from its bounding box when available. It then computes
+        a desired offset and applies it to both `traffic_manager.global_lane_offset` and,
+        when a vehicle is available, `traffic_manager.vehicle_lane_offset(self._vehicle, offset)`.
+        
+        Returns the applied offset.
+        """
+        dir_sign = -1.0 if side == 'left' else 1.0
+        
+        # Default fallbacks
+        lane_w = 3.5
+        vehicle_half_w = 0.9
+        
+        try:
+            # Pick a representative spawn point or player position
+            spawn_points = self.world_map.get_spawn_points()
+            if spawn_points:
+                sp = spawn_points[0]
+            else:
+                sp = None
+        except Exception:
+            sp = None
+        
+        try:
+            if sp is not None:
+                wp = self.world_map.get_waypoint(sp.location)
+                if wp is not None and getattr(wp, 'lane_width', None) is not None:
+                    lane_w = float(wp.lane_width)
+        except Exception:
+            pass
+        
+        try:
+            if self._vehicle is not None:
+                bb = getattr(self._vehicle, 'bounding_box', None)
+                if bb is not None:
+                    vehicle_half_w = float(bb.extent.y)
+        except Exception:
+            pass
+        
+        # Compute safe offset so vehicle remains within lane (from lane center)
+        max_safe = max(0.02, lane_w / 2.0 - 0.02)  # Small safety clamp
+        desired = dir_sign * (lane_w / 2.0 - vehicle_half_w - float(margin))
+        
+        # Clamp to safe range
+        if desired > max_safe:
+            desired = max_safe
+        if desired < -max_safe:
+            desired = -max_safe
+        
+        # Apply to traffic manager
+        try:
+            self.tm.global_lane_offset = desired
+        except Exception:
+            pass
+        
+        try:
+            # If the ego vehicle exists, apply per-vehicle offset as well
+            if self._vehicle is not None:
+                self.tm.vehicle_lane_offset(self._vehicle, desired)
+        except Exception:
+            pass
+        
+        # Ensure traffic manager light/behavior is coherent: make ego obey lights by default
+        try:
+            self.tm.ignore_lights_percentage(self._vehicle if self._vehicle else None, 0)
+        except Exception:
+            pass
+        
+        # Store the computed offset for later use (e.g., spawning NPCs)
+        self._driving_side_offset = float(desired)
+        
+        # Log result for debugging
+        print(f"[INFO] enforce_driving_side: applied offset={desired:.2f}m (lane_w={lane_w:.2f}, veh_half_w={vehicle_half_w:.2f}) for side='{side}'")
+        
+        return desired
 
     def sensors(self):
         """
@@ -1358,39 +1482,51 @@ class DataAgentJapanese(AutoPilot):
         cv2.waitKey(1)
 
     def _save_gps_plot(self, line_width=3, font_size=14, font_size_title=16):
-        """Save GPS trajectory plot as GPS.jpg in output folder."""
-        if not self._gps_trajectory or len(self._gps_trajectory) < 2:
-            print("[INFO]: Not enough GPS points to plot trajectory")
+        """Save GPS trajectory plot as GPS.jpg in output folder
+        Implementation ported from japanese_driving_autopilot_cameras_mp.py — supports
+        single-point plots, arrows for end direction, legend and styling options.
+        """
+        if not hasattr(self, '_gps_trajectory') or len(self._gps_trajectory) == 0:
+            print("[INFO]: No GPS points to plot trajectory")
             return
-        
+
         try:
+            # Ensure non-interactive backend already selected elsewhere; defensive fallback
+            try:
+                matplotlib.use('Agg')
+            except Exception:
+                pass
+
+            # Extract X and Y coordinates
             xs = [pt[0] for pt in self._gps_trajectory]
             ys = [pt[1] for pt in self._gps_trajectory]
-            
+
+            # Create plot with configurable styling
             fig, ax = plt.subplots(figsize=(10, 8))
-            ax.plot(xs, ys, linewidth=line_width, color='blue', alpha=0.7)
+            ax.plot(xs, ys, linewidth=line_width, color='blue', alpha=0.9)
             ax.set_xlabel('X [m]', fontsize=font_size)
             ax.set_ylabel('Y [m]', fontsize=font_size)
             ax.set_title('Vehicle GPS Trajectory', fontsize=font_size_title)
             ax.grid(True, alpha=0.7)
             ax.axis('equal')
 
-            # Mark start with green circle
+            # Mark start point with a filled circle
             start_x, start_y = xs[0], ys[0]
             ax.scatter([start_x], [start_y], s=120, c='green', marker='o', zorder=5, edgecolors='black')
-            ax.text(start_x, start_y, '  START', fontsize=font_size, verticalalignment='center',
-                   horizontalalignment='left', color='black')
+            ax.text(start_x, start_y, '  START', fontsize=font_size, verticalalignment='center', horizontalalignment='left', color='black')
 
-            # Mark end with red arrow
-            end_x, end_y = xs[-1], ys[-1]
-            prev_x, prev_y = xs[-2], ys[-2]
-            ax.annotate('', xy=(end_x, end_y), xytext=(prev_x, prev_y),
-                       arrowprops=dict(arrowstyle='->', color='red', linewidth=2), zorder=6)
-            ax.scatter([end_x], [end_y], s=100, c='red', marker='>', zorder=6)
-            ax.text(end_x, end_y, '  END', fontsize=font_size, verticalalignment='center',
-                   horizontalalignment='left', color='black')
+            # If trajectory has at least two points, draw arrow to final point
+            if len(xs) >= 2:
+                end_x, end_y = xs[-1], ys[-1]
+                prev_x, prev_y = xs[-2], ys[-2]
+                ax.annotate('', xy=(end_x, end_y), xytext=(prev_x, prev_y), arrowprops=dict(arrowstyle='->', color='red', linewidth=2), zorder=6)
+                ax.scatter([end_x], [end_y], s=100, c='red', marker='>', zorder=6)
+                ax.text(end_x, end_y, '  END', fontsize=font_size, verticalalignment='center', horizontalalignment='left', color='black')
+            else:
+                # Single-point trajectory: mark it as POINT
+                ax.text(start_x, start_y, '  POINT', fontsize=font_size, verticalalignment='center', horizontalalignment='left', color='black')
 
-            # Legend
+            # Legend entries
             start_patch = mpatches.Circle((0, 0), radius=0.1, facecolor='green', edgecolor='black')
             end_line = mlines.Line2D([], [], color='red', marker='>', linestyle='None')
             ax.legend([start_patch, end_line], ['Start', 'End'], loc='best', framealpha=0.3)
@@ -1498,6 +1634,42 @@ class DataAgentJapanese(AutoPilot):
                         print(f"[DATA_AGENT_JAPANESE] Saved records.json.gz (no lon_logger, {len(self._frame_records)} frames)")
                     else:
                         print(f"[WARN] No lon_logger and no frame records - records.json.gz not saved")
+
+                # Attempt to save GPS plot if trajectory exists (run regardless of lon_logger result)
+                try:
+                    # If in-memory GPS trajectory exists, use it
+                    if hasattr(self, '_gps_trajectory') and self._gps_trajectory and hasattr(self, '_save_gps_plot'):
+                        try:
+                            self._save_gps_plot()
+                            print(f"[DATA_AGENT_JAPANESE] Saved GPS.jpg via signal handler (in-memory)")
+                        except Exception as _e:
+                            print(f"[WARN] Could not save GPS plot in signal handler: {_e}")
+                    else:
+                        # Try to rebuild GPS trajectory from measurements files on disk
+                        try:
+                            meas_dir = Path(self.save_path) / 'measurements'
+                            if meas_dir.exists():
+                                gps_pts = []
+                                for mf in sorted(meas_dir.glob('*.json.gz')):
+                                    try:
+                                        with gzip.open(mf, 'rt', encoding='utf-8') as f:
+                                            md = json.load(f)
+                                        pg = md.get('pos_global') or md.get('pos')
+                                        if isinstance(pg, (list, tuple)) and len(pg) >= 2:
+                                            gps_pts.append([float(pg[0]), float(pg[1])])
+                                    except Exception:
+                                        continue
+                                if gps_pts:
+                                    self._gps_trajectory = gps_pts
+                                    try:
+                                        self._save_gps_plot()
+                                        print(f"[DATA_AGENT_JAPANESE] Saved GPS.jpg via signal handler (from measurements)")
+                                    except Exception as _e:
+                                        print(f"[WARN] Could not save GPS plot after rebuilding from measurements: {_e}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[ERROR] Failed to save on signal: {e}")
             import traceback

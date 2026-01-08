@@ -14,7 +14,7 @@ import shutil
 from bosch_utils.japanese_driving_autopilot_cameras_mp import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras_backup import _resolve_weather_param
 
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH 
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
     def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, random_spawn=False, **kwargs):
@@ -34,16 +34,39 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         try:
             ## this is one of the worst thing I have ever seen, to be modified.
             try:
+                # ego_parent = os.path.join(
+                #     RECORDING_OUTPUT_DIR,
+                #     f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/"
+                #     f"training_{self.town}_scenario/"
+                #     f"routes_{self.route_type}_duration_{self.duration}_training/"
+                #     f"{self.weather}_weather/ego_{self.spawn_idx}"
+                # ) # ok works
+                
+                ## /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_3_scenarios/routes_training/random_weather_seed_3_balanced_100/Town12_Rep0_9_route0_01_12_01_20_56                                
                 ego_parent = os.path.join(
                     RECORDING_OUTPUT_DIR,
-                    f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/"
-                    f"training_{self.town}_scenario/"
-                    f"routes_{self.route_type}_duration_{self.duration}_training/"
-                    f"{self.weather}_weather/ego_{self.spawn_idx}"
-                )
-                boxes_dir = os.path.join(ego_parent, 'boxes')
-                parent_dir = os.path.join(RECORDING_OUTPUT_DIR,
-                                        f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/")
+                    NEW_SIMLINGO_MATCH,
+                    "auto_short_multicam_jp",
+                    "routes_training",
+                    f"{self.weather}_weather",
+                    f"{self.town}_Rep0_scenario",
+                    f"routes_{self.route_type}",
+                    f"duration_{self.duration}",
+                    f"ego_{self.spawn_idx}",
+                ) # need test
+                
+    
+                boxes_dir = os.path.join(ego_parent, 'boxes') # ok works
+                
+                # parent_dir = os.path.join(RECORDING_OUTPUT_DIR,
+                #                         f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/") # ok works
+                
+                parent_dir = os.path.join(
+                    RECORDING_OUTPUT_DIR,
+                    NEW_SIMLINGO_MATCH,
+                    "auto_short_multicam_jp",
+                    "routes_training",
+                ) # need test
 
                 if os.path.isdir(boxes_dir):
                     # If boxes_dir is empty, nuke the parent_dir
@@ -60,7 +83,20 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
 
 
             
-            self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+            # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok works
+            
+            self.foldername = os.path.join(
+                    RECORDING_OUTPUT_DIR,
+                    NEW_SIMLINGO_MATCH,
+                    "auto_long_multicam_jp",
+                    "routes_training",
+                    f"{self.weather}_weather",
+                    f"{self.town}_Rep0_scenario",
+                    f"routes_{self.route_type}",
+                    f"duration_{self.duration}",
+                    f"ego_{self.spawn_idx}",
+                ) # need test
+            
             self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
             os.makedirs(self.folderpath, exist_ok=True)
             os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)

@@ -20,7 +20,7 @@ import yaml
 
 
 from pathlib import Path
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH
 
 
 def _resolve_weather_param(name: str):
@@ -121,7 +121,13 @@ def _resolve_weather_param(name: str):
 
 
 class JapaneseStyleAutopilot:
-    def __init__(self, autopilot=False, duration=60, route_type='highway', port_localhost=2000, port_traffic=8000, town='Town13', fps=20.0, num_imgs_per_frame=6, callback_debug=False, weather='SoftRainNight',spawn_idx=None):
+    def __init__(self, autopilot=False, duration=60, 
+                 route_type='highway', port_localhost=2000, 
+                 port_traffic=8000, town='Town13', 
+                 fps=20.0, num_imgs_per_frame=6, 
+                 callback_debug=False, weather='SoftRainNight',
+                 spawn_idx=None):
+        
         """Initialize the Japanese-style driving autopilot with 6 cameras.
 
         Args:
@@ -271,8 +277,19 @@ class JapaneseStyleAutopilot:
         # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
-        self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
-        # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}"
+        # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok work
+        self.foldername = os.path.join(
+            NEW_SIMLINGO_MATCH,
+            "auto_short_multicam_jp",
+            "routes_training",
+            f"{self.weather}_weather",
+            f"{self.town}_Rep0_scenario",
+            f"routes_{self.route_type}",
+            f"duration_{self.duration}",
+            f"ego_{self.spawn_idx}",
+        ) # need test
+
+        # Prepend the configured RECORDING_OUTPUT_DIR to form the absolute folder path
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         
         print(f'[INFO]: Created the folder: {self.folderpath}')

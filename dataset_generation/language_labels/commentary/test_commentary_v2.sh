@@ -29,7 +29,7 @@ PYTHONPATH=/workspace/simlingo:$PYTHONPATH python dataset_generation/language_la
     --output-directory "$OUTPUT_DIR" \
     --output-examples-directory "${OUTPUT_DIR}/examples" \
     --sample-frame-mode "all" \
-    --random-subset-count 100 \
+    --random-subset-count 50 \
     --save-examples \
     --visualize-projection 
 

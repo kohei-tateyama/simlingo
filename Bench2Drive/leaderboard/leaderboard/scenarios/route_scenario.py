@@ -212,30 +212,100 @@ class RouteScenario(BasicScenario):
                     return False
             return True
 
-        new_parked_vehicles = []
+        # comment the old code
+        # new_parked_vehicles = []
+        #
+        # ego_location = CarlaDataProvider.get_location(ego_vehicle)
+        # if ego_location is None:
+        #     return
+        #
+        # for slot in self.available_parking_locations:
+        #     slot_transform = carla.Transform(
+        #         location=carla.Location(slot["location"][0], slot["location"][1], slot["location"][2]),
+        #         rotation=carla.Rotation(slot["rotation"][0], slot["rotation"][1], slot["rotation"][2])
+        #     )
+        #
+        #     # Add all vehicles that are close to the ego and in a free space
+        #     if is_close(slot_transform.location, ego_location) and is_free(slot_transform.location):
+        #         mesh_bp = CarlaDataProvider.get_world().get_blueprint_library().filter("static.prop.mesh")[0]
+        #         mesh_bp.set_attribute("mesh_path", slot["mesh"])
+        #         mesh_bp.set_attribute("scale", "0.9")
+        #         new_parked_vehicles.append(carla.command.SpawnActor(mesh_bp, slot_transform))
+        #         self.available_parking_locations.remove(slot)
+        #
+        # # Add the actors to _parked_ids
+        # for response in CarlaDataProvider.get_client().apply_batch_sync(new_parked_vehicles):
+        #     if not response.error:
+        #         self._parked_ids.append(response.actor_id)
 
+        #### this is new
         ego_location = CarlaDataProvider.get_location(ego_vehicle)
         if ego_location is None:
             return
 
-        for slot in self.available_parking_locations:
+        # We'll try to spawn each parked vehicle individually with defensive fallbacks.
+        client = CarlaDataProvider.get_client()
+        world = CarlaDataProvider.get_world()
+        bp_lib = world.get_blueprint_library().filter("static.prop.mesh")[0]
+
+        for slot in list(self.available_parking_locations):
             slot_transform = carla.Transform(
                 location=carla.Location(slot["location"][0], slot["location"][1], slot["location"][2]),
                 rotation=carla.Rotation(slot["rotation"][0], slot["rotation"][1], slot["rotation"][2])
             )
 
-            # Add all vehicles that are close to the ego and in a free space
-            if is_close(slot_transform.location, ego_location) and is_free(slot_transform.location):
-                mesh_bp = CarlaDataProvider.get_world().get_blueprint_library().filter("static.prop.mesh")[0]
-                mesh_bp.set_attribute("mesh_path", slot["mesh"])
-                mesh_bp.set_attribute("scale", "0.9")
-                new_parked_vehicles.append(carla.command.SpawnActor(mesh_bp, slot_transform))
-                self.available_parking_locations.remove(slot)
+            # Only attempt spawn when slot is close and free
+            if not (is_close(slot_transform.location, ego_location) and is_free(slot_transform.location)):
+                continue
 
-        # Add the actors to _parked_ids
-        for response in CarlaDataProvider.get_client().apply_batch_sync(new_parked_vehicles):
-            if not response.error:
-                self._parked_ids.append(response.actor_id)
+            # Prepare blueprint
+            mesh_bp = bp_lib
+            mesh_bp.set_attribute("mesh_path", slot["mesh"])
+            mesh_bp.set_attribute("scale", "0.9")
+
+            spawned = False
+
+            # Candidate transforms: original, waypoint-snapped z, and small lateral offsets
+            candidates = [slot_transform]
+
+            try:
+                wp = self.map.get_waypoint(slot_transform.location, project_to_road=True)
+                if wp is not None:
+                    snapped = carla.Transform(location=carla.Location(
+                        slot_transform.location.x, slot_transform.location.y, wp.transform.location.z
+                    ), rotation=slot_transform.rotation)
+                    if snapped.location.z != slot_transform.location.z:
+                        candidates.append(snapped)
+            except Exception:
+                # Map/waypoint lookup can fail in some maps; ignore
+                pass
+
+            # small lateral offsets (meters)
+            offsets = [(0.0, 0.0), (0.3, 0.0), (-0.3, 0.0), (0.0, 0.3), (0.0, -0.3), (0.5, 0.0), (-0.5, 0.0)]
+            for dx, dy in offsets:
+                if dx == 0.0 and dy == 0.0:
+                    continue
+                c = carla.Transform(location=carla.Location(slot_transform.location.x + dx,
+                                                           slot_transform.location.y + dy,
+                                                           slot_transform.location.z),
+                                    rotation=slot_transform.rotation)
+                candidates.append(c)
+
+            # Try spawning sequentially until one succeeds; remove slot regardless to avoid repeated retries
+            for cand in candidates:
+                responses = client.apply_batch_sync([carla.command.SpawnActor(mesh_bp, cand)])
+                if len(responses) and not responses[0].error:
+                    self._parked_ids.append(responses[0].actor_id)
+                    spawned = True
+                    break
+
+            # Remove the slot from available slots to avoid reattempting a problematic location
+            try:
+                self.available_parking_locations.remove(slot)
+            except ValueError:
+                pass
+
+        #### end new code
 
     # pylint: disable=no-self-use
     def _draw_waypoints(self, waypoints, vertical_shift, size, downsample=1):

@@ -33,6 +33,11 @@ SIMLINGO_VERSION_DIR = (
     or str(_REPO_ROOT / 'simlingo_v5_2026_01_05')
 )
 
+NEW_SIMLINGO_MATCH = (
+    cfg.get('NEW_SIMLINGO_MATCH')
+    or os.environ.get('NEW_SIMLINGO_MATCH')
+    or str(_REPO_ROOT / '/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/')
+)
 
 # Default run/dataset directory (optional). If present in the YAML, use it.
 DEFAULT_RUN_DIR = cfg.get('DEFAULT_RUN_DIR') or os.environ.get('DEFAULT_RUN_DIR') or None

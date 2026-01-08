@@ -610,6 +610,47 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
             _spawn_point.location.z = spawn_point.location.z + z_offset
             actor = CarlaDataProvider._world.try_spawn_actor(blueprint, _spawn_point)
 
+        # If initial spawn failed, attempt fallbacks
+        if actor is None:
+            print("WARNING: Initial spawn failed for {} at {} - attempting fallbacks".format(model, spawn_point.location))
+
+            # 1) Try snapping to the road/waypoint z at the same (x,y)
+            try:
+                if CarlaDataProvider._map is None:
+                    CarlaDataProvider._map = CarlaDataProvider._world.get_map()
+                wp = CarlaDataProvider._map.get_waypoint(spawn_point.location, project_to_road=True)
+                if wp is not None:
+                    _spawn_wp = carla.Transform(wp.transform.location, spawn_point.rotation)
+                    _spawn_wp.location.z = wp.transform.location.z + z_offset
+                    actor = CarlaDataProvider._world.try_spawn_actor(blueprint, _spawn_wp)
+                    if actor:
+                        print("INFO: Fallback spawn succeeded using waypoint z at {}".format(wp.transform.location))
+            except Exception:
+                pass
+
+        if actor is None:
+            # 2) Try a small set of nearby global spawn points (if generated) to find an empty spot
+            try:
+                CarlaDataProvider.generate_spawn_points()
+                nearby = []
+                for sp in CarlaDataProvider._spawn_points:
+                    dx = sp.location.x - spawn_point.location.x
+                    dy = sp.location.y - spawn_point.location.y
+                    d2 = dx * dx + dy * dy
+                    nearby.append((d2, sp))
+                nearby.sort(key=lambda t: t[0])
+                attempts = 0
+                for _, cand in nearby[:10]:
+                    cand_transform = carla.Transform(cand.location, cand.rotation)
+                    cand_transform.location.z = cand.location.z + z_offset
+                    actor = CarlaDataProvider._world.try_spawn_actor(blueprint, cand_transform)
+                    attempts += 1
+                    if actor:
+                        print(f"INFO: Fallback spawn succeeded at nearby spawn point after {attempts} tries")
+                        break
+            except Exception:
+                pass
+
         if actor is None:
             print("WARNING: Cannot spawn actor {} at position {}".format(model, spawn_point.location))
             return None

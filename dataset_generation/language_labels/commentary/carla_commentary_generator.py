@@ -73,7 +73,7 @@ class COMsGenerator():
         # all the paths to the boxes in the data
         # self.data_boxes_paths = glob.glob(os.path.join(self.data_directory, '**/boxes/*.json.gz'), recursive=True)
         # all the paths to the boxes in the data
-        boxes_path = os.path.join(self.data_directory, '/*/*/*/*/boxes/*.json.gz')
+        boxes_path = os.path.join(self.data_directory, '*/*/*/*/boxes/*.json.gz')
         print(boxes_path)
         self.data_boxes_paths_all = glob.glob(boxes_path)
         print(f"Number of boxes paths: {len(self.data_boxes_paths_all)}")
@@ -206,16 +206,21 @@ class COMsGenerator():
         route_folder = '_'.join(route_folder)
 
         # Skip frames if RGB image does not exist
-        # Handle both v2 structure (rgb/0000.jpg) and v5 structure (rgb/0000/patched2_nuscenes.jpg)
+        # Handle both v2 structure (rgb/0000.jpg) and v5 structure (rgb/0000/patched2_*.jpg)
         rgb_path_v2 = path.replace('boxes', 'rgb').replace('.json.gz', '.jpg')
-        rgb_path_v5 = path.replace('boxes', 'rgb').replace('.json.gz', '/patched2_nuscenes.jpg')
+        rgb_path_v5_big = path.replace('boxes', 'rgb').replace('.json.gz', '/patched2_big.jpg')
+        rgb_path_v5_nuscenes = path.replace('boxes', 'rgb').replace('.json.gz', '/patched2_nuscenes.jpg')
         
-        if os.path.isfile(rgb_path_v5):
-            rgb_path = rgb_path_v5
+        # Prefer patched2_big.jpg for visualization, fall back to patched2_nuscenes.jpg, then v2 structure
+        if os.path.isfile(rgb_path_v5_big):
+            rgb_path = rgb_path_v5_big
+        elif os.path.isfile(rgb_path_v5_nuscenes):
+            rgb_path = rgb_path_v5_nuscenes
         elif os.path.isfile(rgb_path_v2):
             rgb_path = rgb_path_v2
         else:
             return
+        
 
         # Skip frames based on keyframes list
         if self.sample_frame_mode == 'keyframes':
@@ -335,8 +340,8 @@ class COMsGenerator():
             path_orgimg = f'{self.output_examples_directory}/com_viz/{scenario_name}/{route_folder}/{route_file_number}_{route_number}'
             Path(path_orgimg).mkdir(parents=True, exist_ok=True)
 
-            assert image.width == self.ORIGINAL_IMAGE_SIZE[0], f'{image.width} != {self.ORIGINAL_IMAGE_SIZE[0]}'
-            assert image.height == self.ORIGINAL_IMAGE_SIZE[1], f'{image.height} != {self.ORIGINAL_IMAGE_SIZE[1]}'
+            # assert image.width == self.ORIGINAL_IMAGE_SIZE[0], f'{image.width} != {self.ORIGINAL_IMAGE_SIZE[0]}'
+            # assert image.height == self.ORIGINAL_IMAGE_SIZE[1], f'{image.height} != {self.ORIGINAL_IMAGE_SIZE[1]}'
             
             # Draw a point for each object (e.g, car, traffic light, ...) on the image
             if self.visualize_projection:

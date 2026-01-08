@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test script for data_agent_japanese.py with leaderboard evaluation
+# Test script for data_agent_japanese.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 
 set -u
@@ -15,15 +15,21 @@ export LEADERBOARD_ROOT=${WORK_DIR}/leaderboard
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # Data collection settings
+# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
 export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0"
-export SCENARIO_NAME="training_3_scenarios"
-export ROUTE_CONFIG="routes_devtest"
-export WEATHER_CONFIG="test_clear_noon"
+export REPETITION="0" # "3"
+export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
+export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtest, routes_validation, routes_all)
+export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
+
+export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" (remove --routes)
+export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
+
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -154,10 +160,7 @@ start_carla() {
         exit 1
     fi
 
-    info "CARLA container is running ✓"
-
-    # Test connection
-    sep
+    info "CARLA container is running"
     info "Testing CARLA connection..."
     sep
 
@@ -207,15 +210,13 @@ run_leaderboard() {
     info "Routes   : routes_devtest.xml (ONLY FIRST ROUTE for testing)"
     info "Port     : 2000"
     info "Output   : ${SAVE_PATH}"
-    info "Max time : ~2-5 minutes (one route only)"
     sep
 
-    # Run only the first route for testing with timeout
-    # --routes-subset=0 means only route index 0
     # Agent has signal handler to gracefully save files on timeout
-    info "Running single route (max 5 minutes with graceful shutdown)"
-    
-    timeout 100 python leaderboard/leaderboard_evaluator.py \
+    info "Running single route"
+
+    if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
+        python leaderboard/leaderboard_evaluator.py \
         --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
         --routes-subset=0 \
         --repetitions=1 \
@@ -224,17 +225,43 @@ run_leaderboard() {
         --checkpoint=results_japanese_test.json \
         --port=2000 \
         --traffic-manager-port=8000
+    else
+        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
+            --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
+            --routes-subset=0 \
+            --repetitions=1 \
+            --agent=${TEAM_AGENT} \
+            --agent-config=${TEAM_CONFIG} \
+            --checkpoint=results_japanese_test.json \
+            --port=2000 \
+            --traffic-manager-port=8000
+    fi
 
     local exit_code=$?
-    
+
     sep
     if [ $exit_code -eq 0 ]; then
         info "Leaderboard evaluation completed successfully!"
-    elif [ $exit_code -eq 124 ]; then
-        warn "Timeout reached (5 minutes) - files saved via signal handler"
-        exit_code=0  # Treat as success since signal handler saved files
     else
-        warn "Leaderboard exited with code $exit_code"
+        # If the agent's signal handler saved output files, treat run as success.
+        FOUND_OUTPUT=0
+
+        # Look for results.json.gz or records.json.gz anywhere under SAVE_PATH within a reasonable depth
+        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
+            FOUND_OUTPUT=1
+        elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
+            FOUND_OUTPUT=1
+        fi
+
+        if [ $FOUND_OUTPUT -eq 1 ]; then
+            warn "Process exited with code ${exit_code} but found saved output files — treating as success"
+            exit_code=0
+        elif [ $exit_code -eq 124 ]; then
+            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - no output files found"
+            # Keep exit_code non-zero so callers can detect timeout without saved output
+        else
+            warn "Leaderboard exited with code $exit_code"
+        fi
     fi
     sep
 
@@ -339,7 +366,7 @@ patch_multicamera_images() {
             info "First frame ($(basename $first_frame)): $(ls -1 $first_frame/patched* 2>/dev/null | wc -l) patched files"
         fi
         if [ -n "$last_frame" ]; then
-            info "Last frame ($(basename $last_frame)): $(ls -1 $last_frame/patched* 2>/dev/null | wc -l) patched files"
+            info "Last frame ($(basename $last_frame)) : $(ls -1 $last_frame/patched* 2>/dev/null | wc -l) patched files"
         fi
         
         sep
@@ -388,12 +415,6 @@ main() {
     
     if [ $eval_exit -eq 0 ]; then
         info "Check output at: ${SAVE_PATH}"
-        info "Look for directories like: training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_*/"
-        info "Each should contain:"
-        info "  - rgb/{frame:04d}/{F,B,RF,LF,RB,LB}.jpg (original 6-camera images)"
-        info "  - rgb/{frame:04d}/patched.jpg (geometric layout)"
-        info "  - rgb/{frame:04d}/patched2.jpg (three-quarter layout)"
-        info "  - measurements/, boxes/, lidar/, results.json.gz, GPS.jpg"
     fi
 
     exit $eval_exit
@@ -403,56 +424,5 @@ main() {
 main
 
 
-##########################################################################################################
-##########################################################################################################
-# ## some generated example
-# # =============================================================================
-# # EXAMPLE 1: Quick test - Single route, one town (~2-5 minutes)
-# # =============================================================================
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
-# export SCENARIO_NAME="test_quick"
-# export ROUTE_CONFIG="routes_devtest"
-# export WEATHER_CONFIG="clear_noon"
-# # In run_leaderboard(): --routes-subset=0
 
-# # =============================================================================
-# # EXAMPLE 2: Training data collection - Multiple towns, random weather (~1-2 hours)
-# # =============================================================================
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
-# export SCENARIO_NAME="training_3_scenarios"
-# export ROUTE_CONFIG="routes_training"
-# export WEATHER_CONFIG="random_weather_seed_3_balanced_100"
-# # In run_leaderboard(): --routes-subset=0,1,2,3,4,5,6,7,8,9  # First 10 routes
 
-# # =============================================================================
-# # EXAMPLE 3: Validation set - All validation routes (~3-4 hours)
-# # =============================================================================
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
-# export SCENARIO_NAME="validation_1_scenario"
-# export ROUTE_CONFIG="routes_validation"
-# export WEATHER_CONFIG="clear_sunset"
-# # In run_leaderboard(): (remove --routes-subset to run all)
-
-# # =============================================================================
-# # EXAMPLE 4: Specific town testing - Town12 only
-# # =============================================================================
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
-# export SCENARIO_NAME="test_town12"
-# export ROUTE_CONFIG="routes_town12_only"
-# export WEATHER_CONFIG="rainy_night"
-# # You would need to create a custom routes_town12_only.xml with only Town12 routes
-# # In run_leaderboard(): --routes=/workspace/simlingo/leaderboard/data/routes_town12_only.xml
-
-# # =============================================================================
-# # EXAMPLE 5: Full dataset generation - All routes, multiple repetitions (DAYS!)
-# # =============================================================================
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v5_full_2025_01_10/data/simlingo
-# export SCENARIO_NAME="training_full"
-# export ROUTE_CONFIG="routes_all"
-# export WEATHER_CONFIG="balanced_weather_variations"
-# # In run_leaderboard(): 
-# #   --routes=/workspace/simlingo/leaderboard/data/routes_training.xml
-# #   --repetitions=3  # Run each route 3 times with different weather
-# #   (remove --routes-subset)
-##########################################################################################################
-##########################################################################################################

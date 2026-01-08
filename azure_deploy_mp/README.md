@@ -1,3 +1,33 @@
+Streaming Hugging Face -> Azure
+=================================
+
+This folder contains a small streaming uploader that lists files in a Hugging Face dataset
+repo and streams each file directly into an Azure Blob container without keeping a full
+local copy.
+
+Quick start
+
+1. Install requirements (prefer inside a venv):
+
+```bash
+pip install -r azure_deploy_mp/requirements-stream.txt
+```
+
+2. Run the streamer (example):
+
+```bash
+python azure_deploy_mp/stream_hf_to_azure.py \
+  --hf-repo RenzKa/simlingo \
+  --storage-account daijpepdde0b7efc169e98db \
+  --container data-ai-vla \
+  --dest-prefix datasets/processing_incoming/simlingo_stream_test \
+  --workers 8
+```
+
+Notes
+- For private repos pass `--hf-token`.
+- The script uses the Azure Blob SDK; authenticate with environment credentials or managed identity.
+- This is intended for large datasets where a full local clone is impractical.
 # Simlingo Training on Azure ML
 
 Quick guide to run the Simlingo training `simlingo/simlingo_training.sh` on Azure ML using Standard_NC16as_T4_v3 (4x T4 GPUs, 64 vCPUs, 440GB RAM).

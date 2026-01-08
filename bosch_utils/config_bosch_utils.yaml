@@ -1,10 +1,10 @@
 # Base recording output directory (keeps existing behavior)
 # RECORDING_OUTPUT_DIR: /workspace/simlingo/recording_japan_xml
 RECORDING_OUTPUT_DIR: /media/external_ssd # this is the Kohei ssd we canb use 4 TB
-
+NEW_SIMLINGO_MATCH: /workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 DEFAULT_RUN_DIR: /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43
 # Default comparison folders (used by comparison tools)
-DEFAULT_SIM: /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/
+DEFAULT_SIM: /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27
 DEFAULT_OURS: /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_10_training/SoftRainNight_weather/ego_43
 CARLA_HOST: localhost
 CARLA_PORT: 2000
