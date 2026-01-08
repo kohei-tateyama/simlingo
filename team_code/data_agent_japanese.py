@@ -120,6 +120,14 @@ class DataAgentJapanese(AutoPilot):
         
         # Store route_id as instance variable for signal handler
         self.route_id = route_id
+        # Also build an exported, human-friendly route id similar to simlingo examples
+        # Example: RouteScenario_0_rep0 or RouteTown03_0_rep0
+        try:
+            scenario_clean = str(self.scenario_name).replace(' ', '_') if hasattr(self, 'scenario_name') else 'Scenario'
+        except:
+            scenario_clean = 'Scenario'
+        rep = os.environ.get('REPETITION', '0')
+        self.route_id_export = f"Route{scenario_clean}_{route_index}_rep{rep}"
         
         # Store original route_index before calling super()
         self._original_route_index = route_index
@@ -143,6 +151,21 @@ class DataAgentJapanese(AutoPilot):
             
             if self.datagen:
                 (self.save_path / "measurements").mkdir(exist_ok=True)
+
+            # If the parent autopilot created a ScenarioLogger, update its save_path
+            if hasattr(self, 'lon_logger') and self.lon_logger is not None:
+                try:
+                    # Ensure lon_logger writes to the new nested save path
+                    self.lon_logger.save_path = str(self.save_path)
+                    # update any cached records file path
+                    self.lon_logger.records_file_path = os.path.join(str(self.save_path), 'records.json.gz')
+                    # update route_index for metadata consistency
+                    try:
+                        self.lon_logger.route_index = route_index
+                    except Exception:
+                        pass
+                except Exception as e:
+                    print(f"[WARN] Could not update lon_logger.save_path: {e}")
         
         # Override track setting - standard leaderboard requires SENSORS track
         # AutoPilot sets Track.MAP by default, but we only use sensors (no privileged map access)
@@ -627,6 +650,37 @@ class DataAgentJapanese(AutoPilot):
         self._gps_trajectory.append([float(transform.location.x), float(transform.location.y)])
         
         self.frame_counter += 1
+        # Log step into ScenarioLogger if available so records.json.gz is populated
+        try:
+            if hasattr(self, 'lon_logger') and getattr(self, 'lon_logger') is not None:
+                # Build a simple route representation from remaining_route for logging
+                # ScenarioLogger expects numeric arrays (not Python lists) so convert
+                # to a NumPy array. Ensure shape (N,2) and provide an empty array
+                # fallback to avoid subtraction between lists inside rdp/route_as_boxes.
+                route_for_log = np.empty((0, 2), dtype=float)
+                if hasattr(self, 'remaining_route') and self.remaining_route is not None:
+                    try:
+                        pts = self.remaining_route[:self.config.num_route_points_saved]
+                        route_arr = np.asarray([[float(p[0]), float(p[1])] for p in pts], dtype=float)
+                        # Ensure 2D shape even for single point
+                        if route_arr.ndim == 1:
+                            route_arr = route_arr.reshape(1, 2)
+                        route_for_log = route_arr
+                    except Exception as e:
+                        print(f"[WARN] Could not build numeric route_for_log: {e}")
+                        route_for_log = np.empty((0, 2), dtype=float)
+                ego_control = None
+                try:
+                    ego_control = self._vehicle.get_control()
+                except Exception:
+                    ego_control = None
+
+                try:
+                    self.lon_logger.log_step(route_for_log, ego_control=ego_control)
+                except Exception as e:
+                    print(f"[WARN] lon_logger.log_step failed: {e}")
+        except Exception:
+            pass
 
     def _build_measurements(self):
         """
@@ -1324,17 +1378,63 @@ class DataAgentJapanese(AutoPilot):
                 route_id = getattr(self, 'route_id', 'unknown')
                 
                 results_path = self.save_path / 'results.json.gz'
-                results_data = {
-                    'route_id': route_id,
-                    'index': 0,
-                    'status': 'Timeout',
-                    'infractions': {},
-                    'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
-                    'meta': {'duration_system': time.time() - (self.wallclock_t0.timestamp() if isinstance(self.wallclock_t0, datetime) and self.wallclock_t0 else time.time())}
+                # Build richer infractions structure like example
+                infractions_template = {
+                    'collisions_layout': [],
+                    'collisions_pedestrian': [],
+                    'collisions_vehicle': [],
+                    'red_light': [],
+                    'stop_infraction': [],
+                    'outside_route_lanes': [],
+                    'min_speed_infractions': [],
+                    'yield_emergency_vehicle_infractions': [],
+                    'scenario_timeouts': [],
+                    'route_dev': [],
+                    'vehicle_blocked': [],
+                    'route_timeout': []
                 }
+
+                # Compute route_length from GPS trajectory if available
+                try:
+                    route_length = 0.0
+                    if hasattr(self, '_gps_trajectory') and len(self._gps_trajectory) > 1:
+                        pts = self._gps_trajectory
+                        for i in range(1, len(pts)):
+                            dx = pts[i][0] - pts[i-1][0]
+                            dy = pts[i][1] - pts[i-1][1]
+                            route_length += math.hypot(dx, dy)
+                    else:
+                        route_length = 0.0
+                except Exception:
+                    route_length = 0.0
+
+                # Durations
+                try:
+                    duration_system = time.time() - (self.wallclock_t0.timestamp() if isinstance(self.wallclock_t0, datetime) and self.wallclock_t0 else time.time())
+                except Exception:
+                    duration_system = 0.0
+
+                # duration_game is not available here; set to duration_system as fallback
+                duration_game = duration_system
+
+                results_data = {
+                    'timestamp': getattr(self, 'route_id', route_id),
+                    'index': 0,
+                    'route_id': getattr(self, 'route_id_export', route_id),
+                    'status': 'Timeout',
+                    'num_infractions': 0,
+                    'infractions': infractions_template,
+                    'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
+                    'meta': {
+                        'route_length': route_length,
+                        'duration_game': duration_game,
+                        'duration_system': duration_system
+                    }
+                }
+
                 with gzip.open(results_path, 'wt', encoding='utf-8') as f:
                     json.dump(results_data, f, indent=2)
-                print(f"[DATA_AGENT_JAPANESE] Saved results.json.gz (route_id={route_id})")
+                print(f"[DATA_AGENT_JAPANESE] Saved results.json.gz (route_id_export={getattr(self, 'route_id_export', route_id)})")
                 
                 # Save records.json.gz via scenario logger with explicit path
                 records_path = self.save_path / 'records.json.gz'
@@ -1349,13 +1449,13 @@ class DataAgentJapanese(AutoPilot):
                         # Fallback: save basic records from _frame_records
                         if self._frame_records:
                             with gzip.open(records_path, 'wt', encoding='utf-8') as f:
-                                json.dump({'records': self._frame_records}, f, indent=2)
+                                json.dump({'records': self._frame_records}, f, indent=4)
                             print(f"[DATA_AGENT_JAPANESE] Saved records.json.gz (fallback with {len(self._frame_records)} frames)")
                 else:
                     # No lon_logger - use _frame_records as fallback
                     if self._frame_records:
                         with gzip.open(records_path, 'wt', encoding='utf-8') as f:
-                            json.dump({'records': self._frame_records}, f, indent=2)
+                            json.dump({'records': self._frame_records}, f, indent=4)
                         print(f"[DATA_AGENT_JAPANESE] Saved records.json.gz (no lon_logger, {len(self._frame_records)} frames)")
                     else:
                         print(f"[WARN] No lon_logger and no frame records - records.json.gz not saved")
@@ -1373,11 +1473,72 @@ class DataAgentJapanese(AutoPilot):
         Parent AutoPilot.destroy() saves records.json.gz via ScenarioLogger.
         """
         torch.cuda.empty_cache()
-
-        # Save results.json.gz (exactly like data_agent.py)
+        # If results provided by parent, save them (keep original behavior)
         if results is not None and self.save_path is not None:
-            with gzip.open(os.path.join(self.save_path, 'results.json.gz'), 'wt', encoding='utf-8') as f:
-                json.dump(results.__dict__, f, indent=2)
+            try:
+                with gzip.open(os.path.join(self.save_path, 'results.json.gz'), 'wt', encoding='utf-8') as f:
+                    json.dump(results.__dict__, f, indent=2)
+            except Exception as e:
+                print(f"[WARN] Failed to save provided results: {e}")
+
+        # If no results provided, synthesize a results.json.gz similar to signal handler
+        if results is None and self.save_path is not None:
+            try:
+                results_path = Path(self.save_path) / 'results.json.gz'
+                infractions_template = {
+                    'collisions_layout': [],
+                    'collisions_pedestrian': [],
+                    'collisions_vehicle': [],
+                    'red_light': [],
+                    'stop_infraction': [],
+                    'outside_route_lanes': [],
+                    'min_speed_infractions': [],
+                    'yield_emergency_vehicle_infractions': [],
+                    'scenario_timeouts': [],
+                    'route_dev': [],
+                    'vehicle_blocked': [],
+                    'route_timeout': []
+                }
+
+                # Compute route_length if GPS recorded
+                try:
+                    route_length = 0.0
+                    if hasattr(self, '_gps_trajectory') and len(self._gps_trajectory) > 1:
+                        pts = self._gps_trajectory
+                        for i in range(1, len(pts)):
+                            dx = pts[i][0] - pts[i-1][0]
+                            dy = pts[i][1] - pts[i-1][1]
+                            route_length += math.hypot(dx, dy)
+                    else:
+                        route_length = 0.0
+                except Exception:
+                    route_length = 0.0
+
+                try:
+                    duration_system = time.time() - (self.wallclock_t0.timestamp() if isinstance(self.wallclock_t0, datetime) and self.wallclock_t0 else time.time())
+                except Exception:
+                    duration_system = 0.0
+
+                results_data = {
+                    'timestamp': getattr(self, 'route_id', ''),
+                    'index': 0,
+                    'route_id': getattr(self, 'route_id_export', getattr(self, 'route_id', 'unknown')),
+                    'status': 'Completed' if hasattr(self, '_stopping') and self._stopping else 'Timeout',
+                    'num_infractions': 0,
+                    'infractions': infractions_template,
+                    'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
+                    'meta': {
+                        'route_length': route_length,
+                        'duration_game': duration_system,
+                        'duration_system': duration_system
+                    }
+                }
+
+                with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                    json.dump(results_data, f, indent=2)
+                print(f"[DATA_AGENT_JAPANESE] Wrote synthesized results.json.gz (route_id={results_data['route_id']})")
+            except Exception as e:
+                print(f"[WARN] Failed to synthesize results.json.gz in destroy(): {e}")
 
         # Call parent destroy - this saves records.json.gz via lon_logger.dump_to_json()
         super().destroy(results)

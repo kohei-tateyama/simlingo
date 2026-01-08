@@ -249,8 +249,12 @@ patch_multicamera_images() {
     info "Post-processing: Patching multicamera RGB images..."
     sep
     
-    # Find the most recent dataset directory
-    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 4 -type d -name "Town*_Rep*" 2>/dev/null | sort -r | head -1)
+    # Find the most recent dataset directory. Prefer nested path: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
+    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -path "${SAVE_PATH}/*/*/*/Town*_Rep*" 2>/dev/null | sort -r | head -1)
+    # Fallback to older pattern if none found
+    if [ -z "$DATASET_PATH" ]; then
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 4 -type d -name "Town*_Rep*" 2>/dev/null | sort -r | head -1)
+    fi
     
     if [ -n "$DATASET_PATH" ] && [ -d "$DATASET_PATH" ]; then
         info "Using dataset path: $DATASET_PATH"
