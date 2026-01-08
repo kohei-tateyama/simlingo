@@ -327,7 +327,7 @@ def create_patch_nuscenes(images: dict):
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
 
-    def fit_and_place(img, top, left, h, w):
+    def fit_and_place(img, top, left, h, w, cam_name=None):
         img = ensure_bgr(img)
         if img is None:
             return
@@ -349,13 +349,30 @@ def create_patch_nuscenes(images: dict):
 
         canvas[top:top+h, left:left+w] = slot
 
+        # Draw camera label at top-left of the tile for clarity
+        if cam_name:
+            label_text = cam_name
+            # estimate label box size
+            label_h = max(12, int(h * 0.08))
+            font_scale = max(0.2, label_h / 25.0)
+            thickness = 1 if font_scale < 0.6 else 2
+            (tx_w, tx_h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            rect_x0 = left + 4
+            rect_y0 = top + 4
+            rect_x1 = rect_x0 + tx_w + 8
+            rect_y1 = rect_y0 + tx_h + 6
+            # black background for readability
+            cv2.rectangle(canvas, (rect_x0, rect_y0), (rect_x1, rect_y1), (0, 0, 0), cv2.FILLED)
+            # yellow text
+            cv2.putText(canvas, label_text, (rect_x0 + 4, rect_y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), thickness, lineType=cv2.LINE_AA)
+
     # place each camera
     for idx, cam in enumerate(cam_order):
         row = 0 if idx < 3 else 1
         col = idx % 3
         top = offset_y + row * tile_h
         left = offset_x + col * tile_w
-        fit_and_place(images.get(cam), top, left, tile_h, tile_w)
+        fit_and_place(images.get(cam), top, left, tile_h, tile_w, cam_name=cam)
 
     return canvas
 

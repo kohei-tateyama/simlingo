@@ -515,4 +515,5 @@ class ScenarioLogger:
         records_dict["ego_actions"].append(self.ego_actions[i])
 
       with gzip.open(self.records_file_path, "wt", encoding="utf-8") as f:
-        json.dump(records_dict, f)
+        # json.dump(records_dict, f)
+        json.dump(records_dict, f, indent=4, ensure_ascii=False)

@@ -159,9 +159,9 @@ class DataAgentJapanese(AutoPilot):
                     self.lon_logger.save_path = str(self.save_path)
                     # update any cached records file path
                     self.lon_logger.records_file_path = os.path.join(str(self.save_path), 'records.json.gz')
-                    # update route_index for metadata consistency
+                    # update route_index to full route_id string (not numeric) to match results.json.gz timestamp
                     try:
-                        self.lon_logger.route_index = route_index
+                        self.lon_logger.route_index = route_id  # Use full string like "767_route0_01_11_15_54_52"
                     except Exception:
                         pass
                 except Exception as e:
@@ -638,12 +638,12 @@ class DataAgentJapanese(AutoPilot):
 
         # Save bounding boxes
         with gzip.open(self.save_path / 'boxes' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
-            json.dump(tick_data['bounding_boxes'], f, indent=4)
+            json.dump(tick_data['bounding_boxes'], f, indent=4, ensure_ascii=False)
         
         # Save measurements (ego state + route info)
         measurements = self._build_measurements()
         with gzip.open(self.save_path / 'measurements' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
-            json.dump(measurements, f, indent=4)
+            json.dump(measurements, f, indent=4, ensure_ascii=False)
         
         # Track GPS for trajectory plot
         transform = self._vehicle.get_transform()
@@ -654,9 +654,7 @@ class DataAgentJapanese(AutoPilot):
         try:
             if hasattr(self, 'lon_logger') and getattr(self, 'lon_logger') is not None:
                 # Build a simple route representation from remaining_route for logging
-                # ScenarioLogger expects numeric arrays (not Python lists) so convert
-                # to a NumPy array. Ensure shape (N,2) and provide an empty array
-                # fallback to avoid subtraction between lists inside rdp/route_as_boxes.
+                # ScenarioLogger expects numeric arrays (not Python lists) so convert to a NumPy array. Ensure shape (N,2) and provide an empty array fallback to avoid subtraction between lists inside rdp/route_as_boxes.
                 route_for_log = np.empty((0, 2), dtype=float)
                 if hasattr(self, 'remaining_route') and self.remaining_route is not None:
                     try:
@@ -704,11 +702,14 @@ class DataAgentJapanese(AutoPilot):
             junction = False
             speed_limit = 60.0
 
-        # Ego transformation matrix
+        # Ego transformation matrix (for coordinate transformations)
+        ego_matrix_np = np.array(transform.get_matrix())
+        
+        # For JSON serialization, convert to nested Python list
         try:
-            ego_matrix = transform.get_matrix()
+            ego_matrix_json = transform.get_matrix()  # Returns Python list
         except:
-            ego_matrix = [
+            ego_matrix_json = [
                 [1.0, 0.0, 0.0, float(transform.location.x)],
                 [0.0, 1.0, 0.0, float(transform.location.y)],
                 [0.0, 0.0, 1.0, float(transform.location.z)],
@@ -717,10 +718,39 @@ class DataAgentJapanese(AutoPilot):
 
         # Route information from AutoPilot (CRITICAL: use remaining_route)
         # AutoPilot populates self.remaining_route in _get_control()
+        # IMPORTANT: Convert to ego-relative coords to match simlingo reference format
         if hasattr(self, 'remaining_route') and self.remaining_route is not None:
-            # Convert remaining_route numpy array to list format [x, y] (NOT [x, y, z])
-            route = [[float(p[0]), float(p[1])] for p in self.remaining_route[:self.config.num_route_points_saved]]
-            route_original = [[float(p[0]), float(p[1])] for p in self.remaining_route_original[:self.config.num_route_points_saved]] if hasattr(self, 'remaining_route_original') and self.remaining_route_original is not None else route
+            # Transform route points from global world coords to ego-relative coords
+            route = []
+            for p in self.remaining_route[:self.config.num_route_points_saved]:
+                # Build 4x4 matrix for route point (same format as vehicle matrices)
+                point_matrix = np.array([
+                    [1.0, 0.0, 0.0, float(p[0])],
+                    [0.0, 1.0, 0.0, float(p[1])],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0]
+                ])
+                relative_pos = t_u.get_relative_transform(ego_matrix_np, point_matrix)
+                # CRITICAL: Convert NumPy array to Python list for JSON serialization
+                route.append([float(relative_pos[0].item() if hasattr(relative_pos[0], 'item') else relative_pos[0]), 
+                             float(relative_pos[1].item() if hasattr(relative_pos[1], 'item') else relative_pos[1])])
+            
+            # Same transformation for route_original
+            route_original = []
+            if hasattr(self, 'remaining_route_original') and self.remaining_route_original is not None:
+                for p in self.remaining_route_original[:self.config.num_route_points_saved]:
+                    point_matrix = np.array([
+                        [1.0, 0.0, 0.0, float(p[0])],
+                        [0.0, 1.0, 0.0, float(p[1])],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]
+                    ])
+                    relative_pos = t_u.get_relative_transform(ego_matrix_np, point_matrix)
+                    # CRITICAL: Convert NumPy array to Python list for JSON serialization
+                    route_original.append([float(relative_pos[0].item() if hasattr(relative_pos[0], 'item') else relative_pos[0]), 
+                                          float(relative_pos[1].item() if hasattr(relative_pos[1], 'item') else relative_pos[1])])
+            else:
+                route_original = route
         else:
             # Fallback to empty route if not initialized yet
             route = []
@@ -729,8 +759,16 @@ class DataAgentJapanese(AutoPilot):
         target_point = route[0] if len(route) > 0 else [0.0, 0.0]
         target_point_next = route[1] if len(route) > 1 else target_point
         
-        # Aim waypoint from autopilot
-        aim_wp = self.aim_wp.tolist() if hasattr(self, 'aim_wp') and self.aim_wp is not None else target_point
+        # Aim waypoint from autopilot - ensure it's a Python list, not numpy array
+        if hasattr(self, 'aim_wp') and self.aim_wp is not None:
+            if hasattr(self.aim_wp, 'tolist'):
+                aim_wp = self.aim_wp.tolist()
+            elif isinstance(self.aim_wp, (list, tuple)):
+                aim_wp = [float(x) for x in self.aim_wp]
+            else:
+                aim_wp = target_point
+        else:
+            aim_wp = target_point
         
         # Command (from autopilot's command buffer)
         command = int(self.commands[0]) if hasattr(self, 'commands') and len(self.commands) > 0 else 4
@@ -739,11 +777,12 @@ class DataAgentJapanese(AutoPilot):
         # Changed route detection
         changed_route = getattr(self, '_route_changed', False)
         
-        # Speed reduction info
+        # Speed reduction info - ensure all are JSON-serializable
         if hasattr(self, 'speed_reduced_by_obj_type'):
             speed_reduced_by_obj_type = self.speed_reduced_by_obj_type
             speed_reduced_by_obj_id = self.speed_reduced_by_obj_id
-            speed_reduced_by_obj_distance = self.speed_reduced_by_obj_distance
+            # Convert numpy float to Python float if needed
+            speed_reduced_by_obj_distance = float(self.speed_reduced_by_obj_distance) if self.speed_reduced_by_obj_distance is not None else None
         else:
             speed_reduced_by_obj_type = None
             speed_reduced_by_obj_id = None
@@ -760,7 +799,7 @@ class DataAgentJapanese(AutoPilot):
             'command': command,
             'next_command': next_command,
             'aim_wp': aim_wp,
-            'route': route,
+            'route': route, # local ego-relative coords
             'route_original': route_original,
             'changed_route': changed_route,
             'speed_reduced_by_obj_type': speed_reduced_by_obj_type,
@@ -783,7 +822,7 @@ class DataAgentJapanese(AutoPilot):
             'angle': float(getattr(self, 'angle', 0.0)),
             'augmentation_translation': float(getattr(self, 'augmentation_translation', 0.0)),
             'augmentation_rotation': float(getattr(self, 'augmentation_rotation', 0.0)),
-            'ego_matrix': ego_matrix
+            'ego_matrix': ego_matrix_json
         }
         
         return measurements
@@ -1433,7 +1472,7 @@ class DataAgentJapanese(AutoPilot):
                 }
 
                 with gzip.open(results_path, 'wt', encoding='utf-8') as f:
-                    json.dump(results_data, f, indent=2)
+                    json.dump(results_data, f, indent=4, ensure_ascii=False)
                 print(f"[DATA_AGENT_JAPANESE] Saved results.json.gz (route_id_export={getattr(self, 'route_id_export', route_id)})")
                 
                 # Save records.json.gz via scenario logger with explicit path
@@ -1449,13 +1488,13 @@ class DataAgentJapanese(AutoPilot):
                         # Fallback: save basic records from _frame_records
                         if self._frame_records:
                             with gzip.open(records_path, 'wt', encoding='utf-8') as f:
-                                json.dump({'records': self._frame_records}, f, indent=4)
+                                json.dump({'records': self._frame_records}, f, indent=4, ensure_ascii=False)
                             print(f"[DATA_AGENT_JAPANESE] Saved records.json.gz (fallback with {len(self._frame_records)} frames)")
                 else:
                     # No lon_logger - use _frame_records as fallback
                     if self._frame_records:
                         with gzip.open(records_path, 'wt', encoding='utf-8') as f:
-                            json.dump({'records': self._frame_records}, f, indent=4)
+                            json.dump({'records': self._frame_records}, f, indent=4, ensure_ascii=False)
                         print(f"[DATA_AGENT_JAPANESE] Saved records.json.gz (no lon_logger, {len(self._frame_records)} frames)")
                     else:
                         print(f"[WARN] No lon_logger and no frame records - records.json.gz not saved")
@@ -1473,6 +1512,13 @@ class DataAgentJapanese(AutoPilot):
         Parent AutoPilot.destroy() saves records.json.gz via ScenarioLogger.
         """
         torch.cuda.empty_cache()
+        
+        # Save GPS trajectory plot before cleanup
+        if self.save_path is not None and hasattr(self, '_gps_trajectory'):
+            try:
+                self._save_gps_plot()
+            except Exception as e:
+                print(f"[WARN] Failed to save GPS plot: {e}")
         # If results provided by parent, save them (keep original behavior)
         if results is not None and self.save_path is not None:
             try:
@@ -1535,7 +1581,7 @@ class DataAgentJapanese(AutoPilot):
                 }
 
                 with gzip.open(results_path, 'wt', encoding='utf-8') as f:
-                    json.dump(results_data, f, indent=2)
+                    json.dump(results_data, f, indent=4, ensure_ascii=False)
                 print(f"[DATA_AGENT_JAPANESE] Wrote synthesized results.json.gz (route_id={results_data['route_id']})")
             except Exception as e:
                 print(f"[WARN] Failed to synthesize results.json.gz in destroy(): {e}")

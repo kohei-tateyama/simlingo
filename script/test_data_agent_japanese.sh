@@ -249,40 +249,106 @@ patch_multicamera_images() {
     info "Post-processing: Patching multicamera RGB images..."
     sep
     
-    # Find the most recent dataset directory. Prefer nested path: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
-    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -path "${SAVE_PATH}/*/*/*/Town*_Rep*" 2>/dev/null | sort -r | head -1)
-    # Fallback to older pattern if none found
+    # Debug: Show what we're searching for
+    info "Searching for datasets under: ${SAVE_PATH}"
+    
+    # Find the most recent dataset directory. Look for Town*_Rep* folders that contain rgb/ subfolder
+    # Use maxdepth 5 to reach: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
+    # Then filter to only those with rgb/ subfolder to ensure we get the dataset root, not frame folders
+    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
+        if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+            echo "$dir"
+        fi
+    done | sort -r | head -1)
+    
+    # Fallback: try without measurements check
     if [ -z "$DATASET_PATH" ]; then
-        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 4 -type d -name "Town*_Rep*" 2>/dev/null | sort -r | head -1)
+        info "Trying fallback pattern..."
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
+            if [ -d "$dir/rgb" ]; then
+                echo "$dir"
+            fi
+        done | sort -r | head -1)
     fi
     
-    if [ -n "$DATASET_PATH" ] && [ -d "$DATASET_PATH" ]; then
-        info "Using dataset path: $DATASET_PATH"
+    # Debug: Show what we found
+    if [ -z "$DATASET_PATH" ]; then
+        err "No dataset path found!"
+        warn "Searched under: ${SAVE_PATH}"
+        warn "Pattern: ${SAVE_PATH}/*/*/*/Town*_Rep*"
         
-        cd /workspace/simlingo
+        # List what's actually there
+        info "Contents of ${SAVE_PATH}:"
+        find ${SAVE_PATH} -maxdepth 6 -type d -name "Town*" 2>/dev/null | head -5
+        return 1
+    fi
+    
+    info "Found dataset path: $DATASET_PATH"
+    
+    # Verify rgb folder exists
+    if [ ! -d "${DATASET_PATH}/rgb" ]; then
+        err "rgb folder not found in: $DATASET_PATH"
+        return 1
+    fi
+    
+    # Count rgb subfolders
+    local rgb_count=$(find "${DATASET_PATH}/rgb" -maxdepth 1 -type d -name "[0-9]*" 2>/dev/null | wc -l)
+    info "Found ${rgb_count} frame folders in rgb/"
+    
+    if [ $rgb_count -eq 0 ]; then
+        err "No frame folders found in ${DATASET_PATH}/rgb"
+        return 1
+    fi
+    
+    cd /workspace/simlingo || return 1
+    
+    # Apply geometric layout patching
+    sep
+    info "Applying geometric layout (creates patched.jpg)..."
+    python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
+    local patch1_exit=$?
+    
+    if [ $patch1_exit -ne 0 ]; then
+        err "Geometric patching failed with exit code: $patch1_exit"
+    fi
+    
+    # Apply three-quarter layout patching
+    sep
+    info "Applying three-quarter layout (creates patched2*.jpg)..."
+    python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter
+    local patch2_exit=$?
+    
+    if [ $patch2_exit -ne 0 ]; then
+        err "Three-quarter patching failed with exit code: $patch2_exit"
+    fi
+    
+    # Verify patching worked
+    sep
+    if [ $patch1_exit -eq 0 ] && [ $patch2_exit -eq 0 ]; then
+        info "✓ Multicamera patching completed successfully!"
         
-        # Apply geometric layout patching
-        info "Applying geometric layout..."
-        python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
-        local patch1_exit=$?
+        # Verify files were created
+        local patched_count=$(find "${DATASET_PATH}/rgb" -name "patched*.jpg" 2>/dev/null | wc -l)
+        info "Created ${patched_count} patched image files"
         
-        # Apply three-quarter layout patching
-        info "Applying three-quarter layout..."
-        python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter
-        local patch2_exit=$?
+        # Show sample from first and last frame
+        local first_frame=$(find "${DATASET_PATH}/rgb" -maxdepth 1 -type d -name "[0-9]*" 2>/dev/null | sort | head -1)
+        local last_frame=$(find "${DATASET_PATH}/rgb" -maxdepth 1 -type d -name "[0-9]*" 2>/dev/null | sort | tail -1)
         
-        if [ $patch1_exit -eq 0 ] && [ $patch2_exit -eq 0 ]; then
-            info "✓ Multicamera patching completed successfully!"
-            sep
-            info "Patched images created in: ${DATASET_PATH}/rgb/*/patched*.jpg"
-            return 0
-        else
-            warn "Patching encountered errors (geometric: $patch1_exit, three_quarter: $patch2_exit)"
-            return 1
+        if [ -n "$first_frame" ]; then
+            info "First frame ($(basename $first_frame)): $(ls -1 $first_frame/patched* 2>/dev/null | wc -l) patched files"
         fi
+        if [ -n "$last_frame" ]; then
+            info "Last frame ($(basename $last_frame)): $(ls -1 $last_frame/patched* 2>/dev/null | wc -l) patched files"
+        fi
+        
+        sep
+        info "Patched images location: ${DATASET_PATH}/rgb/*/patched*.jpg"
+        return 0
     else
-        warn "Could not find dataset directory to patch!"
-        warn "Expected under: ${SAVE_PATH}"
+        err "Patching encountered errors!"
+        err "  - Geometric layout: exit code $patch1_exit"
+        err "  - Three-quarter layout: exit code $patch2_exit"
         return 1
     fi
 }
