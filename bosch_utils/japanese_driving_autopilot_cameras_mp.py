@@ -278,8 +278,12 @@ class JapaneseStyleAutopilot:
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
 
         # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok work
+        # If NEW_SIMLINGO_MATCH is absolute (leading '/'), strip it so RECORDING_OUTPUT_DIR
+        # remains the true base directory when joining.
+        new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
+
         self.foldername = os.path.join(
-            NEW_SIMLINGO_MATCH,
+            new_simlingo_rel,
             "auto_short_multicam_jp",
             "routes_training",
             f"{self.weather}_weather",

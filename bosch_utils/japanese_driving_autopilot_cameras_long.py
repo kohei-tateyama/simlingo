@@ -43,10 +43,13 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 # ) # ok works
                 
                 ## /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_3_scenarios/routes_training/random_weather_seed_3_balanced_100/Town12_Rep0_9_route0_01_12_01_20_56                                
+                # Prefer RECORDING_OUTPUT_DIR as the base; strip any leading '/' from NEW_SIMLINGO_MATCH
+                new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
+
                 ego_parent = os.path.join(
                     RECORDING_OUTPUT_DIR,
-                    NEW_SIMLINGO_MATCH,
-                    "auto_short_multicam_jp",
+                    new_simlingo_rel,
+                    "auto_long_multicam_jp",
                     "routes_training",
                     f"{self.weather}_weather",
                     f"{self.town}_Rep0_scenario",
@@ -61,9 +64,13 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 # parent_dir = os.path.join(RECORDING_OUTPUT_DIR,
                 #                         f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/") # ok works
                 
+                # Ensure parent_dir uses RECORDING_OUTPUT_DIR as the base even if
+                # NEW_SIMLINGO_MATCH contains a leading '/'. Strip leading sep.
+                new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
+
                 parent_dir = os.path.join(
                     RECORDING_OUTPUT_DIR,
-                    NEW_SIMLINGO_MATCH,
+                    new_simlingo_rel,
                     "auto_short_multicam_jp",
                     "routes_training",
                 ) # need test
@@ -85,9 +92,10 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             
             # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok works
             
+            new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
+
             self.foldername = os.path.join(
-                    RECORDING_OUTPUT_DIR,
-                    NEW_SIMLINGO_MATCH,
+                    new_simlingo_rel,
                     "auto_long_multicam_jp",
                     "routes_training",
                     f"{self.weather}_weather",
@@ -96,7 +104,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                     f"duration_{self.duration}",
                     f"ego_{self.spawn_idx}",
                 ) # need test
-            
+
             self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
             os.makedirs(self.folderpath, exist_ok=True)
             os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)

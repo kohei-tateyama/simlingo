@@ -498,8 +498,8 @@ class DataModule(LightningDataModule):
 
 def main():
 
-    data_path = '/workspace/simlingo/database/simlingo_v2_2025_01_10'
-    save_path = '/workspace/simlingo/database/bucketsv2_simlingo'
+    data_path = '/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10'
+    save_path = '/workspace/simlingo/database/bucketsv4_simlingo'
 
     Path(save_path).mkdir(parents=True, exist_ok=True)
 
