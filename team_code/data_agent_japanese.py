@@ -290,8 +290,20 @@ class DataAgentJapanese(AutoPilot):
     def _init(self, hd_map):
         super()._init(hd_map)
         
-        # Configure traffic manager for left-hand traffic AFTER vehicle spawn
-        if self.enforce_left_hand_traffic and self.tm is not None:
+        print("[DEBUG] data_agent_japanese._init called")
+        
+        # CRITICAL: Verify and correct route waypoints for left-hand driving
+        # (Route verification is independent of traffic manager initialization)
+        if self.enforce_left_hand_traffic:
+            print("[DEBUG] Left-hand traffic enforcement enabled, calling route verification...")
+            try:
+                self._verify_and_correct_route_for_left_hand_traffic()
+            except Exception as e:
+                print(f"[ERROR] Route verification failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"[DEBUG] Route verification skipped: enforce_left_hand_traffic={self.enforce_left_hand_traffic}")
             try:
                 self.tm.set_global_distance_to_leading_vehicle(2.5)
                 
@@ -326,6 +338,82 @@ class DataAgentJapanese(AutoPilot):
         self.ss_bev_manager.attach_ego_vehicle(self._vehicle, criteria_stop=self.stop_sign_criteria)
 
         self._local_planner = LocalPlanner(self._vehicle, opt_dict={}, map_inst=self.world_map)
+
+    def _verify_and_correct_route_for_left_hand_traffic(self):
+        """
+        Verify route waypoints align with left-hand driving and correct if needed.
+        
+        CARLA's GlobalRoutePlanner is road-aware but not lane-aware. In right-hand
+        traffic maps, get_waypoint() may snap route points to right-hand lanes.
+        This method checks each route waypoint and switches to the left lane if:
+        1. A left lane exists and is drivable
+        2. The left lane is in the same direction (positive lane_id sign match)
+        
+        Logs corrections for verification.
+        """
+        print("[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED")
+        print(f"[DEBUG] Has _waypoint_planner: {hasattr(self, '_waypoint_planner')}")
+        if hasattr(self, '_waypoint_planner'):
+            print(f"[DEBUG] Has route_waypoints: {hasattr(self._waypoint_planner, 'route_waypoints')}")
+            if hasattr(self._waypoint_planner, 'route_waypoints'):
+                print(f"[DEBUG] Route waypoints count: {len(self._waypoint_planner.route_waypoints) if self._waypoint_planner.route_waypoints else 0}")
+        
+        if not hasattr(self, '_waypoint_planner') or not hasattr(self._waypoint_planner, 'route_waypoints'):
+            print("[WARN] Route planner not initialized, skipping left-hand route verification")
+            return
+        
+        route_wps = self._waypoint_planner.route_waypoints
+        if not route_wps or len(route_wps) == 0:
+            return
+        
+        corrections_made = 0
+        sample_log_interval = max(1, len(route_wps) // 10)  # Log ~10 samples
+        
+        for i, wp in enumerate(route_wps):
+            if wp is None:
+                continue
+            
+            # Check if left lane exists and is drivable
+            left_wp = wp.get_left_lane()
+            if left_wp is None:
+                continue
+            
+            # Only switch if left lane is same direction (lane_id sign matches)
+            if left_wp.lane_type == carla.LaneType.Driving:
+                same_direction = (wp.lane_id > 0) == (left_wp.lane_id > 0)
+                if same_direction:
+                    # Use left lane for left-hand driving
+                    route_wps[i] = left_wp
+                    corrections_made += 1
+                    
+                    # Log sample corrections
+                    if corrections_made <= 3 or i % sample_log_interval == 0:
+                        print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to left lane {left_wp.lane_id} (road {wp.road_id})")
+        
+        # Update route points array to match corrected waypoints
+        if corrections_made > 0:
+            print(f"[INFO] Left-hand traffic route correction: adjusted {corrections_made}/{len(route_wps)} waypoints to use left lanes")
+            
+            # Regenerate route_points from corrected waypoints
+            route_points = []
+            for wp in route_wps:
+                if wp is not None:
+                    loc = wp.transform.location
+                    route_points.append([loc.x, loc.y, loc.z])
+            
+            if len(route_points) > 0:
+                self._waypoint_planner.route_points = np.array(route_points)
+                print(f"[INFO] Route points array regenerated with {len(route_points)} corrected waypoints")
+        else:
+            print(f"[INFO] Route already aligned with left-hand traffic (no corrections needed)")
+        
+        # Log ego vehicle's current lane for comparison
+        try:
+            ego_wp = self.world_map.get_waypoint(self._vehicle.get_location())
+            if ego_wp:
+                print(f"[INFO] Ego vehicle: road_id={ego_wp.road_id}, lane_id={ego_wp.lane_id}, offset={self._driving_side_offset:.2f}m")
+        except Exception:
+            pass
 
     def enforce_driving_side(self, side='left', margin=0.10):
         """

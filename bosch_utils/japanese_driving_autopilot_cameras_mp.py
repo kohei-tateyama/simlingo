@@ -263,6 +263,7 @@ class JapaneseStyleAutopilot:
         self.autopilot = autopilot
         self.duration = duration  # seconds
         self.route_type = route_type
+        self.enforce_left_hand_traffic = True  # Enable left-hand traffic route correction
         
         # Vehicle
         self.player_vehicle = None
@@ -572,6 +573,49 @@ class JapaneseStyleAutopilot:
             pass
 
         return desired
+
+    def _verify_and_correct_route_for_left_hand_traffic(self, route_waypoints):
+        """
+        Verify route waypoints align with left-hand driving and correct if needed.
+        
+        Returns corrected list of waypoints.
+        """
+        print(f"[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED (got {len(route_waypoints) if route_waypoints else 0} waypoints)")
+        if not route_waypoints or len(route_waypoints) == 0:
+            print("[DEBUG] No waypoints to verify, returning early")
+            return route_waypoints
+        
+        corrected = []
+        corrections_made = 0
+        sample_log_interval = max(1, len(route_waypoints) // 10)
+        
+        for i, wp in enumerate(route_waypoints):
+            if wp is None:
+                corrected.append(wp)
+                continue
+            
+            # Check if left lane exists and is drivable
+            left_wp = wp.get_left_lane()
+            if left_wp and left_wp.lane_type == carla.LaneType.Driving:
+                # Only switch if left lane is same direction
+                same_direction = (wp.lane_id > 0) == (left_wp.lane_id > 0)
+                if same_direction:
+                    corrected.append(left_wp)
+                    corrections_made += 1
+                    
+                    if corrections_made <= 3 or i % sample_log_interval == 0:
+                        print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to left lane {left_wp.lane_id}")
+                else:
+                    corrected.append(wp)
+            else:
+                corrected.append(wp)
+        
+        if corrections_made > 0:
+            print(f"[INFO] Left-hand route correction: adjusted {corrections_made}/{len(route_waypoints)} waypoints")
+        else:
+            print(f"[INFO] Route already aligned with left-hand traffic")
+        
+        return corrected
 
     def setup_camera(self):
         """Attach 6 RGB cameras around the vehicle: Front, Back, RF, LF, RB, LB.
@@ -1045,6 +1089,15 @@ class JapaneseStyleAutopilot:
             waypoint = map.get_waypoint(location)
             if waypoint:
                 waypoints.append(waypoint)
+        
+        # CRITICAL: Correct waypoints for left-hand traffic if enabled
+        print(f"[DEBUG] get_predefined_route (mp.py): enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
+        if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
+            print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
+            waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
+            print(f"[DEBUG] Route verification completed")
+        else:
+            print(f"[DEBUG] Skipping route verification")
         
         return waypoints, route_config['start_idx']
         

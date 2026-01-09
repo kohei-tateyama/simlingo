@@ -211,6 +211,15 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             plan = grp.trace_route(start, goal)
             waypoints = [wp for wp, _ in plan]
             
+            # CRITICAL: Correct waypoints for left-hand traffic if enabled
+            print(f"[DEBUG] get_predefined_route: enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
+            if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
+                print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
+                waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
+                print(f"[DEBUG] Route verification returned {len(waypoints)} waypoints")
+            else:
+                print(f"[DEBUG] Skipping route verification")
+            
             # Calculate route complexity (total turning angle as proxy for curves)
             total_turn = 0.0
             for i in range(1, len(waypoints)):
@@ -299,6 +308,15 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             plan_fs = grp.trace_route(far, start)
 
             waypoints = [wp for wp, _ in plan_sm] + [wp for wp, _ in plan_mf] + [wp for wp, _ in plan_fs]
+
+            # CRITICAL: Correct waypoints for left-hand traffic if enabled
+            print(f"[DEBUG] get_predefined_route2: enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
+            if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
+                print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
+                waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
+                print(f"[DEBUG] Route verification returned {len(waypoints)} waypoints")
+            else:
+                print(f"[DEBUG] Skipping route verification")
 
             print(f"[INFO]: Alternate planner produced {len(waypoints)} waypoints (start={start_idx}, mid={mid_idx}, far={far_idx})")
             return waypoints, start_idx

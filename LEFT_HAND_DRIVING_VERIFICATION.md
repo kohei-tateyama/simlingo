@@ -1,0 +1,259 @@
+# LEFT_HAND_DRIVING_VERIFICATION
+
+CARLA 0.9.15 does not natively support left-hand traffic maps.
+Reference: https://github.com/carla-simulator/carla/issues/8124
+
+This implementation uses Traffic Manager lane offsets to simulate left-hand driving on right-hand maps.
+
+Purpose: Verify that left-hand (Japanese) driving is correctly configured across:
+- `bosch_utils/japanese_driving_autopilot_cameras_mp.py`
+- `team_code/data_agent_japanese.py`
+
+**Summary**: Both files implement geometry-aware left-hand driving using `enforce_driving_side()` which computes a lane offset and applies it to the CARLA Traffic Manager via `global_lane_offset` and `vehicle_lane_offset(...)`. NPCs, the ego vehicle, and traffic lights are configured to obey traffic lights where possible.
+
+**Approach**: Since CARLA maps are designed for right-hand traffic, left-hand driving is achieved by applying negative lane offsets to shift vehicles to the left side of their lanes, configuring traffic manager to enforce traffic light obedience, and ensuring all vehicles use consistent offsets.
+
+---
+
+**1) bosch_utils/japanese_driving_autopilot_cameras_mp.py**
+
+- `setup_left_hand_traffic()` (Line 461-477)
+  - Parameters:
+    - `set_global_distance_to_leading_vehicle(2.5)` meters
+    - Calls `enforce_driving_side(side='left', margin=0.10)`
+    - Fallback: `global_lane_offset = -0.8` meters
+
+- `enforce_driving_side(side='left', margin=0.10)` (Line 479-575)
+  - Input Parameters:
+    - `side` = 'left' (or 'right')
+    - `margin` = 0.10 meters (clearance from curb)
+  - Computed Values:
+    - `dir_sign` = -1.0 for left, 1.0 for right
+    - `lane_w` = 3.5 meters (default fallback) or queried from waypoint
+    - `vehicle_half_w` = 0.9 meters (default) or from bounding_box.extent.y
+    - `max_safe` = max(0.02, lane_w / 2.0 - 0.02)
+    - `desired` = dir_sign * (lane_w / 2.0 - vehicle_half_w - margin)
+  - Safety Constraints:
+    - Clamped to [-max_safe, +max_safe]
+    - Hard limit: [-2.5, +2.5] meters
+    - Must be finite (checked with math.isfinite())
+  - Applied To:
+    - `traffic_manager.global_lane_offset = desired`
+    - `traffic_manager.vehicle_lane_offset(player_vehicle, desired)` if vehicle exists
+    - `traffic_manager.ignore_lights_percentage(player_vehicle, 0)` obey all lights
+  - Stored: `self._driving_side_offset = desired`
+
+- `spawn_npc_vehicles(num_vehicles=30)` (Line 949-993)
+  - NPC Configuration:
+    - Uses stored `self._driving_side_offset` or computes via `enforce_driving_side()`
+    - Fallback: -0.8 meters if computation fails
+    - Per-NPC: `traffic_manager.vehicle_lane_offset(vehicle, offset)`
+    - Traffic lights: `traffic_manager.ignore_lights_percentage(vehicle, 0)` obey
+
+- `spawn_player_vehicle()` (Line 1052-1176)
+  - Ego Vehicle Configuration:
+    - `ego_offset = getattr(self, '_driving_side_offset', -1.5)` meters
+    - `traffic_manager.vehicle_lane_offset(player_vehicle, ego_offset)`
+    - `traffic_manager.ignore_lights_percentage(player_vehicle, 0)` obey
+
+---
+
+**2) team_code/data_agent_japanese.py**
+
+- Initial Values (Line 208-210)
+  - `self.enforce_left_hand_traffic = True` flag
+  - `self._driving_side_offset = -1.5` meters (initial, overwritten by enforce_driving_side)
+
+- `_init(hd_map)` (Line 290-317)
+  - Called AFTER vehicle spawn in leaderboard lifecycle
+  - Parameters:
+    - `tm.set_global_distance_to_leading_vehicle(2.5)` meters
+    - Calls `enforce_driving_side(side='left', margin=0.10)`
+    - Fallback: `self._driving_side_offset = -0.8` meters
+
+- `enforce_driving_side(side='left', margin=0.10)` (Line 332-420)
+  - Input Parameters:
+    - `side` = 'left' (or 'right')
+    - `margin` = 0.10 meters
+  - Computed Values:
+    - `dir_sign` = -1.0 for left, 1.0 for right
+    - `lane_w` = 3.5 meters (default) or queried from waypoint
+    - `vehicle_half_w` = 0.9 meters (default) or from self._vehicle.bounding_box.extent.y
+    - `max_safe` = max(0.02, lane_w / 2.0 - 0.02)
+    - `desired` = dir_sign * (lane_w / 2.0 - vehicle_half_w - margin)
+  - Safety Constraints:
+    - Clamped to [-max_safe, +max_safe]
+    - Hard limit: [-2.5, +2.5] meters
+    - Must be finite (checked with math.isfinite())
+  - Applied To:
+    - `self.tm.global_lane_offset = desired`
+    - `self.tm.vehicle_lane_offset(self._vehicle, desired)` if vehicle exists
+    - `self.tm.ignore_lights_percentage(self._vehicle, 0)` obey all lights
+  - Stored: `self._driving_side_offset = desired`
+  - Returns: `desired` offset value
+
+---
+
+**3) Typical Computed Values**
+
+For standard CARLA lanes (3.5m wide) and vehicles (0.9m half-width):
+- Formula: -1.0 * (3.5/2 - 0.9 - 0.10) = -1.0 * (1.75 - 1.0) = -0.75 meters
+- Actual range observed: -0.75 to -1.5 meters depending on map geometry and vehicle size
+- Negative values shift vehicles LEFT of lane center for left-hand driving simulation
+
+**4) Traffic lights and scene-level behavior**
+
+- Both implementations set `ignore_lights_percentage(vehicle, 0)`:
+  - 0 = obey all traffic lights (no violations)
+  - Applied to ego vehicle and all NPCs
+  - Ensures coherent traffic behavior
+- Global TM config: `set_global_distance_to_leading_vehicle(2.5)` meters in both files
+
+---
+
+**5) Checklist**
+
+- [x] Ego vehicle: `vehicle_lane_offset` applied with computed offset fallback
+- [x] NPC vehicles: use `self._driving_side_offset` or call `enforce_driving_side()` then apply per-NPC offset
+- [x] Traffic Manager global: `global_lane_offset` set in `enforce_driving_side()` with fallback
+- [x] Traffic lights: `ignore_lights_percentage(vehicle, 0)` obey all lights
+- [x] Scene: `set_global_distance_to_leading_vehicle(2.5)` meters for comfortable following
+
+**6) Limitations and Visibility Issues**
+
+CARLA 0.9.15 maps are designed for right-hand traffic:
+- Traffic light positioning assumes right-hand flow
+- Intersection geometry optimized for right turns
+- Lane markings and road signs oriented for right-hand driving
+- This implementation uses lane offsets as a workaround but does not modify map geometry
+
+**Specific Visibility Problems:**
+
+Traffic Lights:
+- Positioned for right-hand traffic (right side of lane or overhead)
+- When vehicles shift left via lane offset, lights may be at suboptimal camera angles
+- May be occluded by other vehicles or infrastructure from left-driving perspective
+- CARLA API can still detect them but camera sensors may have reduced visibility
+- Not realistically positioned for left-hand driver viewpoint
+
+Street Signs:
+- Face right-hand traffic flow
+- Left-driving vehicles may have poor visibility or unnatural viewing angles
+- Signs on the "wrong" side of road for left-hand perspective
+
+**Proper Solution (Requires CARLA Upgrade):**
+
+GitHub PR #8951 adds native LHT support via OpenDRIVE `rule="LHT"`:
+https://github.com/carla-simulator/carla/pull/8951
+- Requires CARLA 0.9.16 or later (current version: 0.9.15)
+- Maps must have `rule="LHT"` in OpenDRIVE XML road definitions
+- Properly flips: traffic lights, signs, lane markings, intersection geometry, turn priorities
+- Example: `<road name="Road 0" id="0" junction="-1" rule="LHT">`
+
+**Current Approach Trade-offs:**
+
+Sufficient for:
+- Data collection where CARLA API detects traffic lights/signs regardless of position
+- Training models that rely on semantic detection rather than realistic camera views
+- Lane-following behavior and basic traffic scenarios
+
+Not suitable for:
+- Realistic camera-based perception training (traffic lights/signs at wrong angles)
+- Complex intersection behavior requiring proper turn geometry
+- Human-in-loop simulation expecting realistic left-hand driver viewpoint
+
+# Verifying the correct waypoints 
+
+## Own pipeline
+
+```bash
+script/run_carla_mp_pilot_script.sh --mode autopilot --duration 5 --route urban --town Town02 --weather SoftRainNight --spawn-index 12 --autopilot-long --fps 20
+
+<...>
+
+[INFO]: Initializing GlobalRoutePlanner (alternate mode, dense sampling)...
+[DEBUG] get_predefined_route2: enforce_left_hand_traffic=True
+[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with 1733 waypoints
+[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED (got 1733 waypoints)
+[INFO] Route already aligned with left-hand traffic
+
+<...>
+```
+## From simlingo pipeline
+
+```bash
+bash script/test_data_agent_japanese.sh
+<...>
+[INFO][DATA_AGENT_JAPANESE] Created output directories in: /workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_11_40_14
+> Running the route
+=== [Agent] -- Wallclock = 2026-01-09 11:40:19.356 -- System time = 0.000 -- Game time = 0.050 -- Ratio = 0.000x
+Sparse Waypoints: 103
+Dense Waypoints: 8058
+[DEBUG] data_agent_japanese._init called
+[DEBUG] Left-hand traffic enforcement enabled, calling route verification...
+[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED
+[DEBUG] Has _waypoint_planner: True
+[DEBUG] Has route_waypoints: True
+[DEBUG] Route waypoints count: 81115
+[INFO] Route waypoint 1996: switched from lane 2 to left lane 1 (road 321)
+[INFO] Route waypoint 1997: switched from lane 2 to left lane 1 (road 321)
+[INFO] Route waypoint 1998: switched from lane 2 to left lane 1 (road 321)
+[INFO] Route waypoint 40555: switched from lane 2 to left lane 1 (road 11728)
+[INFO] Route waypoint 48666: switched from lane 2 to left lane 1 (road 8763)
+[INFO] Route waypoint 81110: switched from lane -2 to left lane -1 (road 242)
+[INFO] Left-hand traffic route correction: adjusted 24433/81115 waypoints to use left lanes
+[INFO] Route points array regenerated with 81115 corrected waypoints
+[INFO] Ego vehicle: road_id=529, lane_id=-1, offset=-1.50m
+[DATA_AGENT_JAPANESE] Starting to save data at frame 0
+  RGB output: /workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_11_40_14/rgb/0000/
+  Total frames will be saved to: /workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_11_40_14
+=== [Agent] -- Wallclock = 2026-01-09 11:40:46.497 -- System time = 27.141 -- Game time = 0.100 -- Ratio = 0.004x
+=== [Agent] -- Wallclock = 2026-01-09 11:40:47.126 -- System time = 27.770 -- Game time = 0.150 -- Ratio = 0.005x
+<...>
+```
+
+# Migrating to carla-0.9.16
+
+## Differences
+
+**1. Python API Egg File**
+Scripts reference carla-0.9.15-py3.7-linux-x86_64.egg
+Must update PYTHONPATH exports in:
+start_eval_simlingo.py
+setup scripts, test scripts
+
+**2. Docker Image Updates**
+Current: carla-bench2drive:0.9.15
+Need to rebuild/retag for 0.9.16
+Affects `test_data_agent_japanese.sh, run_carla_mp_pilot_script.sh`
+
+**3. API Compatibility**
+CARLA 0.9.16 may have API changes/deprecations
+Test your traffic manager calls, sensor spawning, map queries
+Most common breaking changes: sensor blueprints, actor attributes
+
+**4. Maps & OpenDRIVE**
+This is your main benefit: Access to maps with `rule="LHT"` for proper left-hand traffic
+May need to download/generate updated map files
+Check if Bench2Drive maps have 0.9.16 versions
+
+**5. Leaderboard/ScenarioRunner**
+Match versions: ScenarioRunner must match CARLA version (per docs)
+May need updated branches from CARLA repos
+
+## Migration Steps
+```bash
+# 1. Download CARLA 0.9.16
+wget https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.16.tar.gz
+tar -xzf CARLA_0.9.16.tar.gz -C /path/to/carla0916/
+
+# 2. Update environment
+export CARLA_ROOT=/path/to/carla0916
+export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.16-py3.7-linux-x86_64.egg
+
+# 3. Update Python client
+pip install carla==0.9.16  # if using pip-installed client
+
+# 4. Test basic connection
+python -c "import carla; c=carla.Client('localhost',2000); print(c.get_server_version())"
+```
