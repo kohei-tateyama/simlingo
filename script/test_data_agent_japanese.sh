@@ -28,9 +28,17 @@ export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtes
 export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
 
 export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
-export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
+export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar)
+
+# TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}" 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}"
+
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

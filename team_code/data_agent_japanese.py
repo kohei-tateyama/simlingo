@@ -304,6 +304,12 @@ class DataAgentJapanese(AutoPilot):
                 import traceback
                 traceback.print_exc()
             
+            # Flip infrastructure for proper signal visibility (optional, env var controlled)
+            try:
+                self.flip_world_infrastructure_for_lht()
+            except Exception as e:
+                print(f"[WARN] Infrastructure flip failed: {e}")
+            
             # Check for traffic infrastructure orientation issues
             try:
                 infra_check = self.detect_traffic_infrastructure_issues(max_distance=50.0)

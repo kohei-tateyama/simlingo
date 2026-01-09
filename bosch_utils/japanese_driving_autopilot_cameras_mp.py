@@ -18,7 +18,6 @@ from PIL import Image as PILImage
 import math
 import yaml
 
-
 from pathlib import Path
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH
 
@@ -142,16 +141,17 @@ class JapaneseStyleAutopilot:
             spawn_idx (int): Spawn point index to use (None = use route default).
         """
 
+        print(f"[DEBUG MP INIT] JapaneseStyleAutopilot.__init__() starting for town={town}", flush=True)
         # print('[WARNING]: If using imgs.PNG the fps is ~HALF fps OF THE ONE SET for each camera. This is half of the speed in which simlingo was running')
         # print('[INFO]: If using imgs.JPG the fps is THE ONE SET for each camera. This is half of the speed in which simlingo was running')
 
         # Connect to CARLA
-        print(f"[INFO]: Connecting to CARLA server on localhost:{port_localhost}...")
+        print(f"[INFO]: Connecting to CARLA server on localhost:{port_localhost}...", flush=True)
         self.client = carla.Client('localhost', port_localhost)
         # Allow longer timeouts for slower hosts
         self.client_timout_carla = 15.0  # Reduced from 30s to fail faster if CARLA not responding
         self.client.set_timeout(self.client_timout_carla)
-        print(f"[INFO]: CARLA client created (timeout={self.client_timout_carla}s)")
+        print(f"[INFO]: CARLA client created (timeout={self.client_timout_carla}s)", flush=True)
         self.print_length = 70
         requested_fps = float(fps)
         if requested_fps != 20.0:
@@ -166,38 +166,43 @@ class JapaneseStyleAutopilot:
         self.town = town
         self.port_traffic = port_traffic
 
-        print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s')
-        print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...")
-        print("[INFO]: Calling client.get_world() - this may take 10-30s on first call...")
+        print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s', flush=True)
+        print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...", flush=True)
+        print("[INFO]: Calling client.get_world() - this may take 10-30s on first call...", flush=True)
 
         # If a world is already loaded on the server, prefer using it to avoid heavy reloads
         try:
+            print(f"[DEBUG MP] About to call self.client.get_world()...", flush=True)
             current_world = self.client.get_world()
-            print(f"[INFO]: client.get_world() returned successfully")
+            print(f"[INFO]: client.get_world() returned successfully", flush=True)
             current_map_name = getattr(current_world.get_map(), 'name', '')
             if current_map_name:
-                print(f"[INFO]: Server already has map loaded: {current_map_name}")
+                print(f"[INFO]: Server already has map loaded: {current_map_name}", flush=True)
                 # Check if the loaded map matches the requested town
                 if self.town in current_map_name:
-                    print(f"[INFO]: Current map matches requested town '{self.town}' — using it")
+                    print(f"[INFO]: Current map matches requested town '{self.town}' — using it", flush=True)
                     self.world = current_world
                     # self.world.set_weather(weather) # even the custom one
                     time.sleep(1)
                     skip_load = True
                 else:
-                    print(f"[INFO]: Current map '{current_map_name}' does NOT match requested town '{self.town}' — will load correct map")
+                    print(f"[INFO]: Current map '{current_map_name}' does NOT match requested town '{self.town}' — will load correct map", flush=True)
                     skip_load = False
             else:
                 skip_load = False
-        except Exception:
+        except Exception as e:
+            print(f"[ERROR MP] Exception during get_world(): {e}", flush=True)
             skip_load = False
 
         # If user explicitly wants to force a map load, set FORCE_LOAD env var or pass --force-load
         FORCE_LOAD = False
 
+        print(f"[DEBUG MP] skip_load={skip_load}, FORCE_LOAD={FORCE_LOAD}", flush=True)
         if not skip_load and not FORCE_LOAD:
+            print(f"[DEBUG MP] Need to load map, getting available maps...", flush=True)
             try:
                 available_maps = self.client.get_available_maps()
+                print(f"[DEBUG MP] Available maps: {available_maps}", flush=True)
             except Exception:
                 available_maps = []
 
@@ -207,43 +212,79 @@ class JapaneseStyleAutopilot:
                     preferred_map = m
                     break
 
+            print(f"[DEBUG MP] preferred_map={preferred_map}", flush=True)
             if preferred_map is not None:
                 map_to_load = preferred_map
-                print(f"[INFO]: Found server map: {preferred_map} — will attempt to load it")
+                print(f"[INFO]: Found server map: {preferred_map} — will attempt to load it", flush=True)
             elif len(available_maps) > 0:
                 map_to_load = available_maps[0]
-                print(f"[INFO]: {self.town} not found on server — would load {map_to_load} if needed")
+                print(f"[INFO]: {self.town} not found on server — would load {map_to_load} if needed", flush=True)
             else:
                 map_to_load = self.town
-                print(f"[WARNING]: No maps reported by server; would try short name '{self.town}' if forced")
+                print(f"[WARNING]: No maps reported by server; would try short name '{self.town}' if forced", flush=True)
 
             # We will not call load_world by default to avoid crashes — prefer using current world.
             # If no world was set above, fall back to attempting load with retries.
+            print(f"[DEBUG MP] hasattr(self, 'world')={hasattr(self, 'world')}", flush=True)
             if not hasattr(self, 'world'):
-                max_attempts = 4
+                print(f"[DEBUG MP] About to load world: {map_to_load}", flush=True)
+                max_attempts = 2  # Reduce attempts to fail faster
                 attempt = 0
                 last_exc = None
                 while attempt < max_attempts:
                     try:
+                        print(f"[DEBUG MP] Calling self.client.load_world('{map_to_load}') attempt {attempt+1}/{max_attempts}...", flush=True)
+                        # Increase client timeout temporarily for map loading (can take 30-60s for large maps)
+                        self.client.set_timeout(60.0)
                         self.world = self.client.load_world(map_to_load)
+                        # Restore normal timeout
+                        self.client.set_timeout(self.client_timout_carla)
+                        print(f"[DEBUG MP] load_world() completed successfully!", flush=True)
+                        if self.world is None:
+                            raise RuntimeError("load_world() returned None")
                         break
                     except Exception as e:
                         last_exc = e
                         attempt += 1
-                        wait = 5
-                        print(f"[INFO]: Attempt {attempt}/{max_attempts} failed: {e}. Retrying in {wait}s...")
-                        time.sleep(wait)
+                        print(f"[ERROR MP]: Attempt {attempt}/{max_attempts} failed: {type(e).__name__}: {e}", flush=True)
+                        if attempt < max_attempts:
+                            wait = 3
+                            print(f"[INFO]: Retrying in {wait}s...", flush=True)
+                            time.sleep(wait)
 
-                if not hasattr(self, 'world'):
-                    raise RuntimeError(f"[ERROR]: Failed to load map '{map_to_load}' after {max_attempts} attempts: {last_exc}")
+                if not hasattr(self, 'world') or self.world is None:
+                    error_msg = f"Failed to load map '{map_to_load}' after {max_attempts} attempts. Last error: {last_exc}"
+                    print(f"[ERROR MP]: {error_msg}", flush=True)
+                    raise RuntimeError(error_msg)
 
+        print(f"[DEBUG MP] World object obtained, waiting 1s...", flush=True)
         time.sleep(1)
         
         # Get traffic manager
-        self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
+        print(f"[DEBUG MP] Getting traffic manager on port {self.port_traffic}...", flush=True)
+        try:
+            self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
+            print(f"[DEBUG MP] Traffic manager obtained successfully", flush=True)
+        except Exception as e:
+            print(f"[ERROR MP] Failed to get traffic manager: {e}", flush=True)
+            raise
         
         # Setup Japanese-style traffic
-        self.setup_left_hand_traffic()
+        print(f"[DEBUG MP] Setting up left-hand traffic...", flush=True)
+        try:
+            self.setup_left_hand_traffic()
+            print(f"[DEBUG MP] Left-hand traffic setup complete", flush=True)
+        except Exception as e:
+            print(f"[ERROR MP] Failed to setup left-hand traffic: {e}", flush=True)
+            raise
+        
+        print(f"[DEBUG MP] Flipping world infrastructure...", flush=True)
+        try:
+            self.flip_world_infrastructure_for_lht()
+            print(f"[DEBUG MP] Infrastructure flip complete", flush=True)
+        except Exception as e:
+            print(f"[ERROR MP] Failed to flip infrastructure: {e}", flush=True)
+            raise
 
         # Weather (optional): apply chosen CARLA weather preset if provided
         self.weather = weather
@@ -478,6 +519,87 @@ class JapaneseStyleAutopilot:
 
         # NOTE: NPCs are spawned AFTER ego vehicle to avoid blocking spawn points
         # See spawn_player_vehicle() which calls spawn_npc_vehicles() after ego spawns
+    
+    def flip_world_infrastructure_for_lht(self):
+        """
+        Flip traffic lights and signs to face left-hand lanes for proper camera visibility.
+        
+        **Purpose**: CARLA 0.9.15 maps are designed for right-hand traffic. When driving in
+        left lanes, signals face away from camera. This method relocates movable actors
+        (traffic lights, stop/yield signs) and spawns new speed limit signs at mirrored positions.
+        
+        **Trade-offs**:
+        - ✅ Vision models see front-facing signals (better training data quality)
+        - ⚠️ Traffic Manager may get confused (TM uses OpenDRIVE topology, not actor positions)
+        - ⚠️ Assumes Y-axis mirroring works for map layout (not guaranteed for all towns)
+        
+        **Usage**: Enable via environment variable FLIP_INFRASTRUCTURE=1
+        """
+        if not int(os.environ.get('FLIP_INFRASTRUCTURE', '0')):
+            return
+        
+        print("[INFO]: Flipping world infrastructure for left-hand traffic...")
+        
+        try:
+            world = self.world
+            blueprint_library = world.get_blueprint_library()
+            carla_map = world.get_map()
+            
+            relocated_count = 0
+            spawned_count = 0
+            self._flipped_actors = []  # Track spawned actors for cleanup
+            
+            # PART 1: Flip movable actors (traffic lights, stop, yield)
+            movable_types = ['traffic.traffic_light', 'traffic.stop', 'traffic.yield']
+            for actor in world.get_actors():
+                if any(t in actor.type_id for t in movable_types):
+                    try:
+                        t = actor.get_transform()
+                        # Mirror across Y-axis
+                        t.location.y *= -1
+                        # Rotate 180 degrees to face opposite direction
+                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
+                        actor.set_transform(t)
+                        relocated_count += 1
+                    except RuntimeError as e:
+                        print(f"[WARN]: Could not move {actor.type_id} ({actor.id}): {e}")
+            
+            # PART 2: Handle static landmarks (speed limit signs)
+            # OpenDRIVE landmark type 101 = speed limit signs
+            try:
+                speed_landmarks = carla_map.get_all_landmarks_of_type('101')
+                for lm in speed_landmarks:
+                    try:
+                        t = lm.transform
+                        # Mirror across Y-axis
+                        t.location.y *= -1
+                        # Rotate 180 degrees
+                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
+                        
+                        # Try to spawn new sign at flipped location
+                        value = lm.value if hasattr(lm, 'value') else None
+                        if value:
+                            bp_id = f"static.prop.speedlimit.{value}"
+                            try:
+                                speed_bp = blueprint_library.find(bp_id)
+                            except:
+                                speed_bp = blueprint_library.find("static.prop.speedlimit")
+                        else:
+                            speed_bp = blueprint_library.find("static.prop.speedlimit")
+                        
+                        new_sign = world.try_spawn_actor(speed_bp, t)
+                        if new_sign:
+                            spawned_count += 1
+                            self._flipped_actors.append(new_sign.id)
+                    except Exception as e:
+                        pass  # Fail silently for individual signs
+            except Exception as e:
+                print(f"[WARN]: Could not process speed limit signs: {e}")
+            
+            print(f"[INFO]: Infrastructure flip complete: {relocated_count} actors relocated, {spawned_count} signs spawned")
+            
+        except Exception as e:
+            print(f"[ERROR]: Failed to flip infrastructure: {e}")
 
     def enforce_driving_side(self, side='left', margin=0.10):
         """Compute a safe lateral lane offset (meters) for left/right driving and apply it.
@@ -1151,60 +1273,48 @@ class JapaneseStyleAutopilot:
         # print("NPC vehicles spawned!")
         
     def get_predefined_route(self):
-        """Get predefined waypoints for different route types in self.town"""
-        """[THIS NEEDS TO BE IMPROVED]"""
+        """Get predefined waypoints for different route types in self.town
+        
+        Uses spawn points to generate valid routes for any map instead of hardcoded coordinates.
+        """
         map = self.world.get_map()
         spawn_points = map.get_spawn_points()
         
-        routes = {
-            'highway': {
-                'description': f'Highway loop in {self.town}',
-                'start_idx': self.spawn_idx if self.spawn_idx is not None else 50,
-                'waypoints': [
-                    carla.Location(x=-150.0, y=50.0, z=0.5),
-                    carla.Location(x=-100.0, y=100.0, z=0.5),
-                    carla.Location(x=0.0, y=150.0, z=0.5),
-                    carla.Location(x=100.0, y=100.0, z=0.5),
-                    carla.Location(x=150.0, y=0.0, z=0.5),
-                    carla.Location(x=100.0, y=-100.0, z=0.5),
-                    carla.Location(x=0.0, y=-150.0, z=0.5),
-                    carla.Location(x=-100.0, y=-100.0, z=0.5),
-                ]
-            },
-            'urban': {
-                'description': f'Urban streets in {self.town}',
-                'start_idx': self.spawn_idx if self.spawn_idx is not None else 10,
-                'waypoints': [
-                    carla.Location(x=-50.0, y=20.0, z=0.5),
-                    carla.Location(x=-30.0, y=40.0, z=0.5),
-                    carla.Location(x=0.0, y=50.0, z=0.5),
-                    carla.Location(x=30.0, y=40.0, z=0.5),
-                    carla.Location(x=50.0, y=20.0, z=0.5),
-                    carla.Location(x=30.0, y=-20.0, z=0.5),
-                    carla.Location(x=0.0, y=-30.0, z=0.5),
-                ]
-            },
-            'simple': {
-                'description': 'Simple straight path',
-                'start_idx': self.spawn_idx if self.spawn_idx is not None else 0,
-                'waypoints': [
-                    carla.Location(x=0.0, y=0.0, z=0.5),
-                    carla.Location(x=50.0, y=0.0, z=0.5),
-                    carla.Location(x=100.0, y=0.0, z=0.5),
-                    carla.Location(x=150.0, y=0.0, z=0.5),
-                ]
-            }
+        if not spawn_points or len(spawn_points) == 0:
+            print("[ERROR]: No spawn points found on map!")
+            return [], 0
+        
+        # Determine start index (use spawn_idx override if provided)
+        start_idx = self.spawn_idx if self.spawn_idx is not None else min(10, len(spawn_points) - 1)
+        
+        # Generate route by selecting spawn points with spacing
+        route_config = {
+            'highway': {'description': f'Highway loop in {self.town}', 'spacing': 15, 'count': 8},
+            'urban': {'description': f'Urban streets in {self.town}', 'spacing': 8, 'count': 7},
+            'simple': {'description': 'Simple straight path', 'spacing': 5, 'count': 4}
         }
         
-        route_config = routes.get(self.route_type, routes['simple'])
-        print(f"[INFO]: Route: {route_config['description']}")
+        config = route_config.get(self.route_type, route_config['simple'])
+        print(f"[INFO]: Route: {config['description']}")
         
-        # Convert locations to waypoints
+        # Select spawn points with spacing to create a route
         waypoints = []
-        for location in route_config['waypoints']:
-            waypoint = map.get_waypoint(location)
+        spacing = config['spacing']
+        count = config['count']
+        
+        for i in range(count):
+            idx = (start_idx + i * spacing) % len(spawn_points)
+            spawn_location = spawn_points[idx].location
+            waypoint = map.get_waypoint(spawn_location)
             if waypoint:
                 waypoints.append(waypoint)
+        
+        if not waypoints:
+            print(f"[ERROR]: Failed to generate valid route for {self.route_type} in {self.town}")
+            print(f"[ERROR]: No waypoints found from {count} spawn points with spacing {spacing}")
+            return [], start_idx
+        
+        print(f"[INFO]: Generated route with {len(waypoints)} waypoints")
         
         # CRITICAL: Correct waypoints for left-hand traffic if enabled
         print(f"[DEBUG] get_predefined_route (mp.py): enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
@@ -1215,7 +1325,7 @@ class JapaneseStyleAutopilot:
         else:
             print(f"[DEBUG] Skipping route verification")
         
-        return waypoints, route_config['start_idx']
+        return waypoints, start_idx
         
     def spawn_player_vehicle(self):
         """Spawn the player-controlled vehicle"""
@@ -2433,7 +2543,7 @@ class JapaneseStyleAutopilot:
             print(f"[INFO]: Estimated rgb folders expected (measurements/{self.num_imgs_per_frame}): {est_folders}")
             # If estimator used earlier produced an unexpected large number, print a warning
             try:
-                est_prev = sim.estimate_recorded_frames(D=self.duration, fps=self.fps, Tprim=getattr(self, '_priming_timeout', 0.0), Toverhead=(getattr(self, '_buffer_timeout', 0.0) + 0.1), W=getattr(self, '_warmup_frames', 0), Nlost=0)
+                est_prev = self.estimate_recorded_frames(D=self.duration, fps=self.fps, Tprim=getattr(self, '_priming_timeout', 0.0), Toverhead=(getattr(self, '_buffer_timeout', 0.0) + 0.1), W=getattr(self, '_warmup_frames', 0), Nlost=0)
                 if est_prev > total * 5:
                     print(f"[WARN]: Estimator earlier returned a large value ({est_prev}); this may be due to missing/duplicate estimator calls or mis-set defaults.")
             except Exception:

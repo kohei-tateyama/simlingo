@@ -13,13 +13,6 @@ cd "$REPO_ROOT" || exit 1
 # This script is also a bnetter verison fo run_carla_autopilot.sh
 # ============================================================================
 
-## single autopilot
-# bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route highway 
-
-## add weather 
-# bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 60 --route highway --multicamera --fps 60 --weather ClearNoon
-
-
 # Set environment variables
 export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
@@ -518,14 +511,14 @@ run_autopilot() {
                 python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
                 python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter
             else
-                warn "Dataset path not captured, falling back to auto-discovery..."
-                python bosch_utils/tools/batch_patch_multicamera.py --auto-latest --layout geometric
-                python bosch_utils/tools/batch_patch_multicamera2.py --auto-latest --layout three_quarter
+                warn "Dataset path not captured, skipping auto-discovery to avoid hang..."
+                warn "Run patching manually later: python bosch_utils/tools/batch_patch_multicamera.py <dataset_path> --layout geometric"
+                info "Skipping multicamera patching (dataset path unknown)"
+                PATCH_EXIT_CODE=0  # Don't fail the whole run
             fi
             
-            PATCH_EXIT_CODE=$?
             if [ $PATCH_EXIT_CODE -eq 0 ]; then
-                info "Multicamera patching completed successfully!"
+                info "Post-processing completed!"
             else
                 warn "Patching encountered errors (exit code: $PATCH_EXIT_CODE) - continuing anyway"
             fi

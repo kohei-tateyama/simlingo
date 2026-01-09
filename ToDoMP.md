@@ -557,7 +557,7 @@ datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
 ======================================
 ## Tools 
 
-Cutting the .log
+- Cutting the .log
 ```bash
 TS=$(date +%Y%m%d_%H%M%S)
 cp azure_deploy_mp/azure_upload.log azure_deploy_mp/azure_upload.log.$TS
@@ -570,8 +570,7 @@ du -sh azure_deploy_mp/azure_upload.log*
 df -h .
 ```
 
-Check the usage of GPU
-
+- Check the usage of GPU
 ```bash
 TOT=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i 0)
 nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits -i 0 \
@@ -581,5 +580,9 @@ nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,nohead
   printf "%s\t%s\t%4s MiB\t(%s%%)\n" "$pid" "$name" "$used" "$pct"
 done
 ```
-When `code` for opening imgs does not work, refresh the terminal
+- When `code` for opening imgs does not work, refresh the terminal
 `export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
+
+- One-liner for opening multiple `.jpg` from the `rgb/` folder
+`for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
+`for ((i=0;i<=798;i+=30)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+30))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
