@@ -14,6 +14,7 @@ export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/leaderboard
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
+
 # Data collection settings
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
@@ -26,10 +27,10 @@ export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenari
 export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtest, routes_validation, routes_all)
 export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
 
-export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" (remove --routes)
+export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
 export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

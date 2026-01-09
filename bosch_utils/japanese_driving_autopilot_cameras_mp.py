@@ -291,7 +291,7 @@ class JapaneseStyleAutopilot:
             f"routes_{self.route_type}",
             f"duration_{self.duration}",
             f"ego_{self.spawn_idx}",
-        ) # need test
+        )
 
         # Prepend the configured RECORDING_OUTPUT_DIR to form the absolute folder path
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
@@ -530,7 +530,15 @@ class JapaneseStyleAutopilot:
             desired = max_safe
         if desired < -max_safe:
             desired = -max_safe
-
+        
+        # Safety validation: ensure computed value is finite and within expected bounds
+        try:
+            if not math.isfinite(desired) or abs(desired) > 2.5:
+                print(f"[WARN]: Computed lane offset {desired} out of expected range; clamping to safe value")
+                desired = max(-2.5, min(2.5, desired))
+        except Exception:
+            # If math is not available for some reason, proceed with clamped value above
+            pass
         # Apply to traffic manager
         try:
             self.traffic_manager.global_lane_offset = desired
@@ -706,7 +714,7 @@ class JapaneseStyleAutopilot:
         
         print(f"[INFO]: Attached 6 cameras: F, B, RF, LF, RB, LB")
         
-        # Semantic segmentation camera (DISABLED for training format compatibility)
+        # Semantic segmentation camera (DISABLED)
         # Uncomment below to enable semantic segmentation recording
         # try:
         #     self.setup_semantic_camera()
@@ -950,8 +958,10 @@ class JapaneseStyleAutopilot:
         if offset is None:
             try:
                 offset = self.enforce_driving_side(side='left', margin=0.10)
-            except Exception:
-                offset = -0.8 # -1.5 before
+                print(f"[INFO]: Computed NPC offset: {offset:.2f}m (LEFT)")
+            except Exception as e:
+                print(f"[WARN]: enforce_driving_side failed for NPCs, using fallback: {e}")
+                offset = -0.8  # Conservative fallback
 
         for i, spawn_point in enumerate(spawn_points[:num_vehicles]):
             vehicle_bp = blueprint_library.filter('vehicle.*')[i % 20]
@@ -1143,8 +1153,12 @@ class JapaneseStyleAutopilot:
 
             # Now enable autopilot/motion
             self.player_vehicle.set_autopilot(True, self.traffic_manager.get_port())
-            self.traffic_manager.vehicle_lane_offset(self.player_vehicle, -1.5)
+            # CRITICAL: Use computed offset from enforce_driving_side, not hardcoded value
+            # This ensures consistent left-hand driving on all maps with varying lane widths
+            ego_offset = getattr(self, '_driving_side_offset', -1.5)
+            self.traffic_manager.vehicle_lane_offset(self.player_vehicle, ego_offset)
             self.traffic_manager.ignore_lights_percentage(self.player_vehicle, 0)
+            print(f"[INFO]: Ego vehicle lane offset applied: {ego_offset:.2f}m (LEFT)")
 
             # Optional: Set destination for route following
             if route_waypoints:

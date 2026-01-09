@@ -133,7 +133,8 @@ class DataAgentJapanese(AutoPilot):
         # Store original route_index before calling super()
         self._original_route_index = route_index
         
-        super().setup(path_to_conf_file, route_id, traffic_manager=None)
+        # Pass the provided traffic_manager into parent setup so the TM instance is available
+        super().setup(path_to_conf_file, route_id, traffic_manager=traffic_manager)
         
         # Override save_path with simlingo v4 structure after super().setup()
         if os.environ.get("SAVE_PATH", None) is not None:
@@ -282,7 +283,7 @@ class DataAgentJapanese(AutoPilot):
         self.last_lidar = None
         self.last_ego_transform = None
         
-        # Image size for cameras (matching training format)
+        # Image size for cameras (matching training format, not always)
         self.camera_width = 1024
         self.camera_height = 512
 
@@ -387,6 +388,14 @@ class DataAgentJapanese(AutoPilot):
         # Apply to traffic manager
         try:
             self.tm.global_lane_offset = desired
+        except Exception:
+            pass
+
+        # Safety validation: ensure computed value is finite and within expected bounds
+        try:
+            if not math.isfinite(desired) or abs(desired) > 2.5:
+                print(f"[WARN] Computed lane offset {desired} out of expected range; clamping to safe value")
+                desired = max(-2.5, min(2.5, desired))
         except Exception:
             pass
         
