@@ -15,6 +15,145 @@ Purpose: Verify that left-hand (Japanese) driving is correctly configured across
 
 ---
 
+## CRITICAL ISSUE: Traffic Signs & Lights Orientation
+
+**Problem**: CARLA 0.9.15 maps (Town01-13) are designed for right-hand traffic. Traffic signs (speed limits, stop signs) and traffic light poles are oriented to face **right-hand lanes**. When vehicles drive in left lanes:
+- **Traffic lights**: May only be visible from behind (light faces away)
+- **Speed limit signs**: Face wrong direction (readable only from opposite lanes)
+- **Stop signs**: Positioned for right-hand approach
+
+**CARLA API Limitations**:
+- `world.get_level_bbs(carla.CityObjectLabel.TrafficSigns)` returns static mesh bounding boxes but **cannot modify orientations**
+- Traffic signs are baked into map geometry (not dynamic actors)
+- Only traffic light **actors** can be queried via `world.get_actors().filter('traffic.traffic_light')`
+- Traffic light **poles and housings** are static meshes and cannot be rotated at runtime
+
+**Attempted Solutions**:
+1. **Flip static signs**: Not supported—CARLA does not expose API to rotate static map objects
+2. **Respawn traffic lights**: Traffic lights are tied to map topology (OpenDRIVE); destroying/respawning breaks junction logic
+3. **Mirror detection workaround**: Detect when ego is in left lane and infer sign/light states from road topology (implemented below)
+
+4. **Moving the movable**:
+    ```python
+    moveable_types = ['traffic.traffic_light', 'traffic.stop', 'traffic.yield']
+    moveable_count = 0
+    for actor in all_actors:
+        if any(t_type in actor.type_id for t_type in moveable_types):
+            transform = actor.get_transform()
+
+            transform.location.y *= -1
+            transform.rotation.yaw = (transform.rotation.yaw + 180) % 360
+            actor.set_transform(transform)
+            moveable_count += 1
+    ```
+
+**Implemented Workaround**: `detect_traffic_infrastructure_issues()`
+- Scans all traffic lights within 50m of ego vehicle
+- Checks if light's forward vector is facing **away** from ego (dot product < 0)
+- Logs warnings for back-facing lights (potential missed detections)
+- Uses map topology to infer correct light state even when visual is obscured
+- **Limitation**: Does not solve training data quality issue; vision models still see wrong angles
+
+**Long-term Solution**: Upgrade to **CARLA 0.9.16+** with native LHT support (OpenDRIVE `rule="LHT"`)
+
+---
+
+### Per-Frame Signal Metadata (`left_signal/`)
+
+**Purpose**: Collect per-frame metadata about traffic infrastructure orientation for post-processing, training data filtering, and model interpretability.
+
+**Output Structure**:
+```
+dataset/
+├── rgb/
+├── .../
+└── left_signal/         
+    ├── 0000.json.gz
+    └── ...
+```
+
+**Field Descriptions**:
+- `frame`: Frame number (0-indexed, matches rgb/boxes/measurements)
+- `timestamp`: ISO 8601 timestamp of data collection
+- `ego_position`: Ego vehicle 3D position [x, y, z] in world coordinates
+- `ego_rotation`: Ego vehicle rotation [pitch, yaw, roll] in degrees
+- `back_facing_count`: Number of signals facing away from ego (dot < -0.3)
+- `signals`: Array of all traffic infrastructure within 50m:
+  - `id`: CARLA actor ID (unique per simulation run, -1 for static signs)
+  - `type`: **"traffic_light"** or **"traffic_sign"**
+  - `subtype`: "traffic_light", "unknown_sign", or (future) "speed_limit", "stop_sign"
+  - `position`: 3D world coordinates [x, y, z]
+  - `distance`: Euclidean distance from ego to signal (meters)
+  - `facing_dot`: **CRITICAL FIELD** - Dot product of signal forward vector and (ego - signal) vector
+    - **+0.7 to +1.0**: Signal FACES ego directly (**colored lens/text VISIBLE** in camera images)
+    - **+0.3 to +0.7**: Signal at angle (partially visible, may be readable)
+    - **-0.3 to +0.3**: Signal perpendicular (side view, poor visibility)
+    - **-1.0 to -0.3**: Signal FACES AWAY (**approaching from BACK**, only metal housing visible, **NO colored lens/text**)
+    - **null**: Orientation unknown (static sign, no actor transform available)
+  - `is_back_facing`: Boolean flag (true if `facing_dot < -0.3`, i.e., approaching from behind)
+  - `visible_from_ego`: Boolean flag (true if `facing_dot > 0.3`, i.e., facing toward ego with reasonable angle)
+  - `state`: Traffic light state ("Red", "Green", "Yellow", "Unknown", "N/A" for signs)
+  - `approaching_from`: **"front"** (visible), **"side"** (poor angle), **"back"** (**NOT visible**), or **"unknown"**
+
+**CRITICAL UNDERSTANDING: Approaching from Back**
+
+When `approaching_from: "back"` (or `facing_dot < -0.3`):
+- **Traffic Lights**: Camera images show **ONLY the metal housing and wiring on the back**—colored lens (red/green/yellow) is **NOT VISIBLE**
+- **Speed Limit Signs**: Camera images show **blank back side**—speed number text is **NOT VISIBLE**
+- **Stop Signs**: Camera images show **back of octagonal pole**—"STOP" text is **NOT VISIBLE**
+
+This means the RGB training data for these frames has **zero usable signal information** for vision-based detection models.
+
+**Why This Happens in CARLA 0.9.15**:
+- Maps designed for **right-hand traffic** (RHT)
+- Traffic infrastructure oriented to face **right-hand lanes**
+- When driving in **left-hand lanes** for Japanese driving:
+  - Vehicle approaches signals from the "wrong" side
+  - Sees backs of signs/lights instead of fronts
+  - Traffic light state is still reported correctly via API (for planning)
+  - But camera images are unusable for vision model training
+
+**Use Cases**:
+1. **Training Data Filtering**: 
+   - Remove frames where `visible_from_ego: false` for any critical signals
+   - Filter out frames with `approaching_from: "back"` near intersections
+   - Keep only frames where `facing_dot > 0.3` for traffic light detection tasks
+2. **Weighted Training**: 
+   - Downweight loss for frames with `back_facing_count > 2`
+   - Use `visible_from_ego` to adjust sample weights dynamically
+3. **Model Debugging**: 
+   - Correlate poor traffic light predictions with `is_back_facing=true`
+   - Identify systematic failures when `approaching_from: "back"`
+4. **Dataset Analysis**: 
+   - Generate histograms of `facing_dot` distribution across towns/routes
+   - Measure percentage of "unusable" frames (back-facing signals)
+   - Compare RHT maps (Town01-13) vs future LHT maps
+5. **Synthetic Augmentation**: 
+   - Identify frames needing sign overlay post-processing (`approaching_from: "back"`)
+   - Use traffic sign positions to synthesize front-facing signs in post-processing
+6. **Sign Type Detection**:
+   - Distinguish between `type: "traffic_light"` (dynamic actors) and `type: "traffic_sign"` (static meshes)
+   - Note: `traffic_sign` entries have `facing_dot: null` (orientation unknown in CARLA 0.9.15)
+
+#### Detection Method Details
+
+**Implemented Workaround**: `detect_traffic_infrastructure_issues(max_distance=50.0)`
+- **Location**: Added to all three files (`japanese_driving_autopilot_cameras_*.py, data_agent_japanese.py`)
+- **Trigger**: Called per-frame during data saving (after bounding boxes, before measurements)
+- **Output Example** (init):
+  ```
+  [WARN]: Detected 3 back-facing traffic lights within 50m
+  [WARN]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps
+  [WARN]: Consider upgrading to CARLA 0.9.16+ for native left-hand traffic support
+  [WARN]:   Traffic light at (123.4, 56.7) faces AWAY from ego (dist=15.2m, state=Red)
+  [WARN]:   Traffic light at (145.8, 62.1) faces AWAY from ego (dist=22.8m, state=Green)
+  [WARN]:   Traffic light at (167.3, 58.9) faces AWAY from ego (dist=35.4m, state=Yellow)
+  ```
+---
+
+
+## ENFORCING THE LEFT SIDE GUIDANCE 
+
 **1) bosch_utils/japanese_driving_autopilot_cameras_mp.py**
 
 - `setup_left_hand_traffic()` (Line 461-477)
@@ -43,6 +182,14 @@ Purpose: Verify that left-hand (Japanese) driving is correctly configured across
     - `traffic_manager.ignore_lights_percentage(player_vehicle, 0)` obey all lights
   - Stored: `self._driving_side_offset = desired`
 
+- `detect_traffic_infrastructure_issues(max_distance=50.0)` (NEW - added after enforce_driving_side)
+  - **Purpose**: Detect traffic lights facing away from ego vehicle (back-facing)
+  - **Method**: Compute dot product between light's forward vector and ego direction
+  - **Threshold**: dot < -0.3 indicates back-facing (angle > ~107°)
+  - **Returns**: dict with `back_facing_lights` (count) and `warnings` (list)
+  - **Called**: After `spawn_player_vehicle()` and autopilot enabled
+  - **Logs**: Warnings for first 3 back-facing lights with location, distance, state
+
 - `spawn_npc_vehicles(num_vehicles=30)` (Line 949-993)
   - NPC Configuration:
     - Uses stored `self._driving_side_offset` or computes via `enforce_driving_side()`
@@ -55,6 +202,7 @@ Purpose: Verify that left-hand (Japanese) driving is correctly configured across
     - `ego_offset = getattr(self, '_driving_side_offset', -1.5)` meters
     - `traffic_manager.vehicle_lane_offset(player_vehicle, ego_offset)`
     - `traffic_manager.ignore_lights_percentage(player_vehicle, 0)` obey
+  - **NEW**: Calls `detect_traffic_infrastructure_issues()` after autopilot enabled
 
 ---
 

@@ -305,6 +305,7 @@ class JapaneseStyleAutopilot:
         os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
+        os.makedirs(os.path.join(self.folderpath, 'left_signal'), exist_ok=True)
         self.last_image_filename = None
         self.sensors = []
         # Match training data image size: 1024x512
@@ -573,6 +574,121 @@ class JapaneseStyleAutopilot:
             pass
 
         return desired
+
+    def detect_traffic_infrastructure_issues(self, max_distance=50.0):
+        """
+        Detect traffic lights and signs that may be facing away from ego vehicle.
+        
+        CARLA 0.9.15 maps are designed for right-hand traffic. When driving in left lanes,
+        traffic lights and signs may face the wrong direction.
+        
+        Args:
+            max_distance: Maximum distance (meters) to check for traffic infrastructure
+        
+        Returns:
+            dict with 'back_facing_lights' (count), 'warnings' (list), and 'signals' (list of signal metadata)
+        """
+        if not self.player_vehicle:
+            return {'back_facing_lights': 0, 'warnings': [], 'signals': []}
+        
+        ego_location = self.player_vehicle.get_location()
+        ego_transform = self.player_vehicle.get_transform()
+        ego_forward = ego_transform.get_forward_vector()
+        
+        warnings = []
+        back_facing_count = 0
+        signals = []
+        
+        try:
+            # Check traffic lights (actors we can query)
+            actors = self.world.get_actors().filter('traffic.traffic_light')
+            
+            for light in actors:
+                light_loc = light.get_location()
+                distance = light_loc.distance(ego_location)
+                
+                if distance < max_distance:
+                    # Get light's forward vector (direction it's facing)
+                    light_transform = light.get_transform()
+                    light_forward = light_transform.get_forward_vector()
+                    
+                    # Vector from light to ego
+                    to_ego = ego_location - light_loc
+                    to_ego_norm = to_ego / (distance + 0.001)  # normalize
+                    
+                    # Dot product: positive if light faces toward ego, negative if away
+                    dot = (light_forward.x * to_ego_norm.x + 
+                           light_forward.y * to_ego_norm.y + 
+                           light_forward.z * to_ego_norm.z)
+                    
+                    # Build signal metadata record
+                    # facing_dot interpretation:
+                    #   > 0.7: Light FACES ego (colored lens visible)
+                    #   0.0 to 0.7: Light at angle (partially visible)
+                    #   < -0.3: Light FACES AWAY (approaching from back, only metal housing visible)
+                    visible_from_ego = bool(dot > 0.3)  # Only consider visible if reasonably facing ego
+                    
+                    signal_record = {
+                        'id': int(light.id),
+                        'type': 'traffic_light',
+                        'subtype': 'traffic_light',  # vs 'speed_limit', 'stop_sign', etc.
+                        'position': [float(light_loc.x), float(light_loc.y), float(light_loc.z)],
+                        'distance': float(distance),
+                        'facing_dot': float(dot),
+                        'is_back_facing': bool(dot < -0.3),
+                        'visible_from_ego': visible_from_ego,
+                        'state': str(light.get_state()) if hasattr(light, 'get_state') else 'Unknown',
+                        'approaching_from': 'front' if dot > 0.3 else ('side' if dot > -0.3 else 'back')
+                    }
+                    signals.append(signal_record)
+                    
+                    if dot < -0.3:  # Light facing significantly away from ego
+                        back_facing_count += 1
+                        warnings.append(
+                            f"Traffic light at ({light_loc.x:.1f}, {light_loc.y:.1f}) "
+                            f"faces AWAY from ego (dist={distance:.1f}m, state={signal_record['state']})"
+                        )
+        except Exception as e:
+            warnings.append(f"Error scanning traffic lights: {e}")
+        
+        # Attempt to detect traffic signs (static meshes - best effort)
+        try:
+            # Get level bounding boxes for traffic signs (static meshes)
+            # Note: These don't have orientation info, only positions
+            import carla
+            if hasattr(carla, 'CityObjectLabel'):
+                try:
+                    sign_bbs = self.world.get_level_bbs(carla.CityObjectLabel.TrafficSigns)
+                    for bb in sign_bbs:
+                        # Bounding box center
+                        sign_loc = bb.location
+                        distance = sign_loc.distance(ego_location)
+                        
+                        if distance < max_distance:
+                            # We can't determine orientation for static meshes, so mark as 'unknown'
+                            signal_record = {
+                                'id': -1,  # No actor ID for static meshes
+                                'type': 'traffic_sign',
+                                'subtype': 'unknown_sign',  # Could be speed_limit, stop, yield, etc.
+                                'position': [float(sign_loc.x), float(sign_loc.y), float(sign_loc.z)],
+                                'distance': float(distance),
+                                'facing_dot': None,  # Cannot determine for static meshes
+                                'is_back_facing': None,  # Unknown orientation
+                                'visible_from_ego': None,  # Cannot determine
+                                'state': 'N/A',
+                                'approaching_from': 'unknown'
+                            }
+                            signals.append(signal_record)
+                except Exception as sign_error:
+                    warnings.append(f"Failed to query traffic signs: {sign_error}")
+        except Exception as e:
+            warnings.append(f"Error scanning traffic signs: {e}")
+        
+        return {
+            'back_facing_lights': back_facing_count,
+            'warnings': warnings,
+            'signals': signals
+        }
 
     def _verify_and_correct_route_for_left_hand_traffic(self, route_waypoints):
         """
@@ -1225,6 +1341,19 @@ class JapaneseStyleAutopilot:
                 self._route_points = []
 
             print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
+            
+            # Check for traffic infrastructure orientation issues
+            try:
+                infra_check = self.detect_traffic_infrastructure_issues(max_distance=50.0)
+                if infra_check['back_facing_lights'] > 0:
+                    print(f"[WARN]: Detected {infra_check['back_facing_lights']} back-facing traffic lights within 50m")
+                    print("[WARN]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps")
+                    print("[WARN]: Consider upgrading to CARLA 0.9.16+ for native left-hand traffic support")
+                    # Log first few warnings
+                    for w in infra_check['warnings'][:3]:
+                        print(f"[WARN]:   {w}")
+            except Exception as e:
+                print(f"[WARN]: Traffic infrastructure check failed: {e}")
         else:
             raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
 
@@ -1933,6 +2062,24 @@ class JapaneseStyleAutopilot:
                 json.dump(boxes_data, f, indent=4)
         except Exception as e:
             print(f"[ERROR]: Error saving boxes: {e}")
+        
+        # Save left-hand traffic signal metadata (NEW)
+        try:
+            signal_metadata = self.detect_traffic_infrastructure_issues(max_distance=50.0)
+            signal_file = os.path.join(self.folderpath, 'left_signal', f'{frame_num:04d}.json.gz')
+            signal_data = {
+                'frame': frame_num,
+                'timestamp': datetime.now().isoformat(),
+                'ego_position': [float(transform.location.x), float(transform.location.y), float(transform.location.z)],
+                'ego_rotation': [float(transform.rotation.pitch), float(transform.rotation.yaw), float(transform.rotation.roll)],
+                'back_facing_count': signal_metadata['back_facing_lights'],
+                'signals': signal_metadata['signals']
+            }
+            with gzip.open(signal_file, 'wt', encoding='utf-8') as f:
+                json.dump(signal_data, f, indent=4)
+        except Exception as e:
+            if self._callback_debug:
+                print(f"[WARN] Failed to save signal metadata for frame {frame_num}: {e}")
         
         # Store minimal info for summary
         data_point = {

@@ -30,7 +30,7 @@ export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_10
 export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
 export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

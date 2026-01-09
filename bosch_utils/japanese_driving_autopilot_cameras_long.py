@@ -86,7 +86,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
 
 
             # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_long_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok works
-            
+
             new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
 
             self.foldername = os.path.join(
@@ -105,6 +105,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
             os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
             os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
+            os.makedirs(os.path.join(self.folderpath, 'left_signal'), exist_ok=True)
         except Exception:
             # Non-fatal: if path creation fails, fall back to parent's folder settings
             pass
@@ -346,6 +347,19 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 print(f"[WARNING]: Could not enable synchronous mode, falling back to async: {e}")
 
             self.spawn_player_vehicle()
+            
+            # Check for traffic infrastructure orientation issues after vehicle spawn
+            try:
+                infra_check = self.detect_traffic_infrastructure_issues(max_distance=50.0)
+                if infra_check['back_facing_lights'] > 0:
+                    print(f"[WARN]: Detected {infra_check['back_facing_lights']} back-facing traffic lights within 50m")
+                    print("[WARN]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps")
+                    print("[WARN]: Consider upgrading to CARLA 0.9.16+ for native left-hand traffic support")
+                    # Log first few warnings
+                    for w in infra_check['warnings'][:3]:
+                        print(f"[WARN]:   {w}")
+            except Exception as e:
+                print(f"[WARN]: Traffic infrastructure check failed: {e}")
             
             print("\n" + "=" * self.print_length)
             print("[INFO]: AUTOPILOT MODE FROM CARLA - Japanese-Style Driving")
