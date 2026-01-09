@@ -5,7 +5,6 @@ Combines:
 - DataAgent's leaderboard integration and sensor pipeline
 - Japanese left-hand traffic configuration from japanese_driving_autopilot_cameras_mp.py
 - 6-camera multi-view recording (F, B, RF, LF, RB, LB)
-- GPS trajectory tracking and visualization
 - Output structure: database/simlingo_v2_2025_01_10/data/simlingo/{scenario}/{route_config}/{route_id}/
 """
 
@@ -322,26 +321,15 @@ class DataAgentJapanese(AutoPilot):
                         print(f"[WARN]:   {w}")
             except Exception as e:
                 print(f"[WARN]: Traffic infrastructure check failed: {e}")
-        else:
-            print(f"[DEBUG] Route verification skipped: enforce_left_hand_traffic={self.enforce_left_hand_traffic}")
+            
+            # Configure traffic manager for left-hand traffic
             try:
-                self.tm.set_global_distance_to_leading_vehicle(2.5)
-                
-                # Use robust geometry-aware method to compute safe offset
-                try:
-                    offset = self.enforce_driving_side(side='left', margin=0.10)
-                    print(f"[INFO] Japanese traffic: Left-hand driving enabled (computed offset={offset:.2f}m)")
-                except Exception as e:
-                    # Fallback to conservative default
-                    self._driving_side_offset = -0.8
-                    self.tm.global_lane_offset = self._driving_side_offset
-                    if self._vehicle is not None:
-                        self.tm.vehicle_lane_offset(self._vehicle, self._driving_side_offset)
-                        self.tm.ignore_lights_percentage(self._vehicle, 0)
-                    print(f"[WARN] enforce_driving_side failed, using fallback offset={self._driving_side_offset}m: {e}")
-                    
+                self.setup_left_hand_traffic()
+                print("[INFO] Left-hand traffic configuration applied")
             except Exception as e:
                 print(f"[WARN] Could not configure Japanese traffic: {e}")
+        else:
+            print(f"[DEBUG] Japanese driving disabled: enforce_left_hand_traffic={self.enforce_left_hand_traffic}")
         
         # Initialize observation managers and criteria
         obs_config = {
@@ -550,6 +538,132 @@ class DataAgentJapanese(AutoPilot):
                 print(f"[INFO] Ego vehicle: road_id={ego_wp.road_id}, lane_id={ego_wp.lane_id}, offset={self._driving_side_offset:.2f}m")
         except Exception:
             pass
+
+    def setup_left_hand_traffic(self):
+        """
+        Configure traffic manager for left-hand traffic (Japan/UK).
+        Ported from japanese_driving_autopilot_cameras_mp.py.
+        """
+        print("[INFO] Configuring Japanese-style (left-hand) traffic...")
+        self.tm.set_global_distance_to_leading_vehicle(2.5)
+
+        # Compute and apply geometry-aware left-hand driving configuration
+        try:
+            # prefer to compute a safe offset using current map and default spawn point
+            self.enforce_driving_side(side='left', margin=0.10)
+        except Exception:
+            # Fallback to a conservative default offset (meters)
+            try:
+                self.tm.global_lane_offset = -0.8
+            except Exception:
+                pass
+
+    def flip_world_infrastructure_for_lht(self):
+        """
+        **Usage**: Enable via environment variable FLIP_INFRASTRUCTURE=1
+        """
+        if not int(os.environ.get('FLIP_INFRASTRUCTURE', '0')):
+            return
+        
+        print("[INFO]: Flipping world infrastructure for left-hand traffic...")
+        
+        try:
+            world = self._world
+            blueprint_library = world.get_blueprint_library()
+            carla_map = world.get_map()
+            
+            relocated_count = 0
+            spawned_count = 0
+            self._flipped_actors = []  # Track spawned actors for cleanup
+            
+            # PART 1: Flip movable actors (traffic lights, stop, yield)
+            movable_types = ['traffic.traffic_light', 'traffic.stop', 'traffic.yield']
+            for actor in world.get_actors():
+                if any(t in actor.type_id for t in movable_types):
+                    try:
+                        t = actor.get_transform()
+                        # Mirror across Y-axis
+                        t.location.y *= -1
+                        # Rotate 180 degrees to face opposite direction
+                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
+                        actor.set_transform(t)
+                        relocated_count += 1
+                    except RuntimeError as e:
+                        print(f"[WARN]: Could not move {actor.type_id} ({actor.id}): {e}")
+            
+            # PART 2: Handle static landmarks (speed limit signs)
+            # OpenDRIVE landmark type 101 = speed limit signs
+            try:
+                speed_landmarks = carla_map.get_all_landmarks_of_type('101')
+                for lm in speed_landmarks:
+                    try:
+                        t = lm.transform
+                        # Mirror across Y-axis
+                        t.location.y *= -1
+                        # Rotate 180 degrees
+                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
+                        
+                        # Try to spawn new sign at flipped location
+                        value = lm.value if hasattr(lm, 'value') else None
+                        if value:
+                            bp_id = f"static.prop.speedlimit.{value}"
+                            try:
+                                speed_bp = blueprint_library.find(bp_id)
+                            except:
+                                speed_bp = blueprint_library.find("static.prop.speedlimit")
+                        else:
+                            speed_bp = blueprint_library.find("static.prop.speedlimit")
+                        
+                        new_sign = world.try_spawn_actor(speed_bp, t)
+                        if new_sign:
+                            spawned_count += 1
+                            self._flipped_actors.append(new_sign.id)
+                    except Exception as e:
+                        pass  # Fail silently for individual signs
+            except Exception as e:
+                print(f"[WARN]: Could not process speed limit signs: {e}")
+            
+            print(f"[INFO]: Infrastructure flip complete: {relocated_count} actors relocated, {spawned_count} signs spawned")
+            
+        except Exception as e:
+            print(f"[ERROR]: Failed to flip infrastructure: {e}")
+
+    def setup_left_hand_traffic(self):
+        """
+        Configure traffic manager for left-hand traffic (Japan/UK).
+        Ported from japanese_driving_autopilot_cameras_mp.py.
+        """
+        print("[INFO] Configuring Japanese-style (left-hand) traffic...")
+        
+        # Ensure traffic manager is available
+        if self.tm is None:
+            print("[INFO] Traffic manager not provided, getting default TM on port 8000...")
+            try:
+                # Traffic manager is accessed via client, not world
+                client = self._world.get_client() if hasattr(self._world, 'get_client') else None
+                if client:
+                    self.tm = client.get_trafficmanager(8000)
+                else:
+                    # Fallback: create new client connection
+                    client = carla.Client('localhost', 2000)
+                    client.set_timeout(10.0)
+                    self.tm = client.get_trafficmanager(8000)
+            except Exception as e:
+                print(f"[WARN] Could not get traffic manager: {e}")
+                return
+        
+        self.tm.set_global_distance_to_leading_vehicle(2.5)
+
+        # Compute and apply geometry-aware left-hand driving configuration
+        try:
+            # prefer to compute a safe offset using current map and default spawn point
+            self.enforce_driving_side(side='left', margin=0.10)
+        except Exception:
+            # Fallback to a conservative default offset (meters)
+            try:
+                self.tm.global_lane_offset = -0.8
+            except Exception:
+                pass
 
     def enforce_driving_side(self, side='left', margin=0.10):
         """

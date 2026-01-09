@@ -36,8 +36,8 @@ export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar)
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}" 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}"
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 
 # Activate conda environment
