@@ -634,4 +634,4 @@ STORAGE_KEY=$(az storage account keys list \
 
 info "Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --connection-string '$CONN_STR' --output table | head"
 
-# 1676260/19119761 friday 18:40
+# 1676260/19119761 friday 18:40git log -n 5
