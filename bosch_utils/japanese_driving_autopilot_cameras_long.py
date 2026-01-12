@@ -10,6 +10,7 @@ import carla
 import shutil
 import math
 import traceback
+# TODO clean 
 
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla"
 # export PYTHONPATH="${PYTHONPATH}:/path/to/carla/PythonAPI/carla/agents"

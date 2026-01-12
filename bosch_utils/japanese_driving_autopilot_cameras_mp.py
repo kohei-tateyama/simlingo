@@ -1,5 +1,6 @@
 # Copy of japanese_driving_autopilot_cameras_backup.py with added get_bounding_boxes() method from data_agent.py
 # This file adds ego_car dictionary and enriched bounding box information matching the simlingo training format
+# TODO clean 
 
 import carla
 import numpy as np

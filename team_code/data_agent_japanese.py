@@ -7,6 +7,7 @@ Combines:
 - 6-camera multi-view recording (F, B, RF, LF, RB, LB)
 - Output structure: database/simlingo_v2_2025_01_10/data/simlingo/{scenario}/{route_config}/{route_id}/
 """
+# TODO clean 
 
 import os
 import sys
@@ -139,9 +140,7 @@ class DataAgentJapanese(AutoPilot):
         if os.environ.get("SAVE_PATH", None) is not None:
             import pathlib
             base_path = pathlib.Path(os.environ["SAVE_PATH"])
-            # Allow explicit override of the target subdirectory (useful for tests)
             # Default: put outputs under training_3_scenarios/routes_devtest to avoid
-            # proliferating many top-level run folders.
             # If you want a custom path, set env var SAVE_SUBDIR (e.g. "training_3_scenarios/routes_devtest").
             save_subdir = os.environ.get('SAVE_SUBDIR', None)
 

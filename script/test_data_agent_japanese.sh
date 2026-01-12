@@ -20,7 +20,8 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
 export TEAM_CONFIG="data_collection"
-export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
+export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
+# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="0" # "3"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
@@ -33,11 +34,11 @@ export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar)
+# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 
 # Activate conda environment
