@@ -132,15 +132,15 @@ git log --oneline --decorate -n 5
 ```
 
 **This is a one only push quite useful right now.**
-**this this this**
 ```bash
 cd /workspace/simlingo
 git checkout feat/michele && git add -A # && git status --porcelain --branch
 # git commit -m "feat(michele): init comment Azure ML" || echo "No changes to commit" && git push myfork feat/michele
 git commit -m "feat(michele): major changes in the data collection folder" || echo "No changes to commit" && git push myfork feat/michele
-
-git checkout feat/michele && git add -A && git commit -m "feat(michele): major changes in the data collection folder" && git push myfork feat/michele
 ```
+Check (visually) the relationship between branches
+`git log --graph --oneline --all --decorate`
+
 To update also the branch `main` from the `feat/michele` one do
 ```bash
 git fetch myfork --prune # && git rev-list --left-right --count myfork/main...myfork/feat/michele
@@ -155,6 +155,17 @@ To switch back again to the feat/michele branch
 git stash push -m "wip: stash before switching to feat/michele" || true && git checkout feat/michele && git status --porcelain --branch && git branch -vv && git stash list -n 5
 ```
 ---
+
+**this this this this**
+```bash
+git checkout feat/michele && git add -A && git commit -m "feat(michele): major changes in the data collection folder" && git push myfork feat/michele ## use this one
+```
+```bash 
+git checkout main && \
+git merge --no-ff feat/michele -m "merge: bring feat/michele into main" && \
+git push myfork main && \
+git checkout feat/michele
+```
 
 ## NEW dataset (enriching the simlingo one)
 
@@ -204,11 +215,6 @@ Option B):
 B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
 B.2) Camera + Posiiton ordering strategy (rule based)
 
-## Useless stuff
-
-`ls -1 | head -n 5` # print he first 5 element in a folder 
-`ls -1A . | wc -l`  # Number of element in a fodler 
-
 
 ```bash
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27$ ll
@@ -223,18 +229,6 @@ drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 measurements/
 drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
 drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb_augmented/
 ```
-We reached the same lavel of precision now 
-```bash
-(simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_42$ du -sh ./rgb/0008/*
-56K     ./rgb/0008/B.jpg
-64K     ./rgb/0008/F.jpg
-64K     ./rgb/0008/LB.jpg
-64K     ./rgb/0008/LF.jpg
-108K    ./rgb/0008/patched.jpg
-60K     ./rgb/0008/RB.jpg
-64K     ./rgb/0008/RF.jpg
-```
-
 
 ```bash
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43$ ll
@@ -248,134 +242,10 @@ drwxrwsr-x   2 pim1yh workspace 12288 Dec 18 11:50 measurements/
 drwxrwsr-x 403 pim1yh workspace 12288 Dec 18 11:50 rgb/
 ```
 
-
 **To inspect the single file from simlingo**
+`load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/records.json.gz', max_len=300)`
 
-```bash
-(simlingo) pim1yh@YH0V0013:/workspace/simlingo$ python - <<'PY'
-from bosch_utils.tools.open_gz import load_and_print_fields
-const_print = 80
-dataset = '/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27'
-print('='*const_print)
-print('DATASET: records.json.gz')
-print('='*const_print)
-load_and_print_fields(f'{dataset}/records.json.gz', max_len=300)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-print('DATASET: results.json.gz')
-print('='*const_print)
-load_and_print_fields(f'{dataset}/results.json.gz', max_len=300)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-print('DATASET: measurements/0000.json.gz')
-print('='*const_print)
-load_and_print_fields(f'{dataset}/measurements/0000.json.gz', max_len=300)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-print('\n' + '='*const_print)
-PYad_and_print_fields(f'{dataset}/boxes/0000.json.gz', max_len=300)
-================================================================================
-DATASET: records.json.gz
-================================================================================
-Loaded dict from /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/records.json.gz
-- adv_actions: list -> []
-- ego_actions: list -> []
-- lights: list -> []
-- meta_data: dict -> {'index': '1000_route0_01_11_15_39_27', 'town': 'Carla/Maps/Town12/Town12'}
-- route: list -> []
-- states: list -> []
-DATASET: results.json.gz
-================================================================================
-Loaded dict from /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/results.json.gz
-- index: int -> 0
-- infractions: dict -> {'collisions_layout': [], 'collisions_pedestrian': [], 'collisions_vehicle': [], 'red_light': [], 'stop_infraction': [], 'outside_route_lanes': [], 'min_speed_infractions': ["Average speed is 97.31% of the surrounding traffic's one"], 'yield_emergency_vehicle_infractions': [], 'scenario_timeouts': [...
-- meta: dict -> {'route_length': 439.906, 'duration_game': 39.6, 'duration_system': 141.293}
-- num_infractions: int -> 1
-- route_id: str -> 'RouteScenario_0_rep0'
-- scores: dict -> {'score_route': 100, 'score_penalty': 0.99193, 'score_composed': 99.193}
-- status: str -> 'Completed'
-- timestamp: str -> '1000_route0_01_11_15_39_27'
-DATASET: measurements/0000.json.gz
-================================================================================
-Loaded dict from /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/measurements/0000.json.gz
-- aim_wp: list -> [7.378705206876038, -0.00012709464747341913]
-- angle: float -> -1.096546931563134e-05
-- augmentation_rotation: float -> -15.222332437390818
-- augmentation_translation: float -> -0.8530971161226294
-- brake: bool -> False
-- changed_route: bool -> False
-- command: int -> 4
-- control_brake: bool -> False
-- ego_matrix: list -> [[-0.5951623916625977, 0.8035978078842163, 0.0035044122487306595, -2275.373779296875], [-0.8035829067230225, -0.5951727032661438, 0.004898975137621164, 6309.81591796875], [0.0060225361958146095, 9.960005263565108e-05, 0.9999818801879883, 378.3406982421875], [0.0, 0.0, 0.0, 1.0]]
-- junction: bool -> False
-- light_hazard: bool -> False
-- next_command: int -> 4
-- pos_global: list -> [-2275.373779296875, 6309.81591796875]
-- route: list -> [[7.478716805209619, -0.00012369912461513493], [8.478832788545805, -8.974389348640526e-05], [9.488949931714822, -5.5449110123386955e-05], [10.488802448159113, -6.776019988571185e-05], [11.488644210850916, -8.195971122514634e-05], [12.488760194187103, -4.80044800959726e-05], [13.488876177523291, -1.4...
-- route_original: list -> [[7.478716805209619, -0.00012369912461513493], [8.478832788545805, -8.974389348640526e-05], [9.488949931714822, -5.5449110123386955e-05], [10.488802448159113, -6.776019988571185e-05], [11.488644210850916, -8.195971122514634e-05], [12.488760194187103, -4.80044800959726e-05], [13.488876177523291, -1.4...
-- speed: float -> 0.1740161031484604
-- speed_limit: float -> 33.333333333333336
-- speed_reduced_by_obj_distance: NoneType -> None
-- speed_reduced_by_obj_id: NoneType -> None
-- speed_reduced_by_obj_type: NoneType -> None
-- steer: float -> -0.0
-- stop_sign_close: bool -> False
-- stop_sign_hazard: bool -> False
-- target_point: list -> [168.90193579747168, -0.0002916067529178161]
-- target_point_next: list -> [243.8184293176737, -0.00041259032663154083]
-- target_speed: float -> 20.0
-- theta: float -> -2.208277364565303
-- throttle: float -> 1.0
-- vehicle_affecting_id: NoneType -> None
-- vehicle_hazard: bool -> False
-- walker_affecting_id: NoneType -> None
-- walker_close: bool -> False
-- walker_close_id: NoneType -> None
-- walker_hazard: bool -> False
-
-================================================================================
-DATASET: boxes/0000.json.gz
-================================================================================
-Loaded list from /workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27/boxes/0000.json.gz
-List with 3 items. Sample:
- [0] {'class': 'ego_car', 'extent': [2.44619083404541, 0.9183566570281982, 0.7451388239860535], 'position': [0.0, 0.0, 0.0], 'yaw': 0.0, 'num_points': -1, 'distance': -1, 'speed': 0.00012899417989230066, 'brake': 0.0, 'id': 3695, 'matrix': [[-0.5951623916625977, 0.8035978078842163, 0.0035044122487306595,...
- [1] {'class': 'weather', 'cloudiness': 20.0, 'dust_storm': 0.0, 'fog_density': 2.0, 'fog_distance': 0.0, 'fog_falloff': 0.0, 'mie_scattering_scale': 0.0, 'precipitation': 80.0, 'precipitation_deposits': 20.0, 'rayleigh_scattering_scale': 0.03310000151395798, 'scattering_intensity': 0.0, 'sun_altitude_an...
- [2] {'class': 'ego_info', 'scenario': 'random_weather_seed_1_balanced_150', 'traffic_light_state': 'None', 'distance_to_junction': 170.00079345703125, 'ego_lane_number': 2, 'road_id': 625, 'lane_id': 4, 'is_in_junction': False, 'is_intersection': False, 'junction_id': -1, 'next_road_junction': True, 'ne...
-(simlingo) pim1yh@YH0V0013:/workspace/simlingo$ 
-```
-
-
-**To compare the same structure** 
-```bash
-python - <<'PY'
-from bosch_utils.tools.open_gz import load_and_print_fields
-print('='*60)
-print('DATASET: records.json.gz')
-print('='*60)
-load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/records.json.gz', max_len=300)
-print('\n' + '='*60)
-print('OUR RECORDING: records.json.gz')
-print('='*60)
-load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43/records.json.gz', max_len=300)
-print('\n' + '='*60)
-print('DATASET: results.json.gz')
-print('='*60)
-load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/results.json.gz', max_len=300)
-print('\n' + '='*60)
-print('OUR RECORDING: results.json.gz')
-print('='*60)
-load_and_print_fields('/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43/results.json.gz', max_len=300)
-PY
-```
-
-
-
-
-
-
-**About the commentary**
+## About the commentary
 
 to compare the content of all the `*.json.gz`, we use `open_gz.py`, `compare_structure.py` and `imgs_features.py`. I am investigating this here.
 ```bash
@@ -580,9 +450,13 @@ nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,nohead
   printf "%s\t%s\t%4s MiB\t(%s%%)\n" "$pid" "$name" "$used" "$pct"
 done
 ```
-- When `code` for opening imgs does not work, refresh the terminal
-`export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
 
-- One-liner for opening multiple `.jpg` from the `rgb/` folder
+- Bash utils
+When `code` for opening imgs does not work, refresh the terminal
+`export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
+One-liner for opening multiple `.jpg` from the `rgb/` folder
 `for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
 `for ((i=0;i<=798;i+=30)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+30))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
+`for ((i=0;i<=19157;i+=1300)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+1300))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
+One-liner to count the elements inside any folder 
+`find . -mindepth 1 -maxdepth 1 | wc -l`
