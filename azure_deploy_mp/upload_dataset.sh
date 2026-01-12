@@ -314,7 +314,6 @@
 # echo "Datastore name: simlingo_datastore"
 # echo ""
 # info "Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --connection-string '$CONN_STR' --output table | head"
-# # echo "Storage cost: ~\$15.57/month for 846GB"
 
 
 ###################################### zipping the dataset uploading and unzipping them.
@@ -473,13 +472,10 @@ echo "Starting upload at $(date)"
 echo "TIP: Run this in tmux/screen to avoid interruption"
 echo ""
 
-# target paths in container follow manual_sven.md: datasets/processed/<dataset>
-# Use processed/ since this is training-ready data (already collected/formatted)
 MAIN_DST_PATH="datasets/processed/simlingo_v2_2025_01_10"
 BUCKETS_DST_PATH="datasets/processed/bucketsv2_simlingo"
 
 echo "Uploading simlingo_v2_2025_01_10 to ${BLOB_URL}/${MAIN_DST_PATH}"
-
 # If TAR_AND_UPLOAD is enabled, create tarball and upload single blob for faster transfer
 if [ "$TAR_AND_UPLOAD" = "true" ]; then
   MAIN_TAR="$TMP_WORKDIR/simlingo_v2_2025_01_10.tar.gz"
@@ -611,15 +607,6 @@ else
   echo "TAR_AND_UPLOAD disabled for buckets — falling back to directory upload logic"
 fi
 
-# # Upload ours dataset
-# echo "Uploading xml_recording_japan (ours)..."
-# azcopy copy \
-#   "$DATASET_DIR/xml_recording_japan" \
-#   "${BLOB_URL}/xml_recording_japan?${SAS_TOKEN}" \
-#   --recursive \
-#   --log-level=INFO
-
-#####
 
 info "[Step 6]: Registering Datastore in Azure ML"
 
@@ -627,9 +614,6 @@ STORAGE_KEY=$(az storage account keys list \
   --account-name "$STORAGE_ACCOUNT" \
   --resource-group "$STORAGE_RESOURCE_GROUP" \
   --query '[0].value' -o tsv)
-
-# Create datastore via Python SDK
-# https://learn.microsoft.com/en-us/azure/machine-learning/how-to-datastore?view=azureml-api-2&tabs=sdk-identity-based-access%2Csdk-adls-identity-access%2Csdk-azfiles-accountkey%2Csdk-adlsgen1-identity-access%2Csdk-onelake-identity-access
 
 
 info "Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --container-name $CONTAINER_NAME --connection-string '$CONN_STR' --output table | head"

@@ -3,8 +3,7 @@
 # Shared UI helpers for azure_deploy_mp scripts
 print_sep(){
     n=${1:-80}
-    printf '%*s
-' "$n" '' | tr ' ' '='
+    printf '%*s\n' "$n" '' | tr ' ' '='
 }
 
 info_n(){

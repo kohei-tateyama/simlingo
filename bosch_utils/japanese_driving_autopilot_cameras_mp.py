@@ -142,10 +142,6 @@ class JapaneseStyleAutopilot:
             spawn_idx (int): Spawn point index to use (None = use route default).
         """
 
-        print(f"[DEBUG MP INIT] JapaneseStyleAutopilot.__init__() starting for town={town}", flush=True)
-        # print('[WARNING]: If using imgs.PNG the fps is ~HALF fps OF THE ONE SET for each camera. This is half of the speed in which simlingo was running')
-        # print('[INFO]: If using imgs.JPG the fps is THE ONE SET for each camera. This is half of the speed in which simlingo was running')
-
         # Connect to CARLA
         print(f"[INFO]: Connecting to CARLA server on localhost:{port_localhost}...", flush=True)
         self.client = carla.Client('localhost', port_localhost)
@@ -160,7 +156,6 @@ class JapaneseStyleAutopilot:
         self.fps = 20.0
         self.num_imgs_per_frame = num_imgs_per_frame
         self.sleep_interval = 1.0 / self.fps
-        # Spawn point override (None = use route default)
         self.spawn_idx = spawn_idx
         # Enable or disable per-callback debug logging (can be noisy at high FPS)
         self._callback_debug = bool(callback_debug)
@@ -168,18 +163,14 @@ class JapaneseStyleAutopilot:
         self.port_traffic = port_traffic
 
         print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s', flush=True)
-        print("[INFO]: Selecting world on server (prefer current world; use --force-load to override)...", flush=True)
-        print("[INFO]: Calling client.get_world() - this may take 10-30s on first call...", flush=True)
-
         # If a world is already loaded on the server, prefer using it to avoid heavy reloads
         try:
-            print(f"[DEBUG MP] About to call self.client.get_world()...", flush=True)
+            print(f"[DEBUG MP] About to call self.client.get_world()... 10-30s on first call ...", flush=True)
             current_world = self.client.get_world()
             print(f"[INFO]: client.get_world() returned successfully", flush=True)
             current_map_name = getattr(current_world.get_map(), 'name', '')
             if current_map_name:
                 print(f"[INFO]: Server already has map loaded: {current_map_name}", flush=True)
-                # Check if the loaded map matches the requested town
                 if self.town in current_map_name:
                     print(f"[INFO]: Current map matches requested town '{self.town}' — using it", flush=True)
                     self.world = current_world
@@ -192,7 +183,6 @@ class JapaneseStyleAutopilot:
             else:
                 skip_load = False
         except Exception as e:
-            print(f"[ERROR MP] Exception during get_world(): {e}", flush=True)
             skip_load = False
 
         # If user explicitly wants to force a map load, set FORCE_LOAD env var or pass --force-load
@@ -200,10 +190,9 @@ class JapaneseStyleAutopilot:
 
         print(f"[DEBUG MP] skip_load={skip_load}, FORCE_LOAD={FORCE_LOAD}", flush=True)
         if not skip_load and not FORCE_LOAD:
-            print(f"[DEBUG MP] Need to load map, getting available maps...", flush=True)
             try:
                 available_maps = self.client.get_available_maps()
-                print(f"[DEBUG MP] Available maps: {available_maps}", flush=True)
+                # print(f"[DEBUG MP] Available maps: {available_maps}", flush=True)
             except Exception:
                 available_maps = []
 
@@ -213,7 +202,6 @@ class JapaneseStyleAutopilot:
                     preferred_map = m
                     break
 
-            print(f"[DEBUG MP] preferred_map={preferred_map}", flush=True)
             if preferred_map is not None:
                 map_to_load = preferred_map
                 print(f"[INFO]: Found server map: {preferred_map} — will attempt to load it", flush=True)
@@ -224,23 +212,17 @@ class JapaneseStyleAutopilot:
                 map_to_load = self.town
                 print(f"[WARNING]: No maps reported by server; would try short name '{self.town}' if forced", flush=True)
 
-            # We will not call load_world by default to avoid crashes — prefer using current world.
-            # If no world was set above, fall back to attempting load with retries.
-            print(f"[DEBUG MP] hasattr(self, 'world')={hasattr(self, 'world')}", flush=True)
             if not hasattr(self, 'world'):
-                print(f"[DEBUG MP] About to load world: {map_to_load}", flush=True)
                 max_attempts = 2  # Reduce attempts to fail faster
                 attempt = 0
                 last_exc = None
                 while attempt < max_attempts:
                     try:
-                        print(f"[DEBUG MP] Calling self.client.load_world('{map_to_load}') attempt {attempt+1}/{max_attempts}...", flush=True)
-                        # Increase client timeout temporarily for map loading (can take 30-60s for large maps)
                         self.client.set_timeout(60.0)
                         self.world = self.client.load_world(map_to_load)
                         # Restore normal timeout
                         self.client.set_timeout(self.client_timout_carla)
-                        print(f"[DEBUG MP] load_world() completed successfully!", flush=True)
+                        print(f"[INFO] load_world() completed successfully!", flush=True)
                         if self.world is None:
                             raise RuntimeError("load_world() returned None")
                         break
@@ -255,38 +237,40 @@ class JapaneseStyleAutopilot:
 
                 if not hasattr(self, 'world') or self.world is None:
                     error_msg = f"Failed to load map '{map_to_load}' after {max_attempts} attempts. Last error: {last_exc}"
-                    print(f"[ERROR MP]: {error_msg}", flush=True)
+                    print(f"[ERROR]: {error_msg}", flush=True)
                     raise RuntimeError(error_msg)
 
-        print(f"[DEBUG MP] World object obtained, waiting 1s...", flush=True)
         time.sleep(1)
-        
+        print("")
+        print('=' * self.print_length, flush=True)
+        print('[INFO]: Setting the Japanese world configuration...', flush=True)
         # Get traffic manager
-        print(f"[DEBUG MP] Getting traffic manager on port {self.port_traffic}...", flush=True)
+        print(f"[DEBUG] Getting traffic manager on port {self.port_traffic}...", flush=True)
         try:
             self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
-            print(f"[DEBUG MP] Traffic manager obtained successfully", flush=True)
+            print(f"[INFO] Traffic manager obtained successfully", flush=True)
         except Exception as e:
-            print(f"[ERROR MP] Failed to get traffic manager: {e}", flush=True)
+            print(f"[ERROR] Failed to get traffic manager: {e}", flush=True)
             raise
         
         # Setup Japanese-style traffic
-        print(f"[DEBUG MP] Setting up left-hand traffic...", flush=True)
+        print(f"[DEBUG] Setting up left-hand traffic...", flush=True)
         try:
             self.setup_left_hand_traffic()
-            print(f"[DEBUG MP] Left-hand traffic setup complete", flush=True)
+            print(f"[INFO] Left-hand traffic setup complete", flush=True)
         except Exception as e:
-            print(f"[ERROR MP] Failed to setup left-hand traffic: {e}", flush=True)
+            print(f"[ERROR] Failed to setup left-hand traffic: {e}", flush=True)
             raise
         
-        print(f"[DEBUG MP] Flipping world infrastructure...", flush=True)
+        print(f"[DEBUG] Flipping world infrastructure...", flush=True)
         try:
             self.flip_world_infrastructure_for_lht()
-            print(f"[DEBUG MP] Infrastructure flip complete", flush=True)
+            print(f"[DEBUG] Infrastructure flip complete", flush=True)
         except Exception as e:
-            print(f"[ERROR MP] Failed to flip infrastructure: {e}", flush=True)
+            print(f"[ERROR] Failed to flip infrastructure: {e}", flush=True)
             raise
-
+        print('=' * self.print_length, flush=True)
+        print("")
         # Weather (optional): apply chosen CARLA weather preset if provided
         self.weather = weather
         if self.weather:
@@ -311,9 +295,8 @@ class JapaneseStyleAutopilot:
         self.player_vehicle = None
         self.recording_data = []
         
-        # Cache for get_bounding_boxes() to avoid slow get_actors() every frame
         self._actors_cache = None
-        self._actors_cache_frame = -999  # Frame number when cache was last updated
+        self._actors_cache_frame = -999   # Frame number when cache was last updated
         self._actors_cache_interval = 10  # Update cache every N frames (at 20fps = every 0.5s)
         
         # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -350,25 +333,20 @@ class JapaneseStyleAutopilot:
         os.makedirs(os.path.join(self.folderpath, 'left_signal'), exist_ok=True)
         self.last_image_filename = None
         self.sensors = []
-        # Match training data image size: 1024x512
+
         self.image_size_x = 1024
         self.image_size_y = 512
         self.last_seg_meta = None
-        # Frame counter for sequential naming (0000, 0001, ...)
-        self.frame_counter = 0
-        # Track which cameras have produced images for each frame
-        self.frame_camera_counts = {}
-        # Shutdown coordination flag
+        self.frame_counter = 0 # sequential naming (0000, 0001, ...)
+        self.frame_camera_counts = {} # Track which cameras have produced images 
         self._stopping = False
-        # Warmup: skip first N frames to let cameras stabilize
-        self._warmup_frames = 5
+        self._warmup_frames = 5 # Warmup camera: skip first N frames to stabilize
         self._ready_to_record = False
         # Per-camera priming: require each camera to produce a valid image before recording
         self._camera_primed = { 'F': False, 'B': False, 'RF': False, 'LF': False, 'RB': False, 'LB': False }
         # Max time to wait for priming (seconds) before falling back
         self._priming_timeout = 3.0
-        # Buffer for images: frame_num -> {camera_name: ndarray}
-        self._image_buffer = {}
+        self._image_buffer = {} # Buffer for images {camera_name: ndarray}
         self._buffer_lock = threading.Lock()
         # Event signaled when we have seen and written a full 6-camera frame
         self._complete_frame_event = threading.Event()
