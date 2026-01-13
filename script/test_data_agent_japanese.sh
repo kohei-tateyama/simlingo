@@ -37,12 +37,16 @@ export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+
+# CARLA port (can be overridden by environment before running the script)
+export PORT_CARLA=${PORT_CARLA:-2000}
+# Traffic Manager port (can be overridden)
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
+
 # Checkpoint file for leaderboard (also exported so agents can read it)
 CHECKPOINT_FILENAME="results_japanese_test.json"
 export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
-
-# TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -141,7 +145,7 @@ start_carla() {
     fi
 
     sep
-    info "Starting CARLA 0.9.15 HEADLESS on port 2000"
+    info "Starting CARLA 0.9.15 HEADLESS on port ${PORT_CARLA}"
     sep
 
     # Remove any existing container
@@ -158,7 +162,7 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
         carla-bench2drive:0.9.15 \
-        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
+        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
     info "Waiting 80s for CARLA to start..."
     sleep 80
@@ -221,7 +225,7 @@ run_leaderboard() {
 
     info "Agent    : ${TEAM_AGENT}"
     info "Routes   : routes_devtest.xml"
-    info "Port     : 2000"
+    info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
     sep
 
@@ -229,7 +233,7 @@ run_leaderboard() {
     info "Running single route"
 
     # Build leaderboard arguments and only include --routes-subset when explicitly set and not '0'
-    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=2000 --traffic-manager-port=8000)
+    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
         LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
     fi
@@ -243,41 +247,27 @@ run_leaderboard() {
     local exit_code=$?
 
     sep
+    
     if [ $exit_code -eq 0 ]; then
         info "Leaderboard evaluation completed successfully!"
     else
-        # If leaderboard failed (possibly due to timeout), try to show saved results.json.gz (if any)
-        info "Leaderboard exited with code $exit_code — attempting to display saved results.json.gz (if any)"
-        FOUND_RESULTS=0
+        info "Leaderboard exited with code $exit_code — attempting to find agent outputs (results.json.gz / records.json.gz)"
+        FOUND_OUTPUT=0
+        # Print any results.json.gz we can find
         for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
             info "Found results file: $f"
             if command -v gzip >/dev/null 2>&1; then
                 gzip -dc "$f" | python -m json.tool || true
-            else
-                echo "(gzip not available) Showing raw file path: $f"
             fi
-            FOUND_RESULTS=1
+            FOUND_OUTPUT=1
         done
-        if [ $FOUND_RESULTS -eq 0 ]; then
-            info "No results.json.gz found under ${SAVE_PATH}"
-        fi
 
-        # If the agent's signal handler saved output files, treat run as success.
-        FOUND_OUTPUT=0
-
-        # Look for results.json.gz or records.json.gz anywhere under SAVE_PATH within a reasonable depth
-        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
-            FOUND_OUTPUT=1
-        elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
-            FOUND_OUTPUT=1
-        fi
-
-        if [ $FOUND_OUTPUT -eq 1 ]; then
+        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q . || \
+           find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
             warn "Process exited with code ${exit_code} but found saved output files — treating as success"
             exit_code=0
         elif [ $exit_code -eq 124 ]; then
             warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - waiting up to 30s for agent to flush results.json.gz"
-            # Give the agent a short grace period to write results after receiving SIGTERM
             waited=0
             while [ $waited -lt 30 ]; do
                 if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then

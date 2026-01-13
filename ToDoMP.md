@@ -39,7 +39,7 @@ sudo chmod 755 /workspace/simlingo/mp_push_simple.sh \
 	/workspace/simlingo/how_to_run_headless.sh \
 	/workspace/simlingo/japanese_driving_autopilot.py
 ```
-Also, I did 
+Also,  
 ```bash 
 sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /workspace/simlingo/.gitignorethe 
 sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py

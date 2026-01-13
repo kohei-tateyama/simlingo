@@ -211,7 +211,7 @@ PY
     fi
 
     sep
-    info "CARLA ready! ✓"
+    info "CARLA ready!"
     sep
 }
 
@@ -235,7 +235,6 @@ run_leaderboard() {
     info "Running single route"
 
     # Build leaderboard arguments, only include --routes-subset when explicitly set and not '0'
-    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=results_japanese_test.json --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
         LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
