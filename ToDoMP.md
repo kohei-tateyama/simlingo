@@ -21,13 +21,12 @@ Use the checklist below to track progress on finishing `japanese_driving_autopil
 
 ## Quick Commands
 
-Run (refer to the `run_carla_mp_pilot.sh`):
+Run (refer to single test for the data collection):
 
 ```bash
-bash run_carla_mp_pilot.sh --mode autopilot --duration 30 --route highway # autopilot 30 sec onto highway 
-bash run_carla_mp_pilot.sh --mode autopilot --autopilot-all  # all autopilot variations
-bash run_carla_mp_pilot.sh --mode evaluation --duration 120 --route urban # simlingo agent 
-bash run_carla_mp_pilot.sh --mode both --duration 120 --route urban # simlingo agent + autopilot 
+bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 15 --route urban --town Town13 --weather SoftRainNight --spawn-index 12 --autopilot-long --fps 20 # running a left hand driving GLOBAL PLANNER using 6 cameras 
+bash script/test_data_agent_japanese.sh # running a left hand driving LEADERBOARD AGENT using 6 cameras 
+bash script/test_data_agent_multicamera.sh # running a RIGHT hand driving LEADERBOARD AGENT using 6 cameras 
 ```
 
 Change ownership of helper scripts to `pim1yh` (requires sudo):
@@ -295,6 +294,56 @@ drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:45 drivelm
     }
 ```
 
+
+### The leaderbaord output 
+
+After any COMPLETED run, the leaderboard returs this statics. 
+
+I do not remeber what but we needed to force something to be set as successfull when using the timeout. 
+Maybe, whne using the timeout, we are able to print this Results of RouteScenario_0, can we enforce the leaderboard to still print this ?
+
+```bash
+=== [Agent] -- Wallclock = 2026-01-13 00:41:10.795 -- System time = 45034.792 -- Game time = 4518.000 -- Ratio = 0.100x
+> Stopping the route
+
+========= Results of RouteScenario_0 (repetition 0) ------ FAILURE =========
+
+╒═══════════════════════╤═════════════════════╕
+│ Start Time            │ 2026-01-12 12:10:35 │
+├───────────────────────┼─────────────────────┤
+│ End Time              │ 2026-01-13 00:41:12 │
+├───────────────────────┼─────────────────────┤
+│ System Time           │ 45036.39s           │
+├───────────────────────┼─────────────────────┤
+│ Game Time             │ 4518.0s             │
+├───────────────────────┼─────────────────────┤
+│ Ratio (Game / System) │ 0.1                 │
+╘═══════════════════════╧═════════════════════╛
+
+╒═══════════════════════╤═════════╤══════════╕
+│ Criterion             │ Result  │ Value    │
+├───────────────────────┼─────────┼──────────┤
+│ RouteCompletionTest   │ SUCCESS │ 100 %    │
+├───────────────────────┼─────────┼──────────┤
+│ OutsideRouteLanesTest │ FAILURE │ 0 %      │
+├───────────────────────┼─────────┼──────────┤
+│ CollisionTest         │ FAILURE │ 11 times │
+├───────────────────────┼─────────┼──────────┤
+│ RunningRedLightTest   │ SUCCESS │ 0 times  │
+├───────────────────────┼─────────┼──────────┤
+│ RunningStopTest       │ FAILURE │ 1 times  │
+├───────────────────────┼─────────┼──────────┤
+│ MinSpeedTest          │ SUCCESS │ 110.55 % │
+├───────────────────────┼─────────┼──────────┤
+│ InRouteTest           │ SUCCESS │          │
+├───────────────────────┼─────────┼──────────┤
+│ AgentBlockedTest      │ SUCCESS │          │
+├───────────────────────┼─────────┼──────────┤
+│ ScenarioTimeoutTest   │ FAILURE │ 13 times │
+├───────────────────────┼─────────┼──────────┤
+│ Timeout               │ SUCCESS │          │
+╘═══════════════════════╧═════════╧══════════╛
+```
 
 ### To move data out of this machine to my windows cetricx
 `scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"`

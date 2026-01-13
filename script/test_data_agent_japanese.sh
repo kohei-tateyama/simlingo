@@ -16,7 +16,6 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 
 
 # Data collection settings
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
 export TEAM_CONFIG="data_collection"
@@ -32,14 +31,18 @@ export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure
 
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml" # used two times 
+# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml" 
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+# Checkpoint file for leaderboard (also exported so agents can read it)
+CHECKPOINT_FILENAME="results_japanese_test.json"
+export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
 
+# TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -225,26 +228,16 @@ run_leaderboard() {
     # Agent has signal handler to gracefully save files on timeout
     info "Running single route"
 
+    # Build leaderboard arguments and only include --routes-subset when explicitly set and not '0'
+    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=2000 --traffic-manager-port=8000)
+    if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
+        LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
+    fi
+
     if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-        python leaderboard/leaderboard_evaluator.py \
-        --routes=${ROUTES} \
-        --routes-subset=0 \
-        --repetitions=1 \
-        --agent=${TEAM_AGENT} \
-        --agent-config=${TEAM_CONFIG} \
-        --checkpoint=results_japanese_test.json \
-        --port=2000 \
-        --traffic-manager-port=8000
+        python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
     else
-        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
-            --routes=${ROUTES} \
-            --routes-subset=0 \
-            --repetitions=1 \
-            --agent=${TEAM_AGENT} \
-            --agent-config=${TEAM_CONFIG} \
-            --checkpoint=results_japanese_test.json \
-            --port=2000 \
-            --traffic-manager-port=8000
+        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
     fi
 
     local exit_code=$?
@@ -253,6 +246,22 @@ run_leaderboard() {
     if [ $exit_code -eq 0 ]; then
         info "Leaderboard evaluation completed successfully!"
     else
+        # If leaderboard failed (possibly due to timeout), try to show saved results.json.gz (if any)
+        info "Leaderboard exited with code $exit_code — attempting to display saved results.json.gz (if any)"
+        FOUND_RESULTS=0
+        for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
+            info "Found results file: $f"
+            if command -v gzip >/dev/null 2>&1; then
+                gzip -dc "$f" | python -m json.tool || true
+            else
+                echo "(gzip not available) Showing raw file path: $f"
+            fi
+            FOUND_RESULTS=1
+        done
+        if [ $FOUND_RESULTS -eq 0 ]; then
+            info "No results.json.gz found under ${SAVE_PATH}"
+        fi
+
         # If the agent's signal handler saved output files, treat run as success.
         FOUND_OUTPUT=0
 
@@ -267,8 +276,21 @@ run_leaderboard() {
             warn "Process exited with code ${exit_code} but found saved output files — treating as success"
             exit_code=0
         elif [ $exit_code -eq 124 ]; then
-            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - no output files found"
-            # Keep exit_code non-zero so callers can detect timeout without saved output
+            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - waiting up to 30s for agent to flush results.json.gz"
+            # Give the agent a short grace period to write results after receiving SIGTERM
+            waited=0
+            while [ $waited -lt 30 ]; do
+                if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
+                    warn "Found results.json.gz after timeout — treating as success"
+                    exit_code=0
+                    break
+                fi
+                sleep 1
+                waited=$((waited+1))
+            done
+            if [ $exit_code -ne 0 ]; then
+                warn "No output files found after waiting ${waited}s"
+            fi
         else
             warn "Leaderboard exited with code $exit_code"
         fi

@@ -1587,6 +1587,31 @@ class DataAgentMulticamera(AutoPilot):
         finally:
             os._exit(0)  # Force immediate exit without cleanup
 
+    def _try_load_leaderboard_checkpoint(self):
+        """
+        Attempt to read the leaderboard checkpoint JSON pointed by env LEADERBOARD_CHECKPOINT
+        and extract the matching route record for the current `route_id_export` if present.
+        Returns a dict or None.
+        """
+        try:
+            cp_path = os.environ.get('LEADERBOARD_CHECKPOINT', None)
+            if not cp_path:
+                return None
+            if not os.path.exists(cp_path):
+                return None
+            with open(cp_path, 'r') as f:
+                data = json.load(f)
+            # checkpoint format: { 'global_record': ..., 'progress': ..., 'records': [...] }
+            records = data.get('records', []) if isinstance(data, dict) else []
+            target_id = getattr(self, 'route_id_export', getattr(self, 'route_id', None))
+            for r in records:
+                # route_id in checkpoint might be string like 'RouteScenario_0_rep0' or similar
+                if r.get('route_id') == target_id or r.get('route_id') == getattr(self, 'route_id', None):
+                    return r
+            return None
+        except Exception:
+            return None
+
     def destroy(self, results=None):
         """
         Clean up and save final results.json.gz.
@@ -1646,24 +1671,32 @@ class DataAgentMulticamera(AutoPilot):
                 except Exception:
                     duration_system = 0.0
 
-                results_data = {
-                    'timestamp': getattr(self, 'route_id', ''),
-                    'index': 0,
-                    'route_id': getattr(self, 'route_id_export', getattr(self, 'route_id', 'unknown')),
-                    'status': 'Completed' if hasattr(self, '_stopping') and self._stopping else 'Timeout',
-                    'num_infractions': 0,
-                    'infractions': infractions_template,
-                    'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
-                    'meta': {
-                        'route_length': route_length,
-                        'duration_game': duration_system,
-                        'duration_system': duration_system
+                # Prefer checkpoint record from leaderboard if available
+                cp_record = self._try_load_leaderboard_checkpoint()
+                if cp_record is not None:
+                    # Write the checkpoint record as results
+                    with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                        json.dump(cp_record, f, indent=4, ensure_ascii=False)
+                    print(f"[DATA_AGENT_MULTICAMERA] Wrote results.json.gz from leaderboard checkpoint (route_id={cp_record.get('route_id')})")
+                else:
+                    results_data = {
+                        'timestamp': getattr(self, 'route_id', ''),
+                        'index': 0,
+                        'route_id': getattr(self, 'route_id_export', getattr(self, 'route_id', 'unknown')),
+                        'status': 'Completed' if hasattr(self, '_stopping') and self._stopping else 'Timeout',
+                        'num_infractions': 0,
+                        'infractions': infractions_template,
+                        'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
+                        'meta': {
+                            'route_length': route_length,
+                            'duration_game': duration_system,
+                            'duration_system': duration_system
+                        }
                     }
-                }
 
-                with gzip.open(results_path, 'wt', encoding='utf-8') as f:
-                    json.dump(results_data, f, indent=4, ensure_ascii=False)
-                print(f"[DATA_AGENT_MULTICAMERA] Wrote synthesized results.json.gz (route_id={results_data['route_id']})")
+                    with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                        json.dump(results_data, f, indent=4, ensure_ascii=False)
+                    print(f"[DATA_AGENT_MULTICAMERA] Wrote synthesized results.json.gz (route_id={results_data['route_id']})")
             except Exception as e:
                 print(f"[WARN] Failed to synthesize results.json.gz in destroy(): {e}")
 
