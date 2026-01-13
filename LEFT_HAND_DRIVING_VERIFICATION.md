@@ -53,8 +53,7 @@ Purpose: Verify that left-hand (Japanese) driving is correctly configured across
 - Logs warnings for back-facing lights (potential missed detections)
 - Uses map topology to infer correct light state even when visual is obscured
 - **Limitation**: Does not solve training data quality issue; vision models still see wrong angles
-2) [REAL] `flip_world_infrastructure_for_lht()`
- `export FLIP_INFRASTRUCTURE=1`**.
+2) [REAL] `flip_world_infrastructure_for_lht()` via `export FLIP_INFRASTRUCTURE=1`.
 1. Movable actors (traffic lights, stop/yield): Mirror Y-position and rotate 180°
 2. Static landmarks (speed limit signs): Spawn new actors at mirrored positions
 3. Tracks spawned actors in `self._flipped_actors` for cleanup
@@ -102,7 +101,7 @@ dataset/
   - `state`: Traffic light state ("Red", "Green", "Yellow", "Unknown", "N/A" for signs)
   - `approaching_from`: **"front"** (visible), **"side"** (poor angle), **"back"** (**NOT visible**), or **"unknown"**
 
-**CRITICAL UNDERSTANDING: Approaching from Back**
+**CRITICAL: Approaching from Back**
 
 When `approaching_from: "back"` (or `facing_dot < -0.3`):
 - **Traffic Lights**: Camera images show **ONLY the metal housing and wiring on the back**—colored lens (red/green/yellow) is **NOT VISIBLE**
@@ -290,10 +289,6 @@ Not suitable for:
 
 
 
-
-
-
-
 ---
 ---
 
@@ -302,7 +297,7 @@ Not suitable for:
 ## Own pipeline
 
 ```bash
-script/run_carla_mp_pilot_script.sh --mode autopilot --duration 5 --route urban --town Town02 --weather SoftRainNight --spawn-index 12 --autopilot-long --fps 20
+bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 5 --route urban --town Town02 --weather SoftRainNight --spawn-index 12 --autopilot-long --fps 20
 
 <...>
 

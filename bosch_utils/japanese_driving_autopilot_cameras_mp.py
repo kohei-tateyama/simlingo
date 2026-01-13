@@ -18,9 +18,26 @@ import gzip
 from PIL import Image as PILImage
 import math
 import yaml
-
 from pathlib import Path
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH
+
+# from simlingo.bosch_utils.config import (
+#     cfg,
+#     RECORDING_OUTPUT_DIR,
+#     IMAGE_FORMAT,
+#     IMAGE_EXT,
+#     JPG_QUALITY,
+#     PNG_COMPRESS_LEVEL,
+#     SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH, GLOBAL_LANE_OFFSET,
+#     SET_GLOBAL_DISTANCE_TO_LEADING_VEHICLE,
+#     MARGIN, DEFAULT_LANE_W, DEFAULT_VEHICLE_HALF_W,
+#     MIN_SAFE_DISTANCE_SAFE, MAX_SAFE_DISTANCE_SAFE,
+#     MAX_DISTANCE_SAFE, MIN_DISTANCE_SAFE,
+#     MAX_DETECT_INFRASTRUCTURE_OFFSET, MIN_NORMALIZATION_SCALE,
+#     OFFSET_1, OFFSET_2, SAMPLING_RESOLUTION,
+#     AVERAGE_SPEEDS_MPS, MIN_DISTANCE_TARGET, MAX_DISTANCE_TARGET,
+#     NEARBY_POINTS
+# )
 
 
 def _resolve_weather_param(name: str):
@@ -342,34 +359,24 @@ class JapaneseStyleAutopilot:
         self._stopping = False
         self._warmup_frames = 5 # Warmup camera: skip first N frames to stabilize
         self._ready_to_record = False
-        # Per-camera priming: require each camera to produce a valid image before recording
         self._camera_primed = { 'F': False, 'B': False, 'RF': False, 'LF': False, 'RB': False, 'LB': False }
-        # Max time to wait for priming (seconds) before falling back
-        self._priming_timeout = 3.0
+        self._priming_timeout = 3.0 # Max time to wait for priming (seconds) before falling back
         self._image_buffer = {} # Buffer for images {camera_name: ndarray}
         self._buffer_lock = threading.Lock()
-        # Event signaled when we have seen and written a full 6-camera frame
-        self._complete_frame_event = threading.Event()
-        # Count how many full frames have been observed (writer increments)
-        self._complete_frame_count = 0
-        # How many full frames to wait for before enabling autopilot
-        self._required_full_frames = 1
-        # Track last seen time per frame to implement timeout flush
-        self._last_frame_seen_time = {}
+        self._complete_frame_event = threading.Event() # Event signaled when we have seen and written a full 6-camera frame
+        self._complete_frame_count = 0 # Count how many full frames have been observed (writer increments)
+        self._required_full_frames = 1 # How many full frames to wait for before enabling autopilot
+        self._last_frame_seen_time = {} # Track last seen time per frame for flush
         self._buffer_timeout = 0.5  # seconds
-        # Writer thread
         self._writer_thread = threading.Thread(target=self._buffer_writer, daemon=True)
         self._writer_thread.start()
-        # Debug log file for runtime diagnostic messages
         try:
             self._debug_log_path = os.path.join(self.folderpath, 'debug.log')
             with open(self._debug_log_path, 'a') as _:
                 pass
         except Exception:
             self._debug_log_path = None
-        # By default do not print debug lines to stdout (can be enabled)
         self._print_debug = False
-        # GPS trajectory tracking (XY positions)
         self._gps_trajectory = []
 
     def _log_debug(self, msg):
@@ -382,7 +389,6 @@ class JapaneseStyleAutopilot:
                         f.write(out)
                 except Exception:
                     pass
-            # Optionally print to stdout for live observation when enabled
             if getattr(self, '_print_debug', False):
                 print(out, end='')
         except Exception:
@@ -405,13 +411,12 @@ class JapaneseStyleAutopilot:
             # MEDIANCUT or FASTOCTREE are available; MEDIANCUT is a solid default.
             pal = pil_img.quantize(colors=colors, method=PILImage.MEDIANCUT)
 
-            # Save with optimization and max compression
             pal.save(dst_path, format='PNG', optimize=True, compress_level=compress_level)
         except Exception:
             try:
                 pil_img.save(dst_path, 'PNG', optimize=True, compress_level=compress_level)
             except Exception:
-                # Last resort: plain save
+                # Last: plain save
                 pil_img.save(dst_path, 'PNG')
 
     def _save_image(self, pil_img, dst_path):
@@ -444,6 +449,8 @@ class JapaneseStyleAutopilot:
 
     def estimate_recorded_frames(self, D=None, fps=None, Tprim=None, Toverhead=None, W=None, Nlost=0):
         """Estimate number of recorded timesteps using the user's formula.
+        
+        DEPRECATED. Using .jpg this is no longer important. Kept for .png and reference.
 
         Formula:
             R = max(0, floor((D - Tprim - Toverhead) * fps) - W - Nlost)
@@ -457,7 +464,7 @@ class JapaneseStyleAutopilot:
             Nlost (int): estimated lost frames due to missing sensors (defaults 0)
 
         Returns:
-            int: estimated number of recorded frames (non-negative)
+            int: estimated number of recorded frames 
 
         Example (30 fps):
             If D=60, fps=30, W=5, Tprim=0.5, Toverhead=0.5, Nlost=0:
@@ -476,7 +483,7 @@ class JapaneseStyleAutopilot:
 
         Nlost = int(Nlost)
 
-        # Compute raw estimate and clamp to non-negative
+        # Compute raw estimate
         raw = math.floor((D - Tprim - Toverhead) * fps) - W - Nlost
         return max(0, int(raw))
         
@@ -503,16 +510,15 @@ class JapaneseStyleAutopilot:
         """
         Flip traffic lights and signs to face left-hand lanes for proper camera visibility.
         
-        **Purpose**: CARLA 0.9.15 maps are designed for right-hand traffic. When driving in
+        CARLA 0.9.15 maps are designed for right-hand traffic. When driving in
         left lanes, signals face away from camera. This method relocates movable actors
         (traffic lights, stop/yield signs) and spawns new speed limit signs at mirrored positions.
         
         **Trade-offs**:
-        - ✅ Vision models see front-facing signals (better training data quality)
-        - ⚠️ Traffic Manager may get confused (TM uses OpenDRIVE topology, not actor positions)
-        - ⚠️ Assumes Y-axis mirroring works for map layout (not guaranteed for all towns)
+        - Vision models see front-facing signals (better training data quality)
+        - Traffic Manager may get confused (TM uses OpenDRIVE topology, not actor positions)
+        - Assumes Y-axis mirroring works for map layout (not guaranteed for all towns)
         
-        **Usage**: Enable via environment variable FLIP_INFRASTRUCTURE=1
         """
         if not int(os.environ.get('FLIP_INFRASTRUCTURE', '0')):
             return
@@ -550,10 +556,8 @@ class JapaneseStyleAutopilot:
                 for lm in speed_landmarks:
                     try:
                         t = lm.transform
-                        # Mirror across Y-axis
-                        t.location.y *= -1
-                        # Rotate 180 degrees
-                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
+                        t.location.y *= -1 # Mirror across Y-axis
+                        t.rotation.yaw = (t.rotation.yaw + 180) % 360 # Rotate 180 degrees
                         
                         # Try to spawn new sign at flipped location
                         value = lm.value if hasattr(lm, 'value') else None
@@ -628,7 +632,6 @@ class JapaneseStyleAutopilot:
         # compute safe offset so vehicle remains within lane (from lane center)
         max_safe = max(0.02, lane_w / 2.0 - 0.02)  # small safety clamp
         desired = dir_sign * (lane_w / 2.0 - vehicle_half_w - float(margin))
-        # clamp
         if desired > max_safe:
             desired = max_safe
         if desired < -max_safe:
@@ -637,10 +640,9 @@ class JapaneseStyleAutopilot:
         # Safety validation: ensure computed value is finite and within expected bounds
         try:
             if not math.isfinite(desired) or abs(desired) > 2.5:
-                print(f"[WARN]: Computed lane offset {desired} out of expected range; clamping to safe value")
+                print(f"[WARNING]: Computed lane offset {desired} out of expected range; clamping to safe value")
                 desired = max(-2.5, min(2.5, desired))
         except Exception:
-            # If math is not available for some reason, proceed with clamped value above
             pass
         # Apply to traffic manager
         try:
@@ -754,9 +756,7 @@ class JapaneseStyleAutopilot:
         
         # Attempt to detect traffic signs (static meshes - best effort)
         try:
-            # Get level bounding boxes for traffic signs (static meshes)
-            # Note: These don't have orientation info, only positions
-            import carla
+            # Get level bounding boxes for traffic signs (static meshes). These don't have orientation info, only positions
             if hasattr(carla, 'CityObjectLabel'):
                 try:
                     sign_bbs = self.world.get_level_bbs(carla.CityObjectLabel.TrafficSigns)

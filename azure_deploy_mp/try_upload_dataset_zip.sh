@@ -1,9 +1,10 @@
-
-###################################### test zipping just the bucket dataset 
+###################################### test zipping just the dataset 
 #!/bin/bash
 set -e
 
 source "$(dirname "$0")/common.sh"
+
+info "THIS SCRIPT WORKS"
 
 info "[Step 0]: Preparing Account"
 # Check if Azure credentials are set
@@ -25,6 +26,7 @@ EXTRACT_TARBALL="${EXTRACT_TARBALL:-true}"
 TMP_WORKDIR="${TMP_WORKDIR:-/tmp}"
 REMOVE_TARBALL_AFTER_UPLOAD="${REMOVE_TARBALL_AFTER_UPLOAD:-false}"
 DELETE_REMOTE_AFTER_UPLOAD="${DELETE_REMOTE_AFTER_UPLOAD:-false}"
+OVERWRITE="${OVERWRITE:-false}"
 
 info "Configuration"
 echo "Storage Account : $STORAGE_ACCOUNT"
@@ -33,6 +35,8 @@ echo "Container       : $CONTAINER_NAME"
 echo "Dataset dir     : $DATASET_DIR"
 echo "Loading via zip : $TAR_AND_UPLOAD"
 echo "Extract         : $EXTRACT_TARBALL"
+echo "Removing local  : $REMOVE_TARBALL_AFTER_UPLOAD"
+echo "Delete azure    : $DELETE_REMOTE_AFTER_UPLOAD"
 echo ""
 
 # echo $AZ_SUBSCRIPTION_ID, $AZ_RESOURCE_GROUP, $AZ_WORKSPACE, $STORAGE_ACCOUNT, $STORAGE_RESOURCE_GROUP, $DELETE_REMOTE_AFTER_UPLOAD, $DELETE_REMOTE_AFTER_UPLOAD
@@ -132,56 +136,65 @@ info "[Step 5]: Uploading Dataset (this will take hours)"
 echo "Starting upload at $(date)"
 echo ""
 
-# Path to existing tarball (use your external SSD default)
-BUCKETS_TAR="${BUCKETS_TAR:-/media/external_ssd/bucketsv2_simlingo.tar.gz}"
-BUCKETS_DST_PATH="bucketsv2_simlingo.tar.gz"
+# Example: NAME="bucketsv2_simlingo" or NAME="simlingo_v2_2025_01_10"
+NAME=${NAME:-simlingo_v2_2025_01_10}
 
-echo "Uploading tarball ${BUCKETS_TAR} -> container ${CONTAINER_NAME} as ${BUCKETS_DST_PATH}"
+# NAME_TAR=${NAME_TAR:-/media/external_ssd/${NAME}.tar.gz}
+# NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar.gz}
+NAME_TAR=${NAME_TAR:-/media/external_ssd/${NAME}.tar}
+NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar}
 
-# Upload the tarball (prefer azcopy+SAS, fallback to AD-login flows)
-# Query whether the storage account allows shared key access (account-key/SAS)
+# if [ "$NAME" = "simlingo_v2_2025_01_10" ]; then
+#   NAME_TAR=${NAME_TAR:-/media/external_ssd/${NAME}.tar}
+#   NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar}
+# else
+#   NAME_TAR=${NAME_TAR:-/media/external_ssd/${NAME}.tar.gz}
+#   NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar.gz}
+# fi
+
+echo "Uploading tarball ${NAME_TAR} -> container ${CONTAINER_NAME} as ${NAME_DST_PATH}"
+
 ALLOW_SHARED_KEY=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query "allowSharedKeyAccess" -o tsv 2>/dev/null || echo "")
 echo "Storage account allowSharedKeyAccess=$ALLOW_SHARED_KEY"
 
 if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
-  # Use minimalist azcopy invocation (avoid flags that differ across azcopy versions)
   # If blob already exists, respect OVERWRITE env var (default: false)
   BLOB_EXISTS="false"
-  if az storage blob exists --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BUCKETS_DST_PATH" --auth-mode login -o tsv 2>/dev/null | grep -q true; then
+  if az storage blob exists --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login -o tsv 2>/dev/null | grep -q true; then
     BLOB_EXISTS="true"
   fi
   if [ "$BLOB_EXISTS" = "true" ] && [ "${OVERWRITE:-false}" != "true" ]; then
-    echo "ERROR: target blob already exists: ${BUCKETS_DST_PATH}. Rerun with OVERWRITE=true to replace it, or delete the blob manually." >&2
+    echo "ERROR: target blob already exists: ${NAME_DST_PATH}. Rerun with OVERWRITE=true to replace it, or delete the blob manually." >&2
     exit 1
   fi
   if [ "$BLOB_EXISTS" = "true" ] && [ "${OVERWRITE:-false}" = "true" ]; then
     echo "OVERWRITE=true: deleting existing blob before upload"
-    az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BUCKETS_DST_PATH" --auth-mode login || true
+    az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login || true
   fi
-  azcopy cp "$BUCKETS_TAR" "${BLOB_URL}/${BUCKETS_DST_PATH}?${SAS_TOKEN}" --log-level=INFO ${AZCOPY_EXTRA_FLAGS}
+  azcopy cp "$NAME_TAR" "${BLOB_URL}/${NAME_DST_PATH}?${SAS_TOKEN}" --log-level=INFO ${AZCOPY_EXTRA_FLAGS}
 else
   if [ "$ALLOW_SHARED_KEY" = "false" ]; then
     # Storage account forbids key-based auth; use explicit blob URL with AD login
     echo "Shared-key auth disabled; uploading via explicit blob-url with AD login"
-    BLOB_URL_EXPLICIT="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${BUCKETS_DST_PATH}"
+    BLOB_URL_EXPLICIT="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${NAME_DST_PATH}"
     # Check if blob already exists (AD login path)
-    if az storage blob exists --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BUCKETS_DST_PATH" --auth-mode login -o tsv 2>/dev/null | grep -q true; then
+    if az storage blob exists --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login -o tsv 2>/dev/null | grep -q true; then
       if [ "${OVERWRITE:-false}" = "true" ]; then
         echo "OVERWRITE=true: deleting existing blob before upload"
-        az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BUCKETS_DST_PATH" --auth-mode login || true
+        az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login || true
       else
-        echo "ERROR: target blob already exists: ${BUCKETS_DST_PATH}. Rerun with OVERWRITE=true to replace it, or delete the blob manually." >&2
+        echo "ERROR: target blob already exists: ${NAME_DST_PATH}. Rerun with OVERWRITE=true to replace it, or delete the blob manually." >&2
         exit 1
       fi
     fi
-    az storage blob upload --file "$BUCKETS_TAR" --blob-url "$BLOB_URL_EXPLICIT" --auth-mode login || {
+    az storage blob upload --file "$NAME_TAR" --blob-url "$BLOB_URL_EXPLICIT" --auth-mode login || {
       echo "ERROR: Failed uploading tarball via explicit blob-url with AD login" >&2
       exit 1
     }
   else
     # Try az CLI upload using AD auth (or connection string if available)
     az storage blob upload --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" \
-      --file "$BUCKETS_TAR" --name "$BUCKETS_DST_PATH" --auth-mode login || {
+      --file "$NAME_TAR" --name "$NAME_DST_PATH" --auth-mode login || {
         echo "ERROR: Failed uploading tarball via az storage (and no azcopy+SAS available)" >&2
         exit 1
       }
@@ -190,19 +203,17 @@ fi
 
 # Optionally extract locally and upload extracted files (recommended when you want blobs directly)
 if [ "$EXTRACT_TARBALL" = "true" ]; then
-  echo "Extracting $BUCKETS_TAR to temporary folder and uploading contents"
-  EXTRACT_DIR="$TMP_WORKDIR/bucketsv2_simlingo_extracted"
+  echo "Extracting $NAME_TAR to temporary folder and uploading contents"
+  EXTRACT_DIR="$TMP_WORKDIR/${NAME}_extracted"
   rm -rf "$EXTRACT_DIR" && mkdir -p "$EXTRACT_DIR"
-  tar -C "$EXTRACT_DIR" -xzf "$BUCKETS_TAR"
+  tar -C "$EXTRACT_DIR" -xzf "$NAME_TAR"
 
   # Prefer azcopy sync with SAS when available for speed and resumability
   if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
-    # Upload extracted contents under prefix 'bucketsv2_simlingo_extracted/' using recursive copy
-    azcopy cp "$EXTRACT_DIR" "${BLOB_URL}/bucketsv2_simlingo_extracted/?${SAS_TOKEN}" --recursive=true --log-level=INFO ${AZCOPY_EXTRA_FLAGS}
+    azcopy cp "$EXTRACT_DIR" "${BLOB_URL}/${NAME}_extracted/?${SAS_TOKEN}" --recursive=true --log-level=INFO ${AZCOPY_EXTRA_FLAGS}
   else
-    # Upload extracted contents under prefix 'bucketsv2_simlingo_extracted/'
     az storage blob upload-batch --account-name "$STORAGE_ACCOUNT" --destination "$CONTAINER_NAME" \
-      --source "$EXTRACT_DIR" --destination-path "bucketsv2_simlingo_extracted" --auth-mode login --overwrite false
+      --source "$EXTRACT_DIR" --destination-path "${NAME}_extracted" --auth-mode login --overwrite false
   fi
 
   rm -rf "$EXTRACT_DIR"
@@ -210,13 +221,13 @@ fi
 
 # Optionally remove local tarball after upload
 if [ "$REMOVE_TARBALL_AFTER_UPLOAD" = "true" ]; then
-  rm -f "$BUCKETS_TAR"
+  rm -f "$NAME_TAR"
 fi
 
 # Optionally delete the remote tarball blob after successful upload (useful if you want only extracted files stored)
 if [ "$DELETE_REMOTE_AFTER_UPLOAD" = "true" ]; then
-  echo "DELETE_REMOTE_AFTER_UPLOAD=true: deleting remote tarball blob ${BUCKETS_DST_PATH} from container ${CONTAINER_NAME}"
-  az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BUCKETS_DST_PATH" --auth-mode login || {
+  echo "DELETE_REMOTE_AFTER_UPLOAD=true: deleting remote tarball blob ${NAME_DST_PATH} from container ${CONTAINER_NAME}"
+  az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login || {
     echo "Warning: failed to delete remote tarball blob; please check permissions or delete manually." >&2
   }
 fi
@@ -235,12 +246,12 @@ info "Verify upload: az storage blob list --account-name $STORAGE_ACCOUNT --cont
 ### Upload summary (concrete URLs and small listing)
 echo
 info "Upload Summary"
-TAR_BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${BUCKETS_DST_PATH}"
+TAR_BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${NAME_DST_PATH}"
 echo "Tarball uploaded to: ${TAR_BLOB_URL}"
 
 echo
 echo "Checking tarball metadata (may require AD login)..."
-TAR_BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${BUCKETS_DST_PATH}"
+TAR_BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}/${NAME_DST_PATH}"
 if az storage blob show --blob-url "$TAR_BLOB_URL" --auth-mode login -o json >/dev/null 2>&1; then
   az storage blob show --blob-url "$TAR_BLOB_URL" --auth-mode login -o table
 else
@@ -248,8 +259,8 @@ else
 fi
 
 echo
-echo "Listing a sample of extracted blobs under prefix 'bucketsv2_simlingo_extracted/'"
-if az storage blob list --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --prefix "bucketsv2_simlingo_extracted/" --auth-mode login -o table | head -n 40; then
+echo "Listing a sample of extracted blobs under prefix '${NAME}_extracted/'"
+if az storage blob list --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --prefix "${NAME}_extracted/" --auth-mode login -o table | head -n 40; then
   :
 else
   echo "No extracted blobs found or insufficient permissions to list blobs"

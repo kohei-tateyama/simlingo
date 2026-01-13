@@ -46,28 +46,6 @@ sudo chown pim1yh:pim1yh /workspace/simlingo/.gitignore && sudo chmod 755 /works
 sudo chown pim1yh:pim1yh /workspace/simlingo/team_code/test_japan_streets_simple.py && sudo chmod 755 /workspace/simlingo/team_code/test_japan_streets_simple.py
 ```
 ---
-  
-## Japanese Traffic Management (left-hand driving)
-
-This project configures CARLA's Traffic Manager to emulate Japanese-style (left-hand) traffic. Below explains how it is implemented and how to change it.
-
-- Where it's configured: `japanese_driving_autopilot.py` in the `setup_left_hand_traffic()` and `spawn_npc_vehicles()` functions.
-- Key settings used:
-  - `traffic_manager.global_lane_offset = -1.5` — applies a global lateral lane offset (negative shifts vehicles left).
-  - `traffic_manager.vehicle_lane_offset(vehicle, -1.5)` — applies the same offset per vehicle after spawn.
-  - `traffic_manager.set_global_distance_to_leading_vehicle(2.5)` — sets following distance.
-  - `traffic_manager.ignore_lights_percentage(vehicle, 0)` — set to `0` to obey traffic lights (set to higher to have NPCs ignore lights sometimes).
-
-- NPC spawning: `spawn_npc_vehicles(num_vehicles=30)` spawns vehicles at map spawn points, sets autopilot linking them to the Traffic Manager, and sets the lane offset. To reduce traffic set `num_vehicles` lower or add a CLI flag `--npc 0` to disable.
-
-- Player vehicle: `spawn_player_vehicle()` sets the player to autopilot via the Traffic Manager, applies the same lane offset, and optionally calls `traffic_manager.set_path()` to follow a route. This enforces left-side driving for the ego vehicle as well.
-
-- How to tweak quickly:
-  - Reduce NPCs: change `num_vehicles` or add CLI `--npc 0`.
-  - Change lane offset: set `global_lane_offset` and `vehicle_lane_offset` to `+1.5` for right-hand driving, or change magnitude to adjust centering.
-  - Traffic behavior: tune `ignore_lights_percentage`, `set_global_distance_to_leading_vehicle`, or per-vehicle speed/behavior attributes via the Traffic Manager API.
-
-- Disable NPCs entirely (example): in `setup_left_hand_traffic()` replace `self.spawn_npc_vehicles(num_vehicles=30)` with `self.spawn_npc_vehicles(num_vehicles=0)` or comment out the call.
 
 ## Multi Camera Setup 
 
@@ -80,19 +58,6 @@ Left Front (LF): x=1.0, y=-1.0, z=1.5, yaw=-55° - left front corner, angled for
 Right Back (RB): x=-1.0, y=1.0, z=1.5, yaw=125° - right back corner, angled backward-right
 Left Back (LB): x=-1.0, y=-1.0, z=1.5, yaw=-125° - left back corner, angled backward-left
 ```
-### When I do take any picture
-N_{shoot} ≈ max(0, floor( (D - Tprim - Toverhead) * fps ) - W - Nlost )
-D = desired recording duration in seconds (user --duration)
-fps = target frames per second (user --fps)
-dt = 1 / fps (sim step / sleep interval)
-W = warmup frames skipped (self._warmup_frames)
-Tprim = camera priming timeout (seconds) — time spent waiting for initial valid camera images
-Tbuffer = buffer flush timeout (seconds) — time the writer will wait for missing cameras before flushing a partial frame
-Toverhead = extra per-loop overhead (seconds) — e.g., writer, JSON writes, compression, and Python scheduling jitter (measure empirically or assume small value)
-Nlost = number of frames lost because sensors didn't produce images in time (depends on priming/missing callbacks; assume 0 if system primed and synchronous)
-
-
-
 
 ## How to push / maintain
 I did a mess before and we do have some issue since Kohey is not with the Bosch account 
@@ -102,12 +67,6 @@ I have two braches
 git status --porcelain --branch
 git branch -vv
 ```
-This will return
-```bash
-## feat/michele...myfork/feat/michele
-* feat/michele                         3305c34 [myfork/feat/michele] autosave: add fps estimator, CLI forwarding and summary info
-  main                                 0f1f70c [myfork/main] chore(bosch_utils): add/update autopilot and patcher scripts
-``` 
 
 Next (to actual push). **This jsut works for this repo!**
 ```bash
@@ -146,8 +105,6 @@ To update also the branch `main` from the `feat/michele` one do
 git fetch myfork --prune # && git rev-list --left-right --count myfork/main...myfork/feat/michele
 git checkout main
 git merge --no-ff feat/michele -m "merge: bring feat/michele into main"
-# git push --dry-run myfork feat/michele:main # safrer vesion
-# git fetch myfork && git branch -r --verbose --sort=-committerdate | sed -n '1,20p' # checking 
 git push myfork main
 ```
 To switch back again to the feat/michele branch
@@ -167,13 +124,6 @@ git push myfork main && \
 git checkout feat/michele
 ```
 
-## NEW dataset (enriching the simlingo one)
-
-What we can vary `japanese_driving_autopilot_cameras.py` and its _long_ version `japanese_driving_autopilot_cameras_long.py`
-
-Via wrapper script with long agent
-`bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 20 --route highway --autopilot-long --spawn-index 42`
-`cd /workspace/simlingo && bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 40 --route urban --autopilot-long --spawn-index 10 --weather ClearNoon`
 ---
 
 ## Future directions and ideas
@@ -215,6 +165,7 @@ Option B):
 B.1) Integrated just one img at time, no matter where it has been shooted, to the model.
 B.2) Camera + Posiiton ordering strategy (rule based)
 
+### Commentary
 
 ```bash
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_1000_route0_01_11_15_39_27$ ll
@@ -230,19 +181,8 @@ drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb/
 drwxr-sr-x    2 tko3yh workspace   4096 Jan 11  2025 rgb_augmented/
 ```
 
-```bash
-(simlingo) pim1yh@YH0V0013:/workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43$ ll
-total 52
-drwxrwsr-x   5 pim1yh workspace  4096 Dec 18 11:50 ./
-drwxrwsr-x   3 pim1yh workspace  4096 Dec 18 11:53 ../
-drwxrwsr-x   2 pim1yh workspace 12288 Dec 18 11:50 boxes/
-drwxrwsr-x   2 pim1yh workspace 12288 Dec 18 11:50 measurements/
--rw-rw-r--   1 pim1yh workspace   226 Dec 18 11:50 records.json.gz
--rw-rw-r--   1 pim1yh workspace   408 Dec 18 11:50 results.json.gz
-drwxrwsr-x 403 pim1yh workspace 12288 Dec 18 11:50 rgb/
-```
-
 **To inspect the single file from simlingo**
+
 `load_and_print_fields('/workspace/simlingo/database/simlingo_v2_2025_01_10/data/simlingo/training_1_scenario/routes_training/random_weather_seed_1_balanced_150/Town12_Rep0_3838_route0_01_11_15_37_20/records.json.gz', max_len=300)`
 
 ## About the commentary
@@ -369,15 +309,12 @@ sudo mount -o uid=$(id -u),gid=$(id -g),dmask=0022,fmask=0133 /dev/sdb2 /media/e
 touch /media/external_ssd/test.txt && rm /media/external_ssd/test.txt && echo "write OK"
 
 sudo chown -R pim1yh:pim1yh /media/external_ssd/database
-
 sudo chown -R pim1yh:pim1yh /bosch_utils/japanese_driving_autopilot_cameras.py
 
 rsync -avP --remove-source-files /workspace/simlingo/recording_japan_xml/database/ /media/external_ssd/database/
 ```
 
-# New start 
-# 2026
-# Last day before new years break -> When to start back
+# New start 2026. Last day before new years break -> When to start back
 
 - keep testing the `python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py /media/external_ssd/database/simlingo_v4_2026_01_01/auto_long_multicam_jp/training_Town01_scenario/routes_highway_duration_50_training/SoftRainNoon_weather/ego_42/rgb/0000/patched.jpg`. Enforcing the strcture used from simlingo. Enforce the commentary_augmented.json and all the simlingo/data/auguemnted from the simlingo team in a japanese fashion.
 Take these tempalte `simlingo/data/augmented_templates/commentary_augmented.json`.
@@ -386,7 +323,7 @@ Take these tempalte `simlingo/data/augmented_templates/commentary_augmented.json
 
 ```bash 
 (simlingo) pim1yh@YH0V0013:/workspace/simlingo$ tmux ls
-azure_upload: 1 windows (created Thu Dec 25 17:26:41 2025)
+azure_upload: 1 windows (created Thu Dec 25 17:26:41 2025) # Too slow .... still running 
 datajob: 1 windows (created Thu Dec 25 15:51:28 2025)
 ```
 
@@ -454,9 +391,11 @@ done
 - Bash utils
 When `code` for opening imgs does not work, refresh the terminal
 `export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
+
 One-liner for opening multiple `.jpg` from the `rgb/` folder
 `for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
 `for ((i=0;i<=798;i+=30)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+30))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
-`for ((i=0;i<=19157;i+=1300)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+1300))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
+`for ((i=0;i<=19157;i+=1200)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+1200))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
+
 One-liner to count the elements inside any folder 
 `find . -mindepth 1 -maxdepth 1 | wc -l`

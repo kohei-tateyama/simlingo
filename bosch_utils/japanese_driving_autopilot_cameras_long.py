@@ -9,6 +9,7 @@ from PIL import Image as PILImage
 import carla 
 import shutil
 import math
+import random
 import traceback
 # TODO clean 
 
@@ -132,7 +133,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
         try:
             # Import lazily to avoid hard dependency at module import time
             from agents.navigation.global_route_planner import GlobalRoutePlanner
-            # Use 2.0m sampling - 0.5m is TOO SLOW on large maps (can take 5+ minutes!)
+            # 2.0m sampling - 0.5m is TOO SLOW on large maps
             print("[INFO]: Initializing GlobalRoutePlanner (this may take 10-30 seconds on large maps)...")
             grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=2.0)
             print("[INFO]: GlobalRoutePlanner initialized successfully")
@@ -144,16 +145,14 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             if self.spawn_idx is not None:
                 start_idx = self.spawn_idx % len(spawn_points)
             elif self.random_spawn:
-                import random
                 start_idx = random.randint(0, len(spawn_points) - 1)
                 print(f"[INFO] Random spawn enabled: selected spawn point {start_idx}")
             else:
                 start_idx = 0
             
             start = spawn_points[start_idx].location
-            
-            # Assume average speed: 40 km/h = 11.1 m/s (conservative for city driving)
-            avg_speed_mps = 11.1  # m/s
+        
+            avg_speed_mps = 11.1  # m/s # Assume average speed: 40 km/h = 11.1 m/s (conservative for city driving)
             target_distance = self.duration * avg_speed_mps
             
             # Find a goal spawn point approximately target_distance away multiple candidates (not just closest match)
@@ -177,12 +176,9 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                 top_30_pct = max(1, len(distances) * 30 // 100)
                 candidates = [idx for idx, d in distances[:top_30_pct]]
             
-            # Randomly pick one candidate for route variety (avoids always same routes)
-            import random
             goal_idx = random.choice(candidates) if candidates else distances[-1][0]
             
             # For urban routes, try to pick goals that go through intersections/city centers
-            # (heuristic: prefer spawn points with more nearby spawn points = denser urban areas)
             if self.route_type == 'urban' and len(candidates) > 3:
                 # Count nearby spawn points for each candidate (within 50m radius)
                 density_scores = []
@@ -204,13 +200,13 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             waypoints = [wp for wp, _ in plan]
             
             # CRITICAL: Correct waypoints for left-hand traffic if enabled
-            print(f"[DEBUG] get_predefined_route: enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
+            print(f"[INFO] get_predefined_route: enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
             if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
                 print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
                 waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
-                print(f"[DEBUG] Route verification returned {len(waypoints)} waypoints")
+                print(f"[INFO] Route verification returned {len(waypoints)} waypoints")
             else:
-                print(f"[DEBUG] Skipping route verification")
+                print(f"[INFO] Skipping route verification")
             
             # Calculate route complexity (total turning angle as proxy for curves)
             total_turn = 0.0
@@ -229,13 +225,10 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             print('=' * self.print_length)
             return waypoints, start_idx
         except Exception as e:
-            # Planner unavailable or failed — fall back to parent's predefined route
             # import traceback
             print('=' * self.print_length)
             print('[WARNING]: agents planner failed, falling back to short predefined route')
             print(f'[WARNING]: Exception type: {type(e).__name__}')
-            # print(f'[WARNING]: Exception message: {str(e)}')
-            # print('[WARNING]: Full traceback:')
             traceback.print_exc()
             print('=' * self.print_length)
             print('[WARNING]: Using fallback short route (NOT suitable for long runs)')
@@ -264,7 +257,7 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             if self.spawn_idx is not None:
                 start_idx = self.spawn_idx % len(spawn_points)
             elif self.random_spawn:
-                import random
+                
                 start_idx = random.randint(0, len(spawn_points) - 1)
             else:
                 start_idx = 0
@@ -272,7 +265,6 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             start = spawn_points[start_idx].location
 
             # Calculate target distances (shorter segments to create loop)
-            import math, random
             avg_speed_mps = 11.1
             total_target = max(200.0, self.duration * avg_speed_mps)  # ensure a minimum distance
 
@@ -304,9 +296,9 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
                 print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
                 waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
-                print(f"[DEBUG] Route verification returned {len(waypoints)} waypoints")
+                print(f"[INFO] Route verification returned {len(waypoints)} waypoints")
             else:
-                print(f"[DEBUG] Skipping route verification")
+                print(f"[INFO] Skipping route verification")
 
             print(f"[INFO]: Alternate planner produced {len(waypoints)} waypoints (start={start_idx}, mid={mid_idx}, far={far_idx})")
             return waypoints, start_idx
@@ -339,13 +331,13 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             try:
                 infra_check = self.detect_traffic_infrastructure_issues(max_distance=50.0)
                 if infra_check['back_facing_lights'] > 0:
-                    print(f"[WARN]: Detected {infra_check['back_facing_lights']} back-facing traffic lights within 50m")
-                    print("[WARN]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps")
+                    print(f"[WARNING]: Detected {infra_check['back_facing_lights']} back-facing traffic lights within 50m")
+                    print("[WARNING]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps")
                     # Log first few warnings
                     for w in infra_check['warnings'][:3]:
-                        print(f"[WARN]:   {w}")
+                        print(f"[WARNING]:   {w}")
             except Exception as e:
-                print(f"[WARN]: Traffic infrastructure check failed: {e}")
+                print(f"[WARNING]: Traffic infrastructure check failed: {e}")
             
             print("\n" + "=" * self.print_length)
             print("[INFO]: AUTOPILOT MODE FROM CARLA - Japanese-Style Driving")
@@ -371,7 +363,6 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
                     primed_ok = all(self._camera_primed.values())
                     priming_elapsed = time.time() - start_time
                     if primed_ok or (priming_elapsed >= self._priming_timeout):
-                        # Drop any buffered warmup frames to avoid writing placeholders
                         with self._buffer_lock:
                             self._image_buffer.clear()
                             self._last_frame_seen_time.clear()
@@ -495,21 +486,21 @@ def main():
             )
             print(f"[INFO]: Estimated recorded frames: {est}")
         except Exception as e:
-            print(f"[WARN]: Frame estimation failed: {e}")
+            print(f"[WARNING]: Frame estimation failed: {e}")
         
         sim.run()
     except SystemExit as e:
-        print(f"[ERROR MAIN] SystemExit caught! Code={e.code}", flush=True)
+        print(f"[ERROR] SystemExit caught! Code={e.code}", flush=True)
         raise
     except Exception as e:
-        print(f"[ERROR MAIN] Unexpected exception in main(): {e}", flush=True)
+        print(f"[ERROR] Unexpected exception in main(): {e}", flush=True)
         traceback.print_exc()
         raise
     finally:
         try:
             print(f"\n__DATASET_PATH__={sim.folderpath}", flush=True)
         except NameError:
-            print("[WARN] sim object not created, no dataset path to report", flush=True)
+            print("[WARNING] sim object not created, no dataset path to report", flush=True)
 
 if __name__ == '__main__':
     main()

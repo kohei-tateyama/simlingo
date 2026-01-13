@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test script for data_agent_japanese.py - based on data_agent.py - with leaderboard evaluation
+# Test script for data_agent_multicamera.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 
 set -u
@@ -18,7 +18,7 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 # Data collection settings
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
-export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
+export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera.py
 export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
@@ -32,18 +32,22 @@ export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure
 
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml" # used two times 
+# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
-
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
+
+# CARLA port (can be overridden by environment before running the script)
+export PORT_CARLA=${PORT_CARLA:-2001}
+# Traffic Manager port (can be overridden)
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 
 # Color helpers
 GREEN="\033[0;32m"
@@ -68,17 +72,17 @@ cleanup_carla() {
     # Kill Python leaderboard processes
     pkill -9 -f "leaderboard_evaluator.py" 2>/dev/null || true
 
-    # Kill processes on port 2000
-    pids=$(lsof -ti:2000 2>/dev/null)
+    # Kill processes on CARLA port
+    pids=$(lsof -ti:${PORT_CARLA} 2>/dev/null)
     if [ ! -z "$pids" ]; then
-        warn "Killing processes on port 2000: $pids"
+        warn "Killing processes on port ${PORT_CARLA}: $pids"
         kill -9 $pids 2>/dev/null || true
     fi
     
-    # Kill processes on port 8000 (traffic manager)
-    pids=$(lsof -ti:8000 2>/dev/null)
+    # Kill processes on traffic-manager port
+    pids=$(lsof -ti:${TRAFFIC_MANAGER_PORT} 2>/dev/null)
     if [ ! -z "$pids" ]; then
-        warn "Killing processes on port 8000: $pids"
+        warn "Killing processes on port ${TRAFFIC_MANAGER_PORT}: $pids"
         kill -9 $pids 2>/dev/null || true
     fi
 
@@ -88,14 +92,14 @@ cleanup_carla() {
 
     sleep 3
 
-    # Verify ports are free
-    if lsof -ti:2000 &>/dev/null; then
-        err "Port 2000 still in use!"
-        lsof -i:2000
+    # Verify CARLA port is free
+    if lsof -ti:${PORT_CARLA} &>/dev/null; then
+        err "Port ${PORT_CARLA} still in use!"
+        lsof -i:${PORT_CARLA}
     fi
-    if lsof -ti:8000 &>/dev/null; then
-        err "Port 8000 still in use!"
-        lsof -i:8000
+    if lsof -ti:${TRAFFIC_MANAGER_PORT} &>/dev/null; then
+        err "Port ${TRAFFIC_MANAGER_PORT} still in use!"
+        lsof -i:${TRAFFIC_MANAGER_PORT}
     fi
     
     info "Cleanup complete ✓"
@@ -138,7 +142,7 @@ start_carla() {
     fi
 
     sep
-    info "Starting CARLA 0.9.15 HEADLESS on port 2000"
+    info "Starting CARLA 0.9.15 HEADLESS on port ${PORT_CARLA}"
     sep
 
     # Remove any existing container
@@ -155,7 +159,7 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
         carla-bench2drive:0.9.15 \
-        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
+        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
     info "Waiting 80s for CARLA to start..."
     sleep 80
@@ -174,12 +178,14 @@ start_carla() {
     info "Testing CARLA connection..."
     sep
 
-    python << 'EOF'
+    python - <<'PY'
 import carla
 import sys
+import os
 
 try:
-    client = carla.Client('localhost', 2000)
+    port = int(os.environ.get('PORT_CARLA', '${PORT_CARLA}'))
+    client = carla.Client('localhost', port)
     client.set_timeout(30.0)
     world = client.get_world()
     version = client.get_server_version()
@@ -194,7 +200,7 @@ try:
 except Exception as e:
     print(f'ERROR: Connection failed: {e}')
     sys.exit(1)
-EOF
+PY
 
     if [ $? -ne 0 ]; then
         err "CARLA verification failed"
@@ -211,14 +217,14 @@ EOF
 # =============================================================================
 run_leaderboard() {
     sep
-    info "Running data_agent_japanese.py via leaderboard"
+    info "Running data_agent_multicamera.py via leaderboard"
     sep
     
     cd /workspace/simlingo/leaderboard
 
     info "Agent    : ${TEAM_AGENT}"
-    info "Routes   : routes_devtest.xml"
-    info "Port     : 2000"
+    info "Routes   : routes_devtest.xml (ONLY FIRST ROUTE for testing)"
+    info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
     sep
 
@@ -233,8 +239,8 @@ run_leaderboard() {
         --agent=${TEAM_AGENT} \
         --agent-config=${TEAM_CONFIG} \
         --checkpoint=results_japanese_test.json \
-        --port=2000 \
-        --traffic-manager-port=8000
+        --port=${PORT_CARLA} \
+        --traffic-manager-port=${TRAFFIC_MANAGER_PORT}
     else
         timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
             --routes=${ROUTES} \
@@ -243,8 +249,8 @@ run_leaderboard() {
             --agent=${TEAM_AGENT} \
             --agent-config=${TEAM_CONFIG} \
             --checkpoint=results_japanese_test.json \
-            --port=2000 \
-            --traffic-manager-port=8000
+            --port=${PORT_CARLA} \
+            --traffic-manager-port=${TRAFFIC_MANAGER_PORT}
     fi
 
     local exit_code=$?
@@ -286,12 +292,10 @@ patch_multicamera_images() {
     info "Post-processing: Patching multicamera RGB images..."
     sep
     
-    # Debug: Show what we're searching for
     info "Searching for datasets under: ${SAVE_PATH}"
     
     # Find the most recent dataset directory. Look for Town*_Rep* folders that contain rgb/ subfolder
     # Use maxdepth 5 to reach: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
-    # Then filter to only those with rgb/ subfolder to ensure we get the dataset root, not frame folders
     DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
         if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
             echo "$dir"
@@ -395,8 +399,8 @@ patch_multicamera_images() {
 # =============================================================================
 main() {
     sep
-    info "Testing data_agent_japanese.py"
-    info "6-camera multi-view + Japanese left-hand traffic"
+    info "Testing data_agent_multicamera.py"
+    info "6-camera multi-view right-hand traffic"
     sep
 
     # 1. Clean up any existing CARLA
@@ -405,7 +409,7 @@ main() {
     # 2. Start CARLA headless
     start_carla
 
-    # 3. Run leaderboard with data_agent_japanese.py
+    # 3. Run leaderboard with data_agent_multicamera.py
     run_leaderboard
     local eval_exit=$?
 
