@@ -16,6 +16,7 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 
 
 # Data collection settings
+# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
 export TEAM_CONFIG="data_collection"
@@ -29,24 +30,16 @@ export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_10
 
 export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
 
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
+export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml" 
-export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
 # TODO WHEN THIS IS SET >0, THE GAME IS TESTED AS FAIL! 
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
 LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 
-# CARLA port (can be overridden by environment before running the script)
-export PORT_CARLA=${PORT_CARLA:-2000}
-# Traffic Manager port (can be overridden)
-export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
-
-# Checkpoint file for leaderboard (also exported so agents can read it)
-CHECKPOINT_FILENAME="results_japanese_test.json"
-export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -145,7 +138,7 @@ start_carla() {
     fi
 
     sep
-    info "Starting CARLA 0.9.15 HEADLESS on port ${PORT_CARLA}"
+    info "Starting CARLA 0.9.15 HEADLESS on port 2000"
     sep
 
     # Remove any existing container
@@ -162,7 +155,7 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
         carla-bench2drive:0.9.15 \
-        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
+        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
 
     info "Waiting 80s for CARLA to start..."
     sleep 80
@@ -224,63 +217,58 @@ run_leaderboard() {
     cd /workspace/simlingo/leaderboard
 
     info "Agent    : ${TEAM_AGENT}"
-    info "Routes   : routes_devtest.xml"
-    info "Port     : ${PORT_CARLA}"
+    info "Routes   : routes_devtest.xml (ONLY FIRST ROUTE for testing)"
+    info "Port     : 2000"
     info "Output   : ${SAVE_PATH}"
     sep
 
     # Agent has signal handler to gracefully save files on timeout
     info "Running single route"
 
-    # Build leaderboard arguments and only include --routes-subset when explicitly set and not '0'
-    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
-    if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
-        LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
-    fi
-
     if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-        python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
+        python leaderboard/leaderboard_evaluator.py \
+        --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
+        --routes-subset=0 \
+        --repetitions=1 \
+        --agent=${TEAM_AGENT} \
+        --agent-config=${TEAM_CONFIG} \
+        --checkpoint=results_japanese_test.json \
+        --port=2000 \
+        --traffic-manager-port=8000
     else
-        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
+        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
+            --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
+            --routes-subset=0 \
+            --repetitions=1 \
+            --agent=${TEAM_AGENT} \
+            --agent-config=${TEAM_CONFIG} \
+            --checkpoint=results_japanese_test.json \
+            --port=2000 \
+            --traffic-manager-port=8000
     fi
 
     local exit_code=$?
 
     sep
-    
     if [ $exit_code -eq 0 ]; then
         info "Leaderboard evaluation completed successfully!"
     else
-        info "Leaderboard exited with code $exit_code — attempting to find agent outputs (results.json.gz / records.json.gz)"
+        # If the agent's signal handler saved output files, treat run as success.
         FOUND_OUTPUT=0
-        # Print any results.json.gz we can find
-        for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
-            info "Found results file: $f"
-            if command -v gzip >/dev/null 2>&1; then
-                gzip -dc "$f" | python -m json.tool || true
-            fi
-            FOUND_OUTPUT=1
-        done
 
-        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q . || \
-           find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
+        # Look for results.json.gz or records.json.gz anywhere under SAVE_PATH within a reasonable depth
+        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
+            FOUND_OUTPUT=1
+        elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
+            FOUND_OUTPUT=1
+        fi
+
+        if [ $FOUND_OUTPUT -eq 1 ]; then
             warn "Process exited with code ${exit_code} but found saved output files — treating as success"
             exit_code=0
         elif [ $exit_code -eq 124 ]; then
-            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - waiting up to 30s for agent to flush results.json.gz"
-            waited=0
-            while [ $waited -lt 30 ]; do
-                if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
-                    warn "Found results.json.gz after timeout — treating as success"
-                    exit_code=0
-                    break
-                fi
-                sleep 1
-                waited=$((waited+1))
-            done
-            if [ $exit_code -ne 0 ]; then
-                warn "No output files found after waiting ${waited}s"
-            fi
+            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - no output files found"
+            # Keep exit_code non-zero so callers can detect timeout without saved output
         else
             warn "Leaderboard exited with code $exit_code"
         fi
@@ -444,7 +432,3 @@ main() {
 
 # Run main
 main
-
-
-
-

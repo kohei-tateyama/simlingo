@@ -41,11 +41,11 @@ Output JSON format:
 }
 
 Usage examples:
-# Process a single image (will auto-load corresponding measurements and boxes)
+# [UTILS] Process a single image (will auto-load corresponding measurements and boxes)
 python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \\
     /path/to/rgb/0000/patched.jpg
 
-# Process entire directory
+# [UTILS] Process entire directory
 python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \\
     /path/to/rgb/ --recursive
 
@@ -66,6 +66,13 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary2_todo.py recording
 python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py recording_japan_xml/autopilot_multicamera_japanese_highway_20251212_150258/rgb/0000/
 
 [Type of file to investigate]: patched2_big.jpg  patched2.jpg  patched2_nuscenes.jpg
+
+python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
+    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2.jpg -v
+    
+    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_big.jpg -v
+    
+    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_nuscenes.jpg -v
 
 
 """
