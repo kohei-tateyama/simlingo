@@ -21,6 +21,10 @@ export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
 export SAVE_PATH=/workspace/simlingo/outputs/test_run/
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
+# Make CARLA and Traffic Manager ports configurable (defaults preserved)
+export CARLA_PORT=${CARLA_PORT:-2000}
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
+
 # Fix conda activation for non-interactive scripts
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
@@ -215,18 +219,20 @@ cleanup_carla() {
     pkill -9 -f CarlaUE4 || true
     killall -9 CarlaUE4 2>/dev/null || true
 
-    # Kill processes using CARLA ports (skip 2001 - colleague is using it)
-    info "Freeing ports 2000, 2002-2010 (skipping 2001)..."
-    
-    # Port 2000 (force this to be free)
-    pids=$(lsof -ti:2000 2>/dev/null)
+    # Kill processes using CARLA ports (skip CARLA_PORT+1 - reserved)
+    info "Freeing CARLA ports around ${CARLA_PORT} (skipping ${CARLA_PORT}+1)..."
+
+    # Force free CARLA_PORT
+    pids=$(lsof -ti:${CARLA_PORT} 2>/dev/null)
     if [ ! -z "$pids" ]; then
-        warn "Killing processes on port 2000: $pids"
+        warn "Killing processes on port ${CARLA_PORT}: $pids"
         kill -9 $pids 2>/dev/null || true
     fi
 
-    # Ports 2002-2010 (skip 2001)
-    for port in {2002..2010}; do
+    # Free a small range of nearby ports (CARLA_PORT+2 .. CARLA_PORT+10), skip CARLA_PORT+1
+    start_port=$((CARLA_PORT + 2))
+    end_port=$((CARLA_PORT + 10))
+    for port in $(seq ${start_port} ${end_port}); do
         pids=$(lsof -ti:$port 2>/dev/null)
         if [ ! -z "$pids" ]; then
             warn "Killing processes on port $port: $pids"
@@ -242,24 +248,24 @@ cleanup_carla() {
     # Wait for cleanup to complete
     sleep 5
 
-    # Verify port 2000 is free
-    if lsof -ti:2000 &>/dev/null; then
-        err "Port 2000 is still in use!"
-        warn "Processes using port 2000:"
-        lsof -i:2000
+    # Verify CARLA_PORT is free
+    if lsof -ti:${CARLA_PORT} &>/dev/null; then
+        err "Port ${CARLA_PORT} is still in use!"
+        warn "Processes using port ${CARLA_PORT}:"
+        lsof -i:${CARLA_PORT}
         echo ""
-        warn "Force killing processes on port 2000..."
-        kill -9 $(lsof -ti:2000) 2>/dev/null || true
+        warn "Force killing processes on port ${CARLA_PORT}..."
+        kill -9 $(lsof -ti:${CARLA_PORT}) 2>/dev/null || true
         sleep 2
         
         # Check again
-        if lsof -ti:2000 &>/dev/null; then
-            err "Still cannot free port 2000. Please reboot or contact your colleague."
+        if lsof -ti:${CARLA_PORT} &>/dev/null; then
+            err "Still cannot free port ${CARLA_PORT}. Please reboot or contact your colleague."
             exit 1
         fi
     fi
 
-    info "Port 2000 is free"
+    info "Port ${CARLA_PORT} is free"
 }
 
 # ============================================================================
@@ -283,14 +289,14 @@ start_carla() {
 
     info "Using carla-bench2drive:0.9.15"
     sep
-    info "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS on port 2000"
+    info "Starting CARLA 0.9.15 (Bench2Drive) HEADLESS on port ${CARLA_PORT}"
     sep
 
     # Remove any existing carla-server container (running or stopped)
     info "Removing any existing carla-server container..."
     docker rm -f carla-server 2>/dev/null || true
 
-    # Start CARLA in headless mode - FORCE port 2000
+    # Start CARLA in headless mode - FORCE port ${CARLA_PORT}
     mkdir -p ${WORK_DIR}/carla_logs
 
     docker run -d \
@@ -304,7 +310,7 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
         carla-bench2drive:0.9.15 \
-        bash -c "cd /home/carla && mkdir -p CarlaUE4/Saved/Logs && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
+        bash -c "cd /home/carla && mkdir -p CarlaUE4/Saved/Logs && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${CARLA_PORT} -carla-rpc-port=${CARLA_PORT} -log"
 
     info "Waiting for CARLA to start (${START_WAIT}s)..."
     sleep ${START_WAIT}
@@ -326,22 +332,23 @@ start_carla() {
     # Test CARLA connection and verify version
     echo ""
     sep
-    info "Testing CARLA connection on port 2000..."
+    info "Testing CARLA connection on port ${CARLA_PORT}..."
     sep
     cd /workspace/simlingo
 
-    python << 'EOF'
+    # Use unquoted heredoc so shell variables expand inside the embedded Python
+    python << EOF
 import carla
 import sys
 
 try:
-    client = carla.Client('localhost', 2000)
+    client = carla.Client('localhost', ${CARLA_PORT})
     client.set_timeout(30.0)  # increase timeout to allow slower startups
     world = client.get_world()
     version = client.get_server_version()
     maps = client.get_available_maps()
     
-    print(f'[INFO]: CARLA connection successful on port 2000')
+    print(f'[INFO]: CARLA connection successful on port ${CARLA_PORT}')
     print(f'[INFO]: DO NOT CHECK THE NEXT TOWN')
     print(f'[INFO]: Server version  : {version}')
     print(f'[INFO]: Total maps      : {len(maps)}')
@@ -362,7 +369,7 @@ try:
         sys.exit(1)
         
 except Exception as e:
-    print(f'[ERROR]: CARLA connection failed on port 2000: {e}')
+    print(f'[ERROR]: CARLA connection failed on port ${CARLA_PORT}: {e}')
     sys.exit(1)
 EOF
 
@@ -377,7 +384,7 @@ EOF
         exit 1
     fi
 
-    info "CARLA connection verified on port 2000"
+    info "CARLA connection verified on port ${CARLA_PORT}"
 }
 
 # ============================================================================
@@ -411,8 +418,8 @@ run_evaluation() {
         --checkpoint outputs/test_run/results.json \
         --debug 1 \
         --resume True \
-        --port 2000 \
-        --traffic-manager-port 8000 \
+        --port ${CARLA_PORT} \
+        --traffic-manager-port ${TRAFFIC_MANAGER_PORT} \
         --traffic-manager-seed 0 \
         --gpu-rank 0
 

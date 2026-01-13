@@ -45,6 +45,11 @@ LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
 
+# CARLA port (can be overridden by environment before running the script)
+export PORT_CARLA=${PORT_CARLA:-2000}
+# Traffic Manager port (can be overridden)
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
+
 # Color helpers
 GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
@@ -68,17 +73,17 @@ cleanup_carla() {
     # Kill Python leaderboard processes
     pkill -9 -f "leaderboard_evaluator.py" 2>/dev/null || true
 
-    # Kill processes on port 2000
-    pids=$(lsof -ti:2000 2>/dev/null)
+    # Kill processes on CARLA port
+    pids=$(lsof -ti:${PORT_CARLA} 2>/dev/null)
     if [ ! -z "$pids" ]; then
-        warn "Killing processes on port 2000: $pids"
+        warn "Killing processes on port ${PORT_CARLA}: $pids"
         kill -9 $pids 2>/dev/null || true
     fi
     
-    # Kill processes on port 8000 (traffic manager)
-    pids=$(lsof -ti:8000 2>/dev/null)
+    # Kill processes on traffic-manager port
+    pids=$(lsof -ti:${TRAFFIC_MANAGER_PORT} 2>/dev/null)
     if [ ! -z "$pids" ]; then
-        warn "Killing processes on port 8000: $pids"
+        warn "Killing processes on port ${TRAFFIC_MANAGER_PORT}: $pids"
         kill -9 $pids 2>/dev/null || true
     fi
 
@@ -88,14 +93,14 @@ cleanup_carla() {
 
     sleep 3
 
-    # Verify ports are free
-    if lsof -ti:2000 &>/dev/null; then
-        err "Port 2000 still in use!"
-        lsof -i:2000
+    # Verify CARLA/TM ports are free
+    if lsof -ti:${PORT_CARLA} &>/dev/null; then
+        err "Port ${PORT_CARLA} still in use!"
+        lsof -i:${PORT_CARLA}
     fi
-    if lsof -ti:8000 &>/dev/null; then
-        err "Port 8000 still in use!"
-        lsof -i:8000
+    if lsof -ti:${TRAFFIC_MANAGER_PORT} &>/dev/null; then
+        err "Port ${TRAFFIC_MANAGER_PORT} still in use!"
+        lsof -i:${TRAFFIC_MANAGER_PORT}
     fi
     
     info "Cleanup complete ✓"
@@ -138,7 +143,7 @@ start_carla() {
     fi
 
     sep
-    info "Starting CARLA 0.9.15 HEADLESS on port 2000"
+    info "Starting CARLA 0.9.15 HEADLESS on port ${PORT_CARLA}"
     sep
 
     # Remove any existing container
@@ -155,7 +160,7 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
         carla-bench2drive:0.9.15 \
-        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
+        bash -c "cd /home/carla && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
     info "Waiting 80s for CARLA to start..."
     sleep 80
@@ -174,12 +179,14 @@ start_carla() {
     info "Testing CARLA connection..."
     sep
 
-    python << 'EOF'
+    python - <<'PY'
 import carla
 import sys
+import os
 
 try:
-    client = carla.Client('localhost', 2000)
+    port = int(os.environ.get('PORT_CARLA', '${PORT_CARLA}'))
+    client = carla.Client('localhost', port)
     client.set_timeout(30.0)
     world = client.get_world()
     version = client.get_server_version()
@@ -194,7 +201,7 @@ try:
 except Exception as e:
     print(f'ERROR: Connection failed: {e}')
     sys.exit(1)
-EOF
+PY
 
     if [ $? -ne 0 ]; then
         err "CARLA verification failed"
@@ -218,7 +225,7 @@ run_leaderboard() {
 
     info "Agent    : ${TEAM_AGENT}"
     info "Routes   : routes_devtest.xml (ONLY FIRST ROUTE for testing)"
-    info "Port     : 2000"
+        info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
     sep
 
@@ -233,8 +240,8 @@ run_leaderboard() {
         --agent=${TEAM_AGENT} \
         --agent-config=${TEAM_CONFIG} \
         --checkpoint=results_japanese_test.json \
-        --port=2000 \
-        --traffic-manager-port=8000
+        --port=${PORT_CARLA} \
+        --traffic-manager-port=${TRAFFIC_MANAGER_PORT}
     else
         timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
             --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
@@ -243,8 +250,8 @@ run_leaderboard() {
             --agent=${TEAM_AGENT} \
             --agent-config=${TEAM_CONFIG} \
             --checkpoint=results_japanese_test.json \
-            --port=2000 \
-            --traffic-manager-port=8000
+            --port=${PORT_CARLA} \
+            --traffic-manager-port=${TRAFFIC_MANAGER_PORT}
     fi
 
     local exit_code=$?

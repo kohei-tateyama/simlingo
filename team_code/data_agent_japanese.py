@@ -427,7 +427,6 @@ class DataAgentJapanese(AutoPilot):
         try:
             # Get level bounding boxes for traffic signs (static meshes)
             # Note: These don't have orientation info, only positions
-            import carla
             if hasattr(carla, 'CityObjectLabel'):
                 try:
                     sign_bbs = world.get_level_bbs(carla.CityObjectLabel.TrafficSigns)
@@ -622,7 +621,65 @@ class DataAgentJapanese(AutoPilot):
             except Exception as e:
                 print(f"[WARN]: Could not process speed limit signs: {e}")
             
-            print(f"[INFO]: Infrastructure flip complete: {relocated_count} actors relocated, {spawned_count} signs spawned")
+            # PART 3: Relocate parked/stationary vehicles to opposite side of street
+            parked_count = 0
+            try:
+                for vehicle in world.get_actors().filter('vehicle.*'):
+                    # Skip ego vehicle
+                    try:
+                        if hasattr(self, '_vehicle') and self._vehicle is not None and vehicle.id == self._vehicle.id:
+                            continue
+                    except Exception:
+                        continue
+                    
+                    try:
+                        vel = vehicle.get_velocity()
+                        speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
+                        
+                        # Only relocate stationary/parked vehicles (speed < 0.5 m/s)
+                        if speed < 0.5:
+                            t = vehicle.get_transform()
+                            wp = carla_map.get_waypoint(t.location, project_to_road=True)
+                            
+                            if wp is not None:
+                                # Try to find opposite lane (across the road centerline)
+                                # For right-hand traffic maps, parked cars are typically on right side
+                                # We want to move them to left side for left-hand traffic
+                                opposite_wp = None
+                                current = wp
+                                
+                                # Traverse left to find opposite direction lane
+                                for _ in range(10):  # Max 10 lane changes
+                                    left = current.get_left_lane()
+                                    if left is None:
+                                        break
+                                    # Check if we crossed to opposite direction
+                                    if (wp.lane_id > 0) != (left.lane_id > 0):
+                                        opposite_wp = left
+                                        break
+                                    current = left
+                                
+                                # If we found opposite lane, relocate vehicle there
+                                if opposite_wp is not None:
+                                    new_transform = carla.Transform()
+                                    new_transform.location = opposite_wp.transform.location
+                                    new_transform.location.z = t.location.z  # Preserve height
+                                    # Face same direction as opposite lane
+                                    new_transform.rotation = opposite_wp.transform.rotation
+                                    
+                                    try:
+                                        vehicle.set_transform(new_transform)
+                                        parked_count += 1
+                                        if parked_count <= 3:  # Log first few
+                                            print(f"[INFO]: Relocated parked vehicle {vehicle.type_id} from lane {wp.lane_id} to lane {opposite_wp.lane_id}")
+                                    except RuntimeError as e:
+                                        pass  # Vehicle may be physics-locked
+                    except Exception as e:
+                        continue  # Skip this vehicle on any error
+            except Exception as e:
+                print(f"[WARN]: Could not relocate parked vehicles: {e}")
+            
+            print(f"[INFO]: Infrastructure flip complete: {relocated_count} actors relocated, {spawned_count} signs spawned, {parked_count} parked vehicles relocated")
             
         except Exception as e:
             print(f"[ERROR]: Failed to flip infrastructure: {e}")

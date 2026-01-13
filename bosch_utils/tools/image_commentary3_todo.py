@@ -68,12 +68,16 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py recording
 [Type of file to investigate]: patched2_big.jpg  patched2.jpg  patched2_nuscenes.jpg
 
 python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
-    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2.jpg -v
+    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2.jpg -v \
     
     /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_big.jpg -v
     
     /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_nuscenes.jpg -v
 
+
+python bosch_utils/tools/image_commentary3_todo.py \
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/" \
+  --recursive -v
 
 """
 
@@ -667,7 +671,6 @@ def process_image(image_path: str,
     if output_dir:
         out_dir = Path(output_dir)
     else:
-        # For simlingo structure: place commentary next to original dataset
         # Input:  .../simlingo_v5.../auto_long_multicam_jp/training_.../ego_42/rgb/0000/patched.jpg
         # Output: .../simlingo_v5.../commentary/auto_long_multicam_jp/training_.../ego_42/rgb/0000.json.gz
         img_dir = img_path.parent
@@ -684,8 +687,13 @@ def process_image(image_path: str,
             if simlingo_idx is not None and simlingo_idx + 1 < len(path_parts):
                 database_root = Path(*path_parts[:simlingo_idx + 1])
                 dataset_type = path_parts[simlingo_idx + 1]
-                rest_of_path = path_parts[simlingo_idx + 2:-1]
-                
+                rest_of_path = list(path_parts[simlingo_idx + 2:-1])
+
+                # Prefer saving under rgb_commentary instead of rgb so outputs
+                # don't mix with original dataset images. Replace any 'rgb'
+                # segment with 'rgb_commentary' (keeps frame subfolders intact).
+                rest_of_path = ['rgb_commentary' if p == 'rgb' else p for p in rest_of_path]
+
                 out_dir = database_root / 'commentary_3' / dataset_type / Path(*rest_of_path)
             else:
                 out_dir = img_dir.parent / (img_dir.name + '_commentary_3')
@@ -778,12 +786,18 @@ Examples:
   
   # Adjust GPU usage
   python image_commentary3_todo.py image.jpg --n-gpu-layers 8 --threads 4
+  
+  # Concrete example
+  python bosch_utils/tools/image_commentary3_todo.py  \
+    "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/" \
+    --recursive -v
         """
     )
     
     parser.add_argument('path', help='Image file or directory to process')
     parser.add_argument('--recursive', '-r', action='store_true', help='Process directory recursively')
     parser.add_argument('--ext', default='jpg,jpeg,png', help='Comma-separated image extensions (default: jpg,jpeg,png)')
+    parser.add_argument('--image-name', default='patched2.jpg', help='Preferred image filename to process inside frame folders (default: patched2.jpg). If not found, falls back to any matching extension.')
     
     # Model configuration
     parser.add_argument('--llama-bin', default=DEFAULT_LLAMA_BIN, help=f'Path to llama-completion binary (default: {DEFAULT_LLAMA_BIN})')
@@ -799,20 +813,18 @@ Examples:
     
     # Processing options
     parser.add_argument('--output-dir', '-o', help='Custom output directory for commentary files')
-    
-    # Logging
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-    
+
     args = parser.parse_args(argv[1:])
-    
+
     # Setup logging
     log_level = logging.DEBUG if args.debug else (logging.INFO if args.verbose else logging.WARNING)
     logging.basicConfig(
         level=log_level,
         format='[%(levelname)s] %(message)s'
     )
-    
+
     # Initialize llama inference
     try:
         llama_inference = LlamaVisionInference(
@@ -827,51 +839,79 @@ Examples:
     except FileNotFoundError as e:
         logging.error(f"Setup failed: {e}")
         return 1
-    
+
     # Process input path
     input_path = Path(args.path)
     exts = tuple(x.strip().lower() for x in args.ext.split(',') if x.strip())
-    
-    try:
-        if input_path.is_file():
-            # Process single image
-            _, out_path = process_image(
-                str(input_path), 
-                llama_inference,
-                output_dir=args.output_dir
-            )
-            logging.info(f"✓ Successfully processed: {out_path}")
-            return 0
-        
-        elif input_path.is_dir():
-            # Process directory
-            results = process_directory(
-                str(input_path),
-                llama_inference,
-                recursive=args.recursive,
-                exts=exts,
-                output_dir=args.output_dir
-            )
-            
-            succeeded = sum(1 for _, _, err in results if err is None)
-            failed = sum(1 for _, _, err in results if err is not None)
-            
-            logging.info(f"\\n{'='*60}")
-            logging.info(f"Summary: {succeeded} succeeded, {failed} failed out of {len(results)} total")
-            logging.info(f"{'='*60}")
-            
-            return 0 if failed == 0 else 1
-        
+
+    if input_path.is_file():
+        # Process single image
+        _, out_path = process_image(
+            str(input_path), 
+            llama_inference,
+            output_dir=args.output_dir
+        )
+        logging.info(f"✓ Successfully processed: {out_path}")
+        return 0
+
+    elif input_path.is_dir():
+        # If directory contains frame subfolders (rgb/0000/...), prefer the --image-name inside each frame folder.
+        preferred_name = args.image_name
+
+        # If recursive, we'll walk and try to find preferred files first, otherwise list direct children
+        if args.recursive:
+            # Find directories that look like frame folders (numeric or any subdir)
+            frame_dirs = [p for p in input_path.rglob('*') if p.is_dir()]
         else:
-            logging.error(f"Path not found or invalid: {input_path}")
-            return 1
-    
-    except KeyboardInterrupt:
-        logging.warning("\\nInterrupted by user")
-        return 130
-    except Exception as e:
-        logging.exception(f"Fatal error: {e}")
-        return 1
+            frame_dirs = [p for p in input_path.iterdir() if p.is_dir()]
+
+        # Collect images to process: prefer preferred_name in each frame_dir, otherwise any matching ext file
+        images_to_process = []
+        if frame_dirs:
+            for fd in sorted(set(frame_dirs)):
+                pref = fd / preferred_name
+                if pref.exists() and pref.is_file():
+                    images_to_process.append(pref)
+                    continue
+
+                # Fallback: find any image matching extensions in this folder
+                found = None
+                for ext in exts:
+                    for candidate in fd.glob(f"*.{ext}"):
+                        found = candidate
+                        break
+                    if found:
+                        break
+                if found:
+                    images_to_process.append(found)
+                else:
+                    # No images in this folder; skip
+                    continue
+
+        else:
+            # No frame subfolders, fall back to processing images directly in the directory
+            images_to_process = [p for p in sorted(input_path.iterdir()) if p.is_file() and p.suffix.lower().lstrip('.') in exts]
+
+        logging.info(f"Found {len(images_to_process)} preferred images to process in {input_path}")
+
+        results = []
+        for img_path in images_to_process:
+            try:
+                _, out_path = process_image(str(img_path), llama_inference, output_dir=args.output_dir)
+                results.append((str(img_path), out_path, None))
+            except Exception as e:
+                logging.error(f"Failed to process {img_path}: {e}")
+                results.append((str(img_path), "", str(e)))
+
+        succeeded = sum(1 for _, _, err in results if err is None)
+        failed = sum(1 for _, _, err in results if err is not None)
+
+        logging.info(f"\n{'='*60}")
+        logging.info(f"Summary: {succeeded} succeeded, {failed} failed out of {len(results)} total")
+        logging.info(f"{'='*60}")
+
+        return 0 if failed == 0 else 1
+    # Normal processing already returned above; end of main.
 
 
 if __name__ == '__main__':
