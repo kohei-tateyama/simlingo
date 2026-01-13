@@ -129,9 +129,12 @@ class LeaderboardEvaluator(object):
             return self._agent_watchdog.get_status()
         return False
 
-    def _cleanup(self):
+    def _cleanup(self, results=None):
         """
         Remove and destroy all actors
+        
+        Args:
+            results: Optional RouteRecord with route statistics to pass to agent
         """
         CarlaDataProvider.cleanup()
 
@@ -140,8 +143,10 @@ class LeaderboardEvaluator(object):
 
         try:
             if self.agent_instance:
-                self.agent_instance.destroy()
-                self.agent_instance = None
+                ## Pass results to agent's destroy() method if available
+                # self.agent_instance.destroy() # changed from simlingo 
+                self.agent_instance.destroy(results) # added 
+                self.agent_instance = None # added 
         except Exception as e:
             print("\n\033[91mFailed to stop the agent:")
             print(f"\n{traceback.format_exc()}\033[0m")
@@ -362,8 +367,15 @@ class LeaderboardEvaluator(object):
 
             if args.record:
                 self.client.stop_recorder()
-
-            self._cleanup()
+            # self._cleanup() # chenaged simlingo 
+            ## Get the computed route record to pass to agent
+            ## added 
+            try:
+                route_record = self.statistics_manager._results.checkpoint.records[config.index]
+            except (IndexError, AttributeError):
+                route_record = None
+            ## added
+            self._cleanup(results=route_record)
 
         except Exception:
             print("\n\033[91mFailed to stop the scenario, the statistics might be empty:")

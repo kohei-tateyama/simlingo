@@ -1616,6 +1616,9 @@ class DataAgentMulticamera(AutoPilot):
         """
         Clean up and save final results.json.gz.
         Parent AutoPilot.destroy() saves records.json.gz via ScenarioLogger.
+        
+        Args:
+            results: RouteRecord from leaderboard with computed statistics (completion %, infractions, scores)
         """
         torch.cuda.empty_cache()
         
@@ -1625,80 +1628,27 @@ class DataAgentMulticamera(AutoPilot):
                 self._save_gps_plot()
             except Exception as e:
                 print(f"[WARN] Failed to save GPS plot: {e}")
-        # If results provided by parent, save them (keep original behavior)
+        
+        # Save results.json.gz if leaderboard provided route statistics
         if results is not None and self.save_path is not None:
             try:
-                with gzip.open(os.path.join(self.save_path, 'results.json.gz'), 'wt', encoding='utf-8') as f:
-                    json.dump(results.__dict__, f, indent=2)
-            except Exception as e:
-                print(f"[WARN] Failed to save provided results: {e}")
-
-        # If no results provided, synthesize a results.json.gz similar to signal handler
-        if results is None and self.save_path is not None:
-            try:
                 results_path = Path(self.save_path) / 'results.json.gz'
-                infractions_template = {
-                    'collisions_layout': [],
-                    'collisions_pedestrian': [],
-                    'collisions_vehicle': [],
-                    'red_light': [],
-                    'stop_infraction': [],
-                    'outside_route_lanes': [],
-                    'min_speed_infractions': [],
-                    'yield_emergency_vehicle_infractions': [],
-                    'scenario_timeouts': [],
-                    'route_dev': [],
-                    'vehicle_blocked': [],
-                    'route_timeout': []
-                }
-
-                # Compute route_length if GPS recorded
-                try:
-                    route_length = 0.0
-                    if hasattr(self, '_gps_trajectory') and len(self._gps_trajectory) > 1:
-                        pts = self._gps_trajectory
-                        for i in range(1, len(pts)):
-                            dx = pts[i][0] - pts[i-1][0]
-                            dy = pts[i][1] - pts[i-1][1]
-                            route_length += math.hypot(dx, dy)
-                    else:
-                        route_length = 0.0
-                except Exception:
-                    route_length = 0.0
-
-                try:
-                    duration_system = time.time() - (self.wallclock_t0.timestamp() if isinstance(self.wallclock_t0, datetime) and self.wallclock_t0 else time.time())
-                except Exception:
-                    duration_system = 0.0
-
-                # Prefer checkpoint record from leaderboard if available
-                cp_record = self._try_load_leaderboard_checkpoint()
-                if cp_record is not None:
-                    # Write the checkpoint record as results
-                    with gzip.open(results_path, 'wt', encoding='utf-8') as f:
-                        json.dump(cp_record, f, indent=4, ensure_ascii=False)
-                    print(f"[DATA_AGENT_MULTICAMERA] Wrote results.json.gz from leaderboard checkpoint (route_id={cp_record.get('route_id')})")
-                else:
-                    results_data = {
-                        'timestamp': getattr(self, 'route_id', ''),
-                        'index': 0,
-                        'route_id': getattr(self, 'route_id_export', getattr(self, 'route_id', 'unknown')),
-                        'status': 'Completed' if hasattr(self, '_stopping') and self._stopping else 'Timeout',
-                        'num_infractions': 0,
-                        'infractions': infractions_template,
-                        'scores': {'score_route': 0.0, 'score_penalty': 1.0, 'score_composed': 0.0},
-                        'meta': {
-                            'route_length': route_length,
-                            'duration_game': duration_system,
-                            'duration_system': duration_system
-                        }
-                    }
-
-                    with gzip.open(results_path, 'wt', encoding='utf-8') as f:
-                        json.dump(results_data, f, indent=4, ensure_ascii=False)
-                    print(f"[DATA_AGENT_MULTICAMERA] Wrote synthesized results.json.gz (route_id={results_data['route_id']})")
+                # RouteRecord has a to_json() method that returns vars(self)
+                results_data = results.to_json() if hasattr(results, 'to_json') else results.__dict__
+                
+                with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                    json.dump(results_data, f, indent=4, ensure_ascii=False)
+                
+                print(f"[DATA_AGENT_MULTICAMERA] Saved results.json.gz:")
+                print(f"  Route: {results_data.get('route_id', 'unknown')}")
+                print(f"  Status: {results_data.get('status', 'unknown')}")
+                print(f"  Score: {results_data.get('scores', {}).get('score_route', 0)}%")
+                print(f"  Completion: {results_data.get('scores', {}).get('score_composed', 0)}")
             except Exception as e:
-                print(f"[WARN] Failed to synthesize results.json.gz in destroy(): {e}")
+                print(f"[WARN] Failed to save results.json.gz: {e}")
+        elif self.save_path is not None:
+            # Fallback: No results provided (shouldn't happen with updated leaderboard)
+            print(f"[WARN] No results provided to destroy() - results.json.gz may be incomplete")
 
         # Call parent destroy - this saves records.json.gz via lon_logger.dump_to_json()
         super().destroy(results)

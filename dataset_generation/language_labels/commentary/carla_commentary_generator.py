@@ -242,7 +242,8 @@ class COMsGenerator():
             return
         if not os.path.exists(path_measurements):
             return
-
+        ######################################################################################################## Success / leaderboard
+        ##### if we want to use our generated data in the bash script/run_carla_mp_pilot_script.sh this needs to be commented out
         # Read results file
         if self.filter_routes_by_result:
             results_file = path.split('boxes')[0] + 'results.json.gz'

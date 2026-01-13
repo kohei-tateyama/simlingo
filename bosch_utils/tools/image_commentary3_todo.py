@@ -74,9 +74,13 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
     
     /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_nuscenes.jpg -v
 
-
+[USED]
 python bosch_utils/tools/image_commentary3_todo.py \
   "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/" \
+  --recursive -v
+
+python bosch_utils/tools/image_commentary3_todo.py \
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/auto_long_multicam_jp/routes_training/ClearNoon_weather/Town02_Rep0_scenario/routes_urban/duration_15/ego_42/rgb" \
   --recursive -v
 
 """
@@ -151,14 +155,19 @@ class LlamaVisionInference:
         # Start the server
         self._start_server()
     
-    def generate_commentary(self, image_path: str, retry_on_oom: bool = True) -> Tuple[str, Dict]:
+    def generate_commentary(self, image_path: str, retry_on_oom: bool = True, context: Optional[Dict] = None) -> Tuple[str, Dict]:
         """
         Generate driving commentary for an image using llama.cpp
+        
+        Args:
+            image_path: Path to the image
+            retry_on_oom: Whether to retry with fewer GPU layers on OOM
+            context: Optional CARLA driving context to enhance prompt
         
         Returns:
             (commentary_text, metadata_dict)
         """
-        prompt = self._build_driving_prompt()
+        prompt = self._build_driving_prompt(context)
         
         # Try with decreasing GPU layers if OOM
         layers_to_try = [self.n_gpu_layers, 8, 4, 0] if retry_on_oom else [self.n_gpu_layers]
@@ -195,20 +204,81 @@ class LlamaVisionInference:
         
         raise RuntimeError("All inference attempts failed (OOM or other errors)")
     
-    def _build_driving_prompt(self) -> str:
-        """Build the prompt for autonomous driving commentary generation"""
-        return """<|im_start|>user
+    def _build_driving_prompt(self, context: Optional[Dict] = None) -> str:
+        """Build the prompt for autonomous driving commentary generation
+        
+        Args:
+            context: Optional driving context from CARLA measurements/boxes
+        """
+        base_prompt = """<|im_start|>user
 <|image|>
 You are an expert autonomous (left and right) driving system analyzing a stitched 6-camera surround-view layout: [Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center].
-
+"""
+        
+        # Add CARLA context if available
+        if context and context.get('speeds'):
+            speeds = context['speeds']
+            base_prompt += f"""
+Current Driving State:
+- Speed: {speeds.get('current', 0)} km/h (target: {speeds.get('target', 0)} km/h, limit: {speeds.get('limit', 30)} km/h)
+"""
+            
+            # Add maneuver info if available
+            if context.get('maneuver'):
+                maneuver = context['maneuver']
+                if maneuver.get('command') != 'Follow lane':
+                    base_prompt += f"- Maneuver: {maneuver['command']}"
+                    if maneuver.get('distance_to_target'):
+                        base_prompt += f" in {maneuver['distance_to_target']} meters"
+                    base_prompt += "\n"
+                if maneuver.get('distance_to_junction'):
+                    base_prompt += f"- Junction ahead: {maneuver['distance_to_junction']} meters\n"
+            
+            # Add hazard info
+            if context.get('hazards'):
+                hazards = context['hazards']
+                active_hazards = []
+                if hazards.get('stop_sign'):
+                    active_hazards.append('stop sign')
+                if hazards.get('light'):
+                    active_hazards.append('red/yellow traffic light')
+                if hazards.get('vehicle'):
+                    active_hazards.append('vehicle ahead')
+                if hazards.get('walker'):
+                    active_hazards.append('pedestrian nearby')
+                
+                if active_hazards:
+                    base_prompt += f"- Active hazards: {', '.join(active_hazards)}\n"
+            
+            # Add object details
+            if context.get('objects'):
+                objects = context['objects']
+                if objects.get('lead_vehicle'):
+                    lv = objects['lead_vehicle']
+                    base_prompt += f"- Lead vehicle: {lv['appearance']} at {lv['distance']} meters (speed: {lv['speed']} km/h)\n"
+                if objects.get('walker'):
+                    w = objects['walker']
+                    base_prompt += f"- Pedestrian detected: {w['distance']} meters away (speed: {w['speed']} km/h)\n"
+                if objects.get('traffic_light'):
+                    tl = objects['traffic_light']
+                    base_prompt += f"- Traffic light: {tl['state']} at {tl['distance']} meters\n"
+            
+            # Add speed reduction cause if different from hazards
+            if speeds.get('reduction_cause'):
+                cause = speeds['reduction_cause']
+                base_prompt += f"- Speed reduced due to: {cause['type']} at {cause['distance']} meters\n"
+        
+        base_prompt += """
 Analyze the 360-degree scene and generate a concise driving commentary with clear reasoning and action.
 
 Format your response as:
 Commentary: [Concise driving commentary mentioning key objects, their positions (front/rear/left/right), colors, and your driving decision reasoning]
 Action: [Single clear action command like "Accelerate to follow the lead vehicle" or "Brake for pedestrian"]
 
-Be specific about object colors, positions, and distances. End your response immediately after the Action line with <|im_end|> token.<|im_end|>
+Be specific about object colors, positions, and distances. Use the provided driving state information to make your commentary accurate and contextual. End your response immediately after the Action line with <|im_end|> token.<|im_end|>
 <|im_start|>assistant"""
+        
+        return base_prompt
     
     def _start_server(self):
         """Start llama-server in background if not already running"""
@@ -469,6 +539,107 @@ def get_vehicle_appearance_string(vehicle_box: Dict) -> str:
         return vehicle_type
 
 
+def extract_driving_context(measurements: Dict, boxes: List[Dict]) -> Dict:
+    """
+    Extract structured driving context from CARLA measurements and boxes.
+    This provides contextual information to help the LLM generate better commentary.
+    
+    Returns dict with:
+    - speeds: current_speed, target_speed, speed_limit
+    - hazards: vehicle_hazard, walker_hazard, stop_sign_hazard, light_hazard
+    - maneuver: command_text, distance_to_junction
+    - objects: lead_vehicle_info, closest_walker_info, traffic_light_state
+    """
+    if not measurements:
+        return {}
+    
+    context = {
+        'speeds': {
+            'current': round(measurements.get('speed', 0), 1),
+            'target': round(measurements.get('target_speed', 0), 1),
+            'limit': round(measurements.get('speed_limit', 30), 1)
+        },
+        'hazards': {
+            'vehicle': measurements.get('vehicle_hazard', False),
+            'walker': measurements.get('walker_hazard', False),
+            'stop_sign': measurements.get('stop_sign_hazard', False),
+            'light': measurements.get('light_hazard', False)
+        },
+        'maneuver': {},
+        'objects': {}
+    }
+    
+    # Extract command/maneuver information
+    command_code = measurements.get('command', 4)
+    command_map = {
+        1: 'Turn left',
+        2: 'Turn right', 
+        3: 'Go straight',
+        4: 'Follow lane',
+        5: 'Lane change left',
+        6: 'Lane change right'
+    }
+    context['maneuver']['command'] = command_map.get(command_code, 'Follow lane')
+    
+    # Get distance to target point (for turns/lane changes)
+    target_point = measurements.get('target_point', [0, 0, 0])
+    context['maneuver']['distance_to_target'] = round(np.sqrt(target_point[0]**2 + target_point[1]**2), 1)
+    
+    # Extract ego_info_box for junction distance
+    ego_info_box = None
+    for box in boxes:
+        if box.get('class') == 'ego_info':
+            ego_info_box = box
+            break
+    
+    if ego_info_box and ego_info_box.get('distance_to_junction') is not None:
+        context['maneuver']['distance_to_junction'] = round(ego_info_box['distance_to_junction'], 1)
+    
+    # Extract lead vehicle information (vehicle affecting ego)
+    vehicle_hazard_id = measurements.get('vehicle_affecting_id')
+    if vehicle_hazard_id:
+        for box in boxes:
+            if box.get('id') == vehicle_hazard_id and box.get('class') in ['car', 'vehicle']:
+                context['objects']['lead_vehicle'] = {
+                    'distance': round(box.get('distance', 0), 1),
+                    'appearance': get_vehicle_appearance_string(box),
+                    'speed': round(box.get('speed', 0), 1)
+                }
+                break
+    
+    # Extract walker information (if close and moving)
+    walker_close_id = measurements.get('walker_close_id')
+    if walker_close_id:
+        for box in boxes:
+            if box.get('id') == walker_close_id and box.get('class') == 'walker':
+                if box.get('num_points', 0) > 3:  # Only if visible with lidar
+                    context['objects']['walker'] = {
+                        'distance': round(box.get('distance', 0), 1),
+                        'speed': round(box.get('speed', 0), 1)
+                    }
+                break
+    
+    # Extract traffic light state (if affecting ego)
+    for box in boxes:
+        if box.get('class') == 'traffic_light' and box.get('affects_ego'):
+            context['objects']['traffic_light'] = {
+                'state': box.get('state', 'Unknown'),
+                'distance': round(box.get('distance', 0), 1)
+            }
+            break
+    
+    # Extract speed reduction cause
+    speed_reduced_by_type = measurements.get('speed_reduced_by_obj_type')
+    speed_reduced_by_dist = measurements.get('speed_reduced_by_obj_distance')
+    if speed_reduced_by_type and speed_reduced_by_dist is not None:
+        context['speeds']['reduction_cause'] = {
+            'type': str(speed_reduced_by_type),
+            'distance': round(speed_reduced_by_dist, 1)
+        }
+    
+    return context
+
+
 def extract_cause_object_from_measurements_and_boxes(
     measurements: Dict, 
     boxes: List[Dict]
@@ -605,9 +776,13 @@ def process_image(image_path: str,
     boxes_data = load_boxes_for_frame(str(img_path))
     logging.debug(f"Loaded measurements and {len(boxes_data)} boxes")
     
+    # Extract driving context from CARLA data to enhance LLM prompt
+    logging.debug("Extracting driving context from CARLA data...")
+    driving_context = extract_driving_context(measurements, boxes_data)
+    
     # Generate commentary with llama.cpp (LLM-generated natural language)
     logging.info("Generating commentary with llama.cpp...")
-    commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path))
+    commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path), context=driving_context)
     
     # Parse the LLM output to extract commentary and action
     commentary_text = commentary_raw
@@ -671,34 +846,22 @@ def process_image(image_path: str,
     if output_dir:
         out_dir = Path(output_dir)
     else:
-        # Input:  .../simlingo_v5.../auto_long_multicam_jp/training_.../ego_42/rgb/0000/patched.jpg
-        # Output: .../simlingo_v5.../commentary/auto_long_multicam_jp/training_.../ego_42/rgb/0000.json.gz
-        img_dir = img_path.parent
+        # Input:  .../ego_42/rgb/0000/patched2.jpg
+        # Output: .../ego_42/rgb_commentary/0000.json.gz
+        # Simply create rgb_commentary/ as sibling to rgb/
         
-        try:
-            path_parts = img_path.parts
-            # Find the database root (contains 'simlingo')
-            simlingo_idx = None
-            for i, part in enumerate(path_parts):
-                if 'simlingo' in part.lower():
-                    simlingo_idx = i
-                    break
-            
-            if simlingo_idx is not None and simlingo_idx + 1 < len(path_parts):
-                database_root = Path(*path_parts[:simlingo_idx + 1])
-                dataset_type = path_parts[simlingo_idx + 1]
-                rest_of_path = list(path_parts[simlingo_idx + 2:-1])
-
-                # Prefer saving under rgb_commentary instead of rgb so outputs
-                # don't mix with original dataset images. Replace any 'rgb'
-                # segment with 'rgb_commentary' (keeps frame subfolders intact).
-                rest_of_path = ['rgb_commentary' if p == 'rgb' else p for p in rest_of_path]
-
-                out_dir = database_root / 'commentary_3' / dataset_type / Path(*rest_of_path)
-            else:
-                out_dir = img_dir.parent / (img_dir.name + '_commentary_3')
-        except Exception:
-            out_dir = img_dir.parent / (img_dir.name + '_commentary_3')
+        # Extract frame number from path
+        if img_path.parent.name == 'rgb':
+            # Case 1: image directly in rgb/ (e.g., rgb/0000.jpg)
+            # Output should be rgb_commentary/0000.json.gz
+            rgb_dir = img_path.parent
+            out_dir = rgb_dir.parent / 'rgb_commentary'
+        else:
+            # Case 2: image in rgb/XXXX/ subfolder (e.g., rgb/0000/patched2.jpg)
+            # Output should be rgb_commentary/0000.json.gz (not rgb_commentary/0000/)
+            frame_dir = img_path.parent  # 0000/
+            rgb_dir = frame_dir.parent    # rgb/
+            out_dir = rgb_dir.parent / 'rgb_commentary'
 
     # Ensure output directory exists and is writable
     try:
@@ -715,8 +878,16 @@ def process_image(image_path: str,
     except Exception as e:
         raise PermissionError(f"Output directory not writable: {out_dir}: {e}")
     
-    # Save as gzipped JSON
-    out_name = img_path.stem + '.json.gz'
+    # Save as gzipped JSON using frame number (not image filename)
+    # Extract frame number from path
+    if img_path.parent.name == 'rgb':
+        # Case 1: image directly in rgb/ (e.g., rgb/0000.jpg)
+        frame_num = img_path.stem
+    else:
+        # Case 2: image in rgb/XXXX/ subfolder (e.g., rgb/0000/patched2.jpg)
+        frame_num = img_path.parent.name
+    
+    out_name = f'{frame_num}.json.gz'
     out_path = out_dir / out_name
     
     with gzip.open(out_path, 'wt', encoding='utf-8') as f:

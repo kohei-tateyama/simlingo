@@ -14,7 +14,7 @@ import shutil
 from bosch_utils.japanese_driving_autopilot_cameras_mp import JapaneseStyleAutopilot
 from bosch_utils.japanese_driving_autopilot_cameras_backup import _resolve_weather_param
 
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, NEW_SIMLINGO_MATCH
 
 class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
     def __init__(self, *args, autosave_secs=300, rotate_secs=0, repeat=1, random_spawn=False, **kwargs):
@@ -214,6 +214,12 @@ class LongJapaneseStyleAutopilot(JapaneseStyleAutopilot):
             print(f"[INFO][AGENT CARLA]: start={start_idx}, goal={goal_idx}, straight-line={straight_dist:.1f}m, waypoints={len(waypoints)}, candidates={len(candidates)}")
             print(f"[INFO][AGENT CARLA]: Route complexity: total_turn={total_turn:.1f}°, avg_turn_per_wp={total_turn/max(1,len(waypoints)):.2f}°")
             print('=' * self.print_length)
+            
+            # Store route for distance calculation (needed for results.json.gz statistics)
+            self._route_waypoints = waypoints
+            self._route_total_distance = self._compute_route_distance(waypoints)
+            print(f"[INFO]: Total planned route distance: {self._route_total_distance:.1f} meters")
+            
             return waypoints, start_idx
         except Exception as e:
             # Planner unavailable or failed — fall back to parent's predefined route

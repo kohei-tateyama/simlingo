@@ -19,7 +19,7 @@ from PIL import Image as PILImage
 import math
 import yaml
 from pathlib import Path
-from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH
+from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, NEW_SIMLINGO_MATCH
 
 # from simlingo.bosch_utils.config import (
 #     cfg,
@@ -378,6 +378,24 @@ class JapaneseStyleAutopilot:
             self._debug_log_path = None
         self._print_debug = False
         self._gps_trajectory = []
+        self._route_waypoints = []  # Planned route waypoints
+        self._route_total_distance = 0.0  # Total planned route distance
+        self._actual_distance_traveled = 0.0  # Actual distance covered
+        self._infractions_log = {  # Track infractions during run
+            'collisions_layout': [],
+            'collisions_pedestrian': [],
+            'collisions_vehicle': [],
+            'red_light': [],
+            'stop_infraction': [],
+            'outside_route_lanes': [],
+            'min_speed_infractions': [],
+            'yield_emergency_vehicle_infractions': [],
+            'scenario_timeouts': [],
+            'route_dev': [],
+            'vehicle_blocked': [],
+            'route_timeout': []
+        }
+        self._speed_samples = []  # Track speed samples for min speed check
 
     def _log_debug(self, msg):
         try:
@@ -850,6 +868,54 @@ class JapaneseStyleAutopilot:
             'signals': signals
         }
 
+    def _compute_route_distance(self, waypoints):
+        """Compute total distance of planned route from waypoints."""
+        if not waypoints or len(waypoints) < 2:
+            return 0.0
+        
+        total_distance = 0.0
+        for i in range(1, len(waypoints)):
+            loc1 = waypoints[i-1].transform.location
+            loc2 = waypoints[i].transform.location
+            dx = loc2.x - loc1.x
+            dy = loc2.y - loc1.y
+            dz = loc2.z - loc1.z
+            total_distance += math.sqrt(dx*dx + dy*dy + dz*dz)
+        
+        return total_distance
+    
+    def _compute_route_distance(self, waypoints):
+        """Compute total distance of planned route from waypoints."""
+        if not waypoints or len(waypoints) < 2:
+            return 0.0
+        
+        total_distance = 0.0
+        for i in range(1, len(waypoints)):
+            loc1 = waypoints[i-1].transform.location
+            loc2 = waypoints[i].transform.location
+            dx = loc2.x - loc1.x
+            dy = loc2.y - loc1.y
+            dz = loc2.z - loc1.z
+            total_distance += math.sqrt(dx*dx + dy*dy + dz*dz)
+        
+        return total_distance
+    
+    def _compute_route_distance(self, waypoints):
+        """Compute total distance of planned route from waypoints."""
+        if not waypoints or len(waypoints) < 2:
+            return 0.0
+        
+        total_distance = 0.0
+        for i in range(1, len(waypoints)):
+            loc1 = waypoints[i-1].transform.location
+            loc2 = waypoints[i].transform.location
+            dx = loc2.x - loc1.x
+            dy = loc2.y - loc1.y
+            dz = loc2.z - loc1.z
+            total_distance += math.sqrt(dx*dx + dy*dy + dz*dz)
+        
+        return total_distance
+    
     def _verify_and_correct_route_for_left_hand_traffic(self, route_waypoints):
         """
         Verify route waypoints align with left-hand driving and correct if needed.
@@ -1353,6 +1419,11 @@ class JapaneseStyleAutopilot:
             return [], start_idx
         
         print(f"[INFO]: Generated route with {len(waypoints)} waypoints")
+        
+        # Store route for distance calculation
+        self._route_waypoints = waypoints
+        self._route_total_distance = self._compute_route_distance(waypoints)
+        print(f"[INFO]: Total planned route distance: {self._route_total_distance:.1f} meters")
         
         # CRITICAL: Correct waypoints for left-hand traffic if enabled
         print(f"[DEBUG] get_predefined_route (mp.py): enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
@@ -2197,8 +2268,16 @@ class JapaneseStyleAutopilot:
         except Exception as e:
             print(f"Error saving measurements: {e}")
         
-        # Track GPS trajectory for plotting
-        self._gps_trajectory.append([float(transform.location.x), float(transform.location.y)])
+        # Track GPS trajectory for plotting and distance calculation
+        current_pos = [float(transform.location.x), float(transform.location.y)]
+        self._gps_trajectory.append(current_pos)
+        
+        # Update actual distance traveled
+        if len(self._gps_trajectory) >= 2:
+            prev_pos = self._gps_trajectory[-2]
+            dx = current_pos[0] - prev_pos[0]
+            dy = current_pos[1] - prev_pos[1]
+            self._actual_distance_traveled += math.sqrt(dx*dx + dy*dy)
         
         # Use get_bounding_boxes() for enriched dataset format (matching simlingo_v2_2025_01_10)
         boxes_data = self.get_bounding_boxes(lidar=None)
@@ -2237,6 +2316,10 @@ class JapaneseStyleAutopilot:
             'speed': speed * 3.6  # km/h
         }
         self.recording_data.append(data_point)
+        
+        # Track speed for min speed infraction (only after first 10 frames)
+        if frame_num > 10:
+            self._speed_samples.append(speed * 3.6)  # km/h
         # Before incrementing the frame counter, ensure camera images for this frame exist.
         expected_cams = {'F', 'B', 'RF', 'LF', 'RB', 'LB'}
         # Wait briefly for camera callbacks to arrive (they should run on the same world.tick)
@@ -2380,34 +2463,54 @@ class JapaneseStyleAutopilot:
         except Exception as e:
             print(f"[ERROR]: Failed to save records.json.gz: {e}")
         
+        # Compute route completion statistics
+        score_route = 0.0
+        if self._route_total_distance > 0:
+            score_route = min(100.0, (self._actual_distance_traveled / self._route_total_distance) * 100.0)
+        
+        # Check for min speed infraction (average speed should be reasonable)
+        if len(self._speed_samples) > 0:
+            avg_speed = sum(self._speed_samples) / len(self._speed_samples)
+            # If average speed is less than 60% of speed limit, add infraction
+            speed_limit = 50.0  # Default assumption
+            if avg_speed < 0.6 * speed_limit:
+                speed_ratio = (avg_speed / speed_limit) * 100 if speed_limit > 0 else 100
+                self._infractions_log['min_speed_infractions'].append(
+                    f"Average speed is {speed_ratio:.2f}% of the speed limit"
+                )
+        
+        # Count total infractions
+        num_infractions = sum(len(v) for v in self._infractions_log.values())
+        
+        # Compute penalty score (1.0 = perfect, decreases with infractions)
+        score_penalty = 1.0
+        if num_infractions > 0:
+            # Simple penalty: 0.2 per infraction type that has violations
+            num_infraction_types = sum(1 for v in self._infractions_log.values() if len(v) > 0)
+            score_penalty = max(0.0, 1.0 - (num_infraction_types * 0.2))
+        
+        # Determine status
+        if score_route >= 99.9:
+            status = 'Perfect' if num_infractions == 0 else 'Completed'
+        else:
+            status = 'Completed'
+        
         # Save results.json.gz
         results = {
             'timestamp': self.foldername,
             'index': 0,
-            'route_id': f'{self.route_type}_route',
-            'status': 'Completed',
-            'num_infractions': 0,
-            'infractions': {
-                'collisions_layout': [],
-                'collisions_pedestrian': [],
-                'collisions_vehicle': [],
-                'red_light': [],
-                'stop_infraction': [],
-                'outside_route_lanes': [],
-                'min_speed_infractions': [],
-                'yield_emergency_vehicle_infractions': [],
-                'scenario_timeouts': [],
-                'route_dev': [],
-                'vehicle_blocked': [],
-                'route_timeout': []
-            },
+            'route_id': f'{self.town}_{self.route_type}_route',
+            'status': status,
+            'num_infractions': num_infractions,
+            'infractions': self._infractions_log,
             'scores': {
-                'score_route': 100,
-                'score_penalty': 1.0,
-                'score_composed': 100.0
+                'score_route': round(score_route, 3),
+                'score_penalty': round(score_penalty, 5),
+                'score_composed': round(score_route * score_penalty, 3)
             },
             'meta': {
-                'route_length': 0.0,  # Would need route calculation
+                'route_length': round(self._actual_distance_traveled, 3),
+                'route_length_planned': round(self._route_total_distance, 3),
                 'duration_game': self.duration,
                 'duration_system': self.duration
             }
@@ -2417,7 +2520,11 @@ class JapaneseStyleAutopilot:
         try:
             with gzip.open(results_path, 'wt', encoding='utf-8') as f:
                 json.dump(results, f, indent=2)
-            print(f"[INFO]: Saved results.json.gz")
+            print(f"[INFO]: Saved results.json.gz with statistics:")
+            print(f"  - Route completion: {score_route:.1f}%")
+            print(f"  - Distance traveled: {self._actual_distance_traveled:.1f}m / {self._route_total_distance:.1f}m planned")
+            print(f"  - Infractions: {num_infractions}")
+            print(f"  - Final score: {results['scores']['score_composed']:.1f}")
             print(f"[INFO]: All training-format data saved to {self.folderpath}")
         except Exception as e:
             print(f"[ERROR]: Failed to save results.json.gz: {e}")
