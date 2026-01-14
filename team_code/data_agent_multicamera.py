@@ -1640,6 +1640,24 @@ class DataAgentMulticamera(AutoPilot):
             # Compute duration (step_count / 10 Hz = seconds)
             duration_sec = self.step / 10.0 if self.step > 0 else 0.0
             
+            # Compute route completion percentage from waypoint progress
+            score_route = 0.0
+            if hasattr(self, '_waypoint_planner'):
+                try:
+                    current_index = getattr(self._waypoint_planner, 'route_index', 0)
+                    # Try to get total route length from commands or route_points
+                    total_length = 0
+                    if hasattr(self._waypoint_planner, 'commands'):
+                        total_length = len(self._waypoint_planner.commands)
+                    elif hasattr(self._waypoint_planner, 'route_points'):
+                        total_length = len(self._waypoint_planner.route_points)
+                    
+                    if total_length > 0:
+                        score_route = min(100.0, (current_index / total_length) * 100.0)
+                        print(f"[DATA_AGENT_MULTICAMERA] Route progress: {current_index}/{total_length} = {score_route:.1f}%")
+                except Exception as e:
+                    print(f"[INFO] Could not compute route completion: {e}")
+            
             # Try to extract infractions from scenario criteria (if scenario is still accessible)
             infractions = {
                 'collisions_layout': [],
@@ -1674,16 +1692,25 @@ class DataAgentMulticamera(AutoPilot):
             except Exception as e:
                 print(f"[INFO] Could not extract infractions from scenario: {e}")
             
+            # Compute penalty score from infractions (simplified - actual leaderboard has complex penalty calculation)
+            score_penalty = 1.0  # No penalty if no infractions found
+            total_infractions = sum(len(v) for v in infractions.values())
+            if total_infractions > 0:
+                # Simple penalty: each infraction reduces score by ~7% (matching leaderboard PENALTY_VALUE_DICT)
+                score_penalty = max(0.0, 1.0 - (total_infractions * 0.07))
+            
+            score_composed = score_route * score_penalty
+            
             # Build RouteRecord-like result structure
             results_data = {
                 'route_id': getattr(self, 'route_id', 'unknown'),
                 'index': getattr(self, 'route_index', 0),
-                'status': 'Completed',  # Assume completed if we have data
+                'status': 'Completed' if score_route >= 100.0 else 'Timeout',
                 'infractions': infractions,
                 'scores': {
-                    'score_route': 100.0,  # Default to perfect if we don't have penalties
-                    'score_penalty': 1.0,
-                    'score_composed': 100.0
+                    'score_route': round(score_route, 2),
+                    'score_penalty': round(score_penalty, 4),
+                    'score_composed': round(score_composed, 2)
                 },
                 'meta': {
                     'route_length': route_length,
@@ -1740,6 +1767,19 @@ class DataAgentMulticamera(AutoPilot):
                 results_path = Path(self.save_path) / 'results.json.gz'
                 # RouteRecord has a to_json() method that returns vars(self)
                 results_data = results.to_json() if hasattr(results, 'to_json') else results.__dict__
+                
+                # Check if leaderboard reported 0% completion but we actually have data
+                # This happens when timeout occurs before leaderboard computes route progress
+                scores = results_data.get('scores', {})
+                if scores.get('score_route', 0) == 0 and self.step > 0:
+                    print(f"[INFO] Leaderboard reported 0% completion, computing actual progress...")
+                    computed_stats = self._compute_statistics_from_data()
+                    if computed_stats is not None:
+                        # Override route completion and composed score with our computation
+                        results_data['scores']['score_route'] = computed_stats['scores']['score_route']
+                        results_data['scores']['score_composed'] = computed_stats['scores']['score_composed']
+                        # Keep leaderboard's infractions and penalty (they're accurate)
+                        print(f"[DATA_AGENT_MULTICAMERA] Enhanced results with computed route completion: {results_data['scores']['score_route']:.1f}%")
                 
                 with gzip.open(results_path, 'wt', encoding='utf-8') as f:
                     json.dump(results_data, f, indent=4, ensure_ascii=False)

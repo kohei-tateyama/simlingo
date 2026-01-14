@@ -299,8 +299,7 @@ drwxrwsr-x 3 tko3yh workspace 4.0K Nov 20 15:45 drivelm
 
 After any COMPLETED run, the leaderboard returs this statics. 
 
-I do not remeber what but we needed to force something to be set as successfull when using the timeout. 
-Maybe, whne using the timeout, we are able to print this Results of RouteScenario_0, can we enforce the leaderboard to still print this ?
+However, we introduce the saving of this statics also in the case of TIMEOUT run. 
 
 ```bash
 === [Agent] -- Wallclock = 2026-01-13 00:41:10.795 -- System time = 45034.792 -- Game time = 4518.000 -- Ratio = 0.100x
@@ -347,7 +346,6 @@ Maybe, whne using the timeout, we are able to print this Results of RouteScenari
 
 ### To move data out of this machine to my windows cetricx
 `scp -r pim1yh@10.162.163.183:/workspace/simlingo/bosch_utils/ "C:\Users\PIM1YH\Downloads\"`
-`scp -r pim1yh@10.162.163.183:/workspace/simlingo/script/ "C:\Users\PIM1YH\Downloads\"`
 
 ### SSD
 Working witht the external ssd.
@@ -438,13 +436,13 @@ done
 ```
 
 - Bash utils
-When `code` for opening imgs does not work, refresh the terminal
-`export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
+    - When `code` for opening imgs does not work, refresh the terminal
+    `export VSCODE_IPC_HOOK_CLI=$(ls -t /run/user/$(id -u)/vscode-ipc-*.sock | head -n 1)`
 
-One-liner for opening multiple `.jpg` from the `rgb/` folder
-`for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
-`for ((i=0;i<=798;i+=30)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+30))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
-`for ((i=0;i<=19157;i+=1200)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+1200))"); code "$a/patched2.jpg" && code "$b/patched2.jpg"; done`
+    - One-liner for opening multiple `.jpg` from the `rgb/` folder
+    `for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
 
-One-liner to count the elements inside any folder 
-`find . -mindepth 1 -maxdepth 1 | wc -l`
+    `tot=1000; step=$(( tot / 10 )); [ $step -lt 1 ] && step=1; for ((i=0;i<=tot;i+=step)); do a=$(printf "%04d" "$i"); j=$(( i+step )); if [ $j -gt $tot ]; then j=$tot; fi; b=$(printf "%04d" "$j"); code "${a}/patched2.jpg" && code "${b}/patched2.jpg"; done`
+
+    - One-liner to count the elements inside any folder 
+    `find . -mindepth 1 -maxdepth 1 | wc -l`
