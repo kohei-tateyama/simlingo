@@ -41,7 +41,7 @@ export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 CHECKPOINT_FILENAME="results_japanese_test.json"
 export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

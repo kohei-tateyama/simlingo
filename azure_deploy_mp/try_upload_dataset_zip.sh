@@ -1,4 +1,3 @@
-###################################### test zipping just the dataset 
 #!/bin/bash
 set -e
 
@@ -41,7 +40,7 @@ echo ""
 
 # echo $AZ_SUBSCRIPTION_ID, $AZ_RESOURCE_GROUP, $AZ_WORKSPACE, $STORAGE_ACCOUNT, $STORAGE_RESOURCE_GROUP, $DELETE_REMOTE_AFTER_UPLOAD, $DELETE_REMOTE_AFTER_UPLOAD
 
-read -p "This will upload. Continue? [Y/n]: " confirm
+read -p "Continue? [Y/n]: " confirm
 if [ "$confirm" = "n" ] || [ "$confirm" = "N" ]; then
     echo "Upload cancelled."
     exit 0
@@ -85,7 +84,7 @@ else
   }
 fi
 
-info "[Step 4]: Prepare upload method (prefer AD auth; fall back to SAS/azcopy)"
+info "[Step 4]: Prepare upload (prefer AD auth; fall back to SAS/azcopy)"
 EXPIRY=$(date -u -d "7 days" '+%Y-%m-%dT%H:%MZ')
 SAS_TOKEN=""
 BLOB_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER_NAME}"
@@ -132,9 +131,11 @@ fi
 
 #####
 
-info "[Step 5]: Uploading Dataset (this will take hours)"
-echo "Starting upload at $(date)"
-echo ""
+if [ "${TAR_AND_UPLOAD:-true}" = "true" ]; then
+  info "[Step 5]: Uploading Dataset (this will take hours)"
+  echo "Starting upload at $(date)"
+  echo ""
+fi
 
 # Example: NAME="bucketsv2_simlingo" or NAME="simlingo_v2_2025_01_10"
 NAME=${NAME:-simlingo_v2_2025_01_10}
@@ -152,12 +153,13 @@ NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar}
 #   NAME_DST_PATH=${NAME_DST_PATH:-${NAME}.tar.gz}
 # fi
 
-echo "Uploading tarball ${NAME_TAR} -> container ${CONTAINER_NAME} as ${NAME_DST_PATH}"
+if [ "${TAR_AND_UPLOAD:-true}" = "true" ]; then
+  echo "Uploading tarball ${NAME_TAR} -> container ${CONTAINER_NAME} as ${NAME_DST_PATH}"
+  
+  ALLOW_SHARED_KEY=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query "allowSharedKeyAccess" -o tsv 2>/dev/null || echo "")
+  echo "Storage account allowSharedKeyAccess=$ALLOW_SHARED_KEY"
 
-ALLOW_SHARED_KEY=$(az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$STORAGE_RESOURCE_GROUP" --query "allowSharedKeyAccess" -o tsv 2>/dev/null || echo "")
-echo "Storage account allowSharedKeyAccess=$ALLOW_SHARED_KEY"
-
-if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
+  if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
   # If blob already exists, respect OVERWRITE env var (default: false)
   BLOB_EXISTS="false"
   if az storage blob exists --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --auth-mode login -o tsv 2>/dev/null | grep -q true; then
@@ -200,23 +202,43 @@ else
       }
   fi
 fi
+else
+  echo "TAR_AND_UPLOAD=false: skipping upload, will extract from existing blob"
+fi  # End TAR_AND_UPLOAD conditional
 
-# Optionally extract locally and upload extracted files (recommended when you want blobs directly)
+# Optionally extract and upload extracted files
 if [ "$EXTRACT_TARBALL" = "true" ]; then
-  echo "Extracting $NAME_TAR to temporary folder and uploading contents"
+  # If TAR_AND_UPLOAD=false, download the tar from blob first
+  if [ "${TAR_AND_UPLOAD:-true}" = "false" ]; then
+    echo "Downloading ${NAME_DST_PATH} from Azure blob storage to extract locally..."
+    NAME_TAR="$TMP_WORKDIR/${NAME}.tar"
+    az storage blob download --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$NAME_DST_PATH" --file "$NAME_TAR" --auth-mode login
+    echo "Downloaded to $NAME_TAR"
+  fi
+  
+  echo "Extracting $NAME_TAR locally and uploading contents to ${NAME}_extracted/"
   EXTRACT_DIR="$TMP_WORKDIR/${NAME}_extracted"
   rm -rf "$EXTRACT_DIR" && mkdir -p "$EXTRACT_DIR"
-  tar -C "$EXTRACT_DIR" -xzf "$NAME_TAR"
+  
+  # Detect archive type and use appropriate tar flags
+  if [[ "$NAME_TAR" == *.tar.gz ]] || [[ "$NAME_TAR" == *.tgz ]]; then
+    tar -C "$EXTRACT_DIR" -xzf "$NAME_TAR"
+  else
+    tar -C "$EXTRACT_DIR" -xf "$NAME_TAR"
+  fi
 
-  # Prefer azcopy sync with SAS when available for speed and resumability
+  # Upload extracted files
   if [ -n "$SAS_TOKEN" ] && command -v azcopy &>/dev/null; then
     azcopy cp "$EXTRACT_DIR" "${BLOB_URL}/${NAME}_extracted/?${SAS_TOKEN}" --recursive=true --log-level=INFO ${AZCOPY_EXTRA_FLAGS}
   else
     az storage blob upload-batch --account-name "$STORAGE_ACCOUNT" --destination "$CONTAINER_NAME" \
-      --source "$EXTRACT_DIR" --destination-path "${NAME}_extracted" --auth-mode login --overwrite false
+      --source "$EXTRACT_DIR" --destination-path "${NAME}_extracted" --auth-mode login --overwrite
   fi
 
   rm -rf "$EXTRACT_DIR"
+  if [ "${TAR_AND_UPLOAD:-true}" = "false" ]; then
+    rm -f "$NAME_TAR"  # Clean up downloaded tar
+  fi
 fi
 
 # Optionally remove local tarball after upload
@@ -268,5 +290,6 @@ fi
 print_sep 
 
 # az storage blob delete --account-name "$STORAGE_ACCOUNT" --container-name "$CONTAINER_NAME" --name "$BLOB_NAME" --auth-mode login
+
 
 

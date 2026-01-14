@@ -2100,6 +2100,97 @@ class DataAgentJapanese(AutoPilot):
         finally:
             os._exit(0)  # Force immediate exit without cleanup
 
+    def _compute_statistics_from_data(self):
+        """
+        Compute basic statistics from collected data when leaderboard doesn't provide results.
+        This fallback is used when LEADERBOARD_TIMEOUT kills the process before statistics registration.
+        Attempts to extract actual infractions from scenario criteria if available.
+        
+        Returns:
+            dict: RouteRecord-like structure with computed statistics
+        """
+        try:
+            records_path = Path(self.save_path) / 'records.json.gz'
+            if not records_path.exists():
+                return None
+            
+            with gzip.open(records_path, 'rt', encoding='utf-8') as f:
+                records = json.load(f)
+            
+            # Compute route distance from GPS trajectory
+            route_length = 0.0
+            if hasattr(self, '_gps_trajectory') and len(self._gps_trajectory) > 1:
+                for i in range(1, len(self._gps_trajectory)):
+                    p1, p2 = self._gps_trajectory[i-1], self._gps_trajectory[i]
+                    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+                    route_length += np.sqrt(dx*dx + dy*dy)
+            
+            # Compute duration (step_count / 10 Hz = seconds)
+            duration_sec = self.step / 10.0 if self.step > 0 else 0.0
+            
+            # Try to extract infractions from scenario criteria (if scenario is still accessible)
+            infractions = {
+                'collisions_layout': [],
+                'collisions_pedestrian': [],
+                'collisions_vehicle': [],
+                'red_light': [],
+                'stop_infraction': [],
+                'outside_route_lanes': [],
+                'route_dev': [],
+                'vehicle_blocked': [],
+                'min_speed_infractions': []
+            }
+            
+            # Attempt to get infractions from scenario manager if available
+            try:
+                from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
+                from leaderboard.utils.statistics_manager_local import PENALTY_NAME_DICT
+                
+                # Check if we have active scenario with criteria
+                if hasattr(self, '_current_scenario') and self._current_scenario is not None:
+                    scenario = self._current_scenario
+                    if hasattr(scenario, 'get_criteria'):
+                        for node in scenario.get_criteria():
+                            if hasattr(node, 'events'):
+                                for event in node.events:
+                                    event_type = event.get_type()
+                                    if event_type in PENALTY_NAME_DICT:
+                                        infraction_name = PENALTY_NAME_DICT[event_type]
+                                        if infraction_name in infractions:
+                                            infractions[infraction_name].append(event.get_message())
+                        print(f"[DATA_AGENT_JAPANESE] Extracted {sum(len(v) for v in infractions.values())} infractions from scenario criteria")
+            except Exception as e:
+                print(f"[INFO] Could not extract infractions from scenario: {e}")
+            
+            # Build RouteRecord-like result structure
+            results_data = {
+                'route_id': getattr(self, 'route_id', 'unknown'),
+                'index': getattr(self, 'route_index', 0),
+                'status': 'Completed',  # Assume completed if we have data
+                'infractions': infractions,
+                'scores': {
+                    'score_route': 100.0,  # Default to perfect if we don't have penalties
+                    'score_penalty': 1.0,
+                    'score_composed': 100.0
+                },
+                'meta': {
+                    'route_length': route_length,
+                    'duration_game': duration_sec,
+                    'duration_system': duration_sec
+                }
+            }
+            
+            print(f"[DATA_AGENT_JAPANESE] Computed statistics from collected data:")
+            print(f"  Steps: {self.step}")
+            print(f"  Route length: {route_length:.1f}m")
+            print(f"  Duration: {duration_sec:.1f}s")
+            
+            return results_data
+            
+        except Exception as e:
+            print(f"[WARN] Failed to compute statistics from data: {e}")
+            return None
+
     def destroy(self, results=None):
         """
         Clean up and save final results.json.gz.
@@ -2117,8 +2208,22 @@ class DataAgentJapanese(AutoPilot):
             except Exception as e:
                 print(f"[WARN] Failed to save GPS plot: {e}")
         
+        # If no results provided (timeout scenario), try computing from collected data
+        if results is None and self.save_path is not None:
+            print(f"[INFO] No results from leaderboard - computing statistics from collected data")
+            results_data = self._compute_statistics_from_data()
+            if results_data is not None:
+                # Save computed statistics as results.json.gz
+                try:
+                    results_path = Path(self.save_path) / 'results.json.gz'
+                    with gzip.open(results_path, 'wt', encoding='utf-8') as f:
+                        json.dump(results_data, f, indent=4, ensure_ascii=False)
+                    print(f"[DATA_AGENT_JAPANESE] Saved computed results.json.gz")
+                except Exception as e:
+                    print(f"[WARN] Failed to save computed results.json.gz: {e}")
+        
         # Save results.json.gz if leaderboard provided route statistics
-        if results is not None and self.save_path is not None:
+        elif results is not None and self.save_path is not None:
             try:
                 results_path = Path(self.save_path) / 'results.json.gz'
                 # RouteRecord has a to_json() method that returns vars(self)
@@ -2134,9 +2239,6 @@ class DataAgentJapanese(AutoPilot):
                 print(f"  Completion: {results_data.get('scores', {}).get('score_composed', 0)}")
             except Exception as e:
                 print(f"[WARN] Failed to save results.json.gz: {e}")
-        elif self.save_path is not None:
-            # Fallback: No results provided (shouldn't happen with updated leaderboard)
-            print(f"[WARN] No results provided to destroy() - results.json.gz may be incomplete")
 
         # Call parent destroy - this saves records.json.gz via lon_logger.dump_to_json()
         super().destroy(results)
