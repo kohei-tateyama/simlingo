@@ -19,6 +19,7 @@ from PIL import Image as PILImage
 import math
 import yaml
 from pathlib import Path
+from bosch_utils.japanese_driving_autopilot_cameras_mp import _resolve_weather_param
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, NEW_SIMLINGO_MATCH
 
 # from simlingo.bosch_utils.config import (
@@ -40,104 +41,7 @@ from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EX
 # )
 
 
-def _resolve_weather_param(name: str):
-    """Resolve a weather name to a carla.WeatherParameters attribute.
-
-    Accepts common CARLA preset names, refer to the config_bosch_utils.yaml for the complete list.
-    """
-
-    # weather = carla.WeatherParameters(
-    #     cloudiness=10.0,
-    #     precipitation=0.0,
-    #     sun_altitude_angle=-80.0, # Below horizon for night
-    #     sun_azimuth_angle=90.0,
-    #     fog_density=0.0
-    # )
-    ## Usage see later in the code 
-    ## world.set_weather(weather)
-
-    def make_weather_parameters(cloudiness=None,
-                                precipitation=None,
-                                sun_altitude_angle=None,
-                                sun_azimuth_angle=None,
-                                fog_density=None,
-                                precipitation_deposits=None,
-                                wetness=None):
-        """Build and return a carla.WeatherParameters object from provided values.
-        Returns: populated weather object
-        """
-        try:
-            wp = carla.WeatherParameters()
-        except Exception:
-            raise(RuntimeError("CARLA module not available; cannot create WeatherParameters"))
-
-        mapping = {
-            'cloudiness': cloudiness,
-            'precipitation': precipitation,
-            'sun_altitude_angle': sun_altitude_angle,
-            'sun_azimuth_angle': sun_azimuth_angle,
-            'fog_density': fog_density,
-            'precipitation_deposits': precipitation_deposits,
-            'wetness': wetness,
-        }
-
-        for k, v in mapping.items():
-            if v is not None:
-                try:
-                    setattr(wp, k, float(v))
-                except Exception:
-                    try:
-                        setattr(wp, k, v)
-                    except Exception:
-                        pass
-
-        return wp
-
-    def get_weather_object(weather):
-        """Normalize various weather inputs into a carla.WeatherParameters object.
-
-        Accepted inputs:
-        - None -> returns None
-        - str  -> name of CARLA preset (falls back to _resolve_weather_param)
-        - dict -> mapping of weather parameter names to values (passed to make_weather_parameters)
-        - tuple/list -> positional values interpreted as (cloudiness, precipitation, sun_altitude_angle, sun_azimuth_angle, fog_density)
-        """
-        if weather is None:
-            return None
-
-        # If a preset name, try resolving via existing helper
-        if isinstance(weather, str):
-            try:
-                return _resolve_weather_param(weather)
-            except Exception:
-                # re-raise with clearer message
-                raise ValueError(f"Unknown CARLA weather preset or string: {weather}")
-
-        # If a mapping, use it to construct WeatherParameters
-        if isinstance(weather, dict):
-            return make_weather_parameters(**weather)
-
-        # If a sequence, map positional args to common names
-        if isinstance(weather, (list, tuple)):
-            keys = ('cloudiness', 'precipitation', 'sun_altitude_angle', 'sun_azimuth_angle', 'fog_density')
-            kw = {k: weather[i] for i, k in enumerate(keys) if i < len(weather)}
-            return make_weather_parameters(**kw)
-
-        raise ValueError('Unsupported weather input type; expected None, str, dict, list, or tuple')
-
-    if not name:
-        return None
-    name = str(name)
-    if hasattr(carla.WeatherParameters, name):
-        return getattr(carla.WeatherParameters, name)
-    # tolerate some common alternative names (case-insensitive)
-    for attr in dir(carla.WeatherParameters):
-        if attr.lower() == name.lower():
-            return getattr(carla.WeatherParameters, attr)
-    raise ValueError(f"Unknown CARLA weather preset: {name}")
-
-
-class JapaneseStyleAutopilot:
+class JapaneseStyleAutopilot16:
     def __init__(self, autopilot=False, duration=60, 
                  route_type='highway', port_localhost=2000, 
                  port_traffic=8000, town='Town13', 
@@ -178,7 +82,6 @@ class JapaneseStyleAutopilot:
         self.num_imgs_per_frame = num_imgs_per_frame
         self.sleep_interval = 1.0 / self.fps
         self.spawn_idx = spawn_idx
-        # Enable or disable per-callback debug logging (can be noisy at high FPS)
         self._callback_debug = bool(callback_debug)
         self.town = town
         self.port_traffic = port_traffic
@@ -273,44 +176,12 @@ class JapaneseStyleAutopilot:
         except Exception as e:
             print(f"[ERROR] Failed to get traffic manager: {e}", flush=True)
             raise
-        
-        # Setup Japanese-style traffic
-        print(f"[DEBUG] Setting up left-hand traffic...", flush=True)
-        try:
-            self.setup_left_hand_traffic()
-            print(f"[INFO] Left-hand traffic setup complete", flush=True)
-        except Exception as e:
-            print(f"[ERROR] Failed to setup left-hand traffic: {e}", flush=True)
-            raise
-        
-        print(f"[DEBUG] Flipping world infrastructure...", flush=True)
-        try:
-            self.flip_world_infrastructure_for_lht()
-            print(f"[DEBUG] Infrastructure flip complete", flush=True)
-        except Exception as e:
-            print(f"[ERROR] Failed to flip infrastructure: {e}", flush=True)
-            raise
-        print('=' * self.print_length, flush=True)
-        print("")
-        # Weather (optional): apply chosen CARLA weather preset if provided
+           
         self.weather = weather
-        if self.weather:
-            try:
-                wp = _resolve_weather_param(self.weather)
-                if wp is not None and hasattr(self, 'world'):
-                    try:
-                        self.world.set_weather(wp)
-                        print(f"[INFO]: Applied CARLA weather preset: {self.weather}")
-                    except Exception as e:
-                        print(f"[WARNING]: Failed to apply weather '{self.weather}': {e}")
-            except Exception as e:
-                print(f"[WARNING]: Unknown weather preset '{self.weather}': {e}")
-        
         # Autopilot settings
         self.autopilot = autopilot
         self.duration = duration  # seconds
         self.route_type = route_type
-        self.enforce_left_hand_traffic = True  # Enable left-hand traffic route correction
         
         # Vehicle
         self.player_vehicle = None
@@ -351,7 +222,6 @@ class JapaneseStyleAutopilot:
         os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
-        os.makedirs(os.path.join(self.folderpath, 'left_signal'), exist_ok=True)
         self.last_image_filename = None
         self.sensors = []
 
@@ -468,422 +338,7 @@ class JapaneseStyleAutopilot:
                 pil_img.save(dst_path)
             except Exception:
                 pass
-
-    def estimate_recorded_frames(self, D=None, fps=None, Tprim=None, Toverhead=None, W=None, Nlost=0):
-        """Estimate number of recorded timesteps using the user's formula.
-        
-        DEPRECATED. Using .jpg this is no longer important. Kept for .png and reference.
-
-        Formula:
-            R = max(0, floor((D - Tprim - Toverhead) * fps) - W - Nlost)
-
-        Parameters (defaults taken from instance when None):
-            D (float): desired recording duration in seconds (defaults to self.duration)
-            fps (float): target frames per second (defaults to self.fps)
-            Tprim (float): priming timeout in seconds (defaults to self._priming_timeout)
-            Toverhead (float): estimated extra overhead seconds (defaults to _buffer_timeout + 0.1s)
-            W (int): warmup frames to skip (defaults to self._warmup_frames)
-            Nlost (int): estimated lost frames due to missing sensors (defaults 0)
-
-        Returns:
-            int: estimated number of recorded frames 
-
-        Example (30 fps):
-            If D=60, fps=30, W=5, Tprim=0.5, Toverhead=0.5, Nlost=0:
-                R = floor((60 - 0.5 - 0.5) * 30) - 5 = 1765
-        """
-        # Use instance defaults when parameters are not provided
-        D = float(D) if D is not None else float(getattr(self, 'duration', 0.0))
-        fps = float(fps) if fps is not None else float(getattr(self, 'fps', 0.0))
-        W = int(W) if W is not None else int(getattr(self, '_warmup_frames', 0))
-        Tprim = float(Tprim) if Tprim is not None else float(getattr(self, '_priming_timeout', 0.0))
-        if Toverhead is None:
-            # Conservative default: buffer timeout plus small I/O overhead
-            Toverhead = float(getattr(self, '_buffer_timeout', 0.0)) + 0.1
-        else:
-            Toverhead = float(Toverhead)
-
-        Nlost = int(Nlost)
-
-        # Compute raw estimate
-        raw = math.floor((D - Tprim - Toverhead) * fps) - W - Nlost
-        return max(0, int(raw))
-        
-    def setup_left_hand_traffic(self):
-        """Configure traffic manager for left-hand traffic (Japan/UK)"""
-        # print("Configuring Japanese-style (left-hand) traffic...")
-        self.traffic_manager.set_global_distance_to_leading_vehicle(2.5)
-
-        # Compute and apply geometry-aware left-hand driving configuration
-        try:
-            # prefer to compute a safe offset using current map and default spawn point
-            self.enforce_driving_side(side='left', margin=0.05)  # Reduce margin for more aggressive left
-        except Exception:
-            # Fallback to a more aggressive left offset (meters)
-            try:
-                self.traffic_manager.global_lane_offset = -1.5  # Increased from -0.8 for stronger left positioning
-            except Exception:
-                pass
-
-        try:
-            if self.player_vehicle:
-                # Disable automatic lane changes - vehicle stays in leftmost lane
-                # This prevents wrong-side passing but vehicle may get stuck behind slow traffic
-                self.traffic_manager.auto_lane_change(self.player_vehicle, False)
-                print("[INFO] Disabled auto lane changes - TM autopilot cannot do left-side passing")
-        except Exception as e:
-            print(f"[WARN] Could not configure lane change behavior: {e}")
-
-        # NOTE: NPCs are spawned AFTER ego vehicle to avoid blocking spawn points
-        # See spawn_player_vehicle() which calls spawn_npc_vehicles() after ego spawns
     
-    def flip_world_infrastructure_for_lht(self):
-        """
-        Flip traffic lights and signs to face left-hand lanes for proper camera visibility.
-        
-        CARLA 0.9.15 maps are designed for right-hand traffic. When driving in
-        left lanes, signals face away from camera. This method relocates movable actors
-        (traffic lights, stop/yield signs) and spawns new speed limit signs at mirrored positions.
-        
-        ALWAYS flips when FLIP_INFRASTRUCTURE=1, regardless of which lane ego is in.
-        
-        **Trade-offs**:
-        - Vision models see front-facing signals (better training data quality)
-        - Traffic Manager may get confused (TM uses OpenDRIVE topology, not actor positions)
-        - Assumes Y-axis mirroring works for map layout (not guaranteed for all towns)
-        
-        """
-        if not int(os.environ.get('FLIP_INFRASTRUCTURE', '0')):
-            return
-        
-        print("[INFO]: Flipping world infrastructure for left-hand traffic...")
-        
-        try:
-            world = self.world
-            blueprint_library = world.get_blueprint_library()
-            carla_map = world.get_map()
-            
-            relocated_count = 0
-            spawned_count = 0
-            self._flipped_actors = []  # Track spawned actors for cleanup
-            
-            # PART 1: Flip movable actors (traffic lights, stop, yield)
-            movable_types = ['traffic.traffic_light', 'traffic.stop', 'traffic.yield']
-            for actor in world.get_actors():
-                if any(t in actor.type_id for t in movable_types):
-                    try:
-                        t = actor.get_transform()
-                        # Mirror across Y-axis
-                        t.location.y *= -1
-                        # Rotate 180 degrees to face opposite direction
-                        t.rotation.yaw = (t.rotation.yaw + 180) % 360
-                        actor.set_transform(t)
-                        relocated_count += 1
-                    except RuntimeError as e:
-                        print(f"[WARN]: Could not move {actor.type_id} ({actor.id}): {e}")
-            
-            # PART 2: Handle static landmarks (speed limit signs)
-            # OpenDRIVE landmark type 101 = speed limit signs
-            try:
-                speed_landmarks = carla_map.get_all_landmarks_of_type('101')
-                for lm in speed_landmarks:
-                    try:
-                        t = lm.transform
-                        t.location.y *= -1 # Mirror across Y-axis
-                        t.rotation.yaw = (t.rotation.yaw + 180) % 360 # Rotate 180 degrees
-                        
-                        # Try to spawn new sign at flipped location
-                        value = lm.value if hasattr(lm, 'value') else None
-                        if value:
-                            bp_id = f"static.prop.speedlimit.{value}"
-                            try:
-                                speed_bp = blueprint_library.find(bp_id)
-                            except:
-                                speed_bp = blueprint_library.find("static.prop.speedlimit")
-                        else:
-                            speed_bp = blueprint_library.find("static.prop.speedlimit")
-                        
-                        new_sign = world.try_spawn_actor(speed_bp, t)
-                        if new_sign:
-                            spawned_count += 1
-                            self._flipped_actors.append(new_sign.id)
-                    except Exception as e:
-                        pass  # Fail silently for individual signs
-            except Exception as e:
-                print(f"[WARN]: Could not process speed limit signs: {e}")
-            
-            # PART 3: Relocate parked/stationary vehicles to opposite side of street
-            # (CARLA vehicles are parked for right-hand traffic by default)
-            parked_count = 0
-            try:
-                for vehicle in world.get_actors().filter('vehicle.*'):
-                    # Skip ego vehicle if available
-                    try:
-                        if hasattr(self, '_vehicle') and self._vehicle is not None and vehicle.id == self._vehicle.id:
-                            continue
-                    except Exception:
-                        continue
-                    
-                    try:
-                        vel = vehicle.get_velocity()
-                        speed = math.sqrt(vel.x**2 + vel.y**2 + vel.z**2)
-                        
-                        # Only relocate stationary/parked vehicles (speed < 0.5 m/s)
-                        if speed < 0.5:
-                            t = vehicle.get_transform()
-                            wp = carla_map.get_waypoint(t.location, project_to_road=True)
-                            
-                            if wp is not None:
-                                # Try to find opposite lane (across the road centerline)
-                                # For right-hand traffic maps, parked cars are typically on right side
-                                # We want to move them to left side for left-hand traffic
-                                opposite_wp = None
-                                current = wp
-                                
-                                # Traverse left to find opposite direction lane
-                                for _ in range(10):  # Max 10 lane changes
-                                    left = current.get_left_lane()
-                                    if left is None:
-                                        break
-                                    # Check if we crossed to opposite direction
-                                    if (wp.lane_id > 0) != (left.lane_id > 0):
-                                        opposite_wp = left
-                                        break
-                                    current = left
-                                
-                                # If we found opposite lane, relocate vehicle there
-                                if opposite_wp is not None:
-                                    new_transform = carla.Transform()
-                                    new_transform.location = opposite_wp.transform.location
-                                    new_transform.location.z = t.location.z  # Preserve height
-                                    # Face same direction as opposite lane
-                                    new_transform.rotation = opposite_wp.transform.rotation
-                                    
-                                    try:
-                                        vehicle.set_transform(new_transform)
-                                        parked_count += 1
-                                        if parked_count <= 3:  # Log first few
-                                            print(f"[INFO]: Relocated parked vehicle {vehicle.type_id} from lane {wp.lane_id} to lane {opposite_wp.lane_id}")
-                                    except RuntimeError as e:
-                                        pass  # Vehicle may be physics-locked
-                    except Exception as e:
-                        continue  # Skip this vehicle on any error
-            except Exception as e:
-                print(f"[WARN]: Could not relocate parked vehicles: {e}")
-            
-            print(f"[INFO]: Infrastructure flip complete: {relocated_count} actors relocated, {spawned_count} signs spawned, {parked_count} parked vehicles relocated")
-            
-        except Exception as e:
-            print(f"[ERROR]: Failed to flip infrastructure: {e}")
-
-    def enforce_driving_side(self, side='left', margin=0.10):
-        """Compute a safe lateral lane offset (meters) for left/right driving and apply it.
-
-        - side: 'left' or 'right'
-        - margin: small clearance from curb in metres
-
-        The method attempts to query a representative waypoint (spawn point) to get lane width,
-        and obtains ego vehicle half-width from its bounding box when available. It then computes
-        a desired offset and applies it to both `traffic_manager.global_lane_offset` and,
-        when a vehicle is available, `traffic_manager.vehicle_lane_offset(self.player_vehicle, offset)`.
-
-        Returns the applied offset.
-        """
-        dir_sign = -1.0 if side == 'left' else 1.0
-
-        # Default fallbacks
-        lane_w = 3.5
-        vehicle_half_w = 0.9
-
-        try:
-            # pick a representative spawn point or player position
-            spawn_points = self.world.get_map().get_spawn_points()
-            if spawn_points:
-                sp = spawn_points[0]
-            else:
-                sp = None
-        except Exception:
-            sp = None
-
-        try:
-            if sp is not None:
-                wp = self.world.get_map().get_waypoint(sp.location)
-                if wp is not None and getattr(wp, 'lane_width', None) is not None:
-                    lane_w = float(wp.lane_width)
-        except Exception:
-            pass
-
-        try:
-            if self.player_vehicle is not None:
-                bb = getattr(self.player_vehicle, 'bounding_box', None)
-                if bb is not None:
-                    vehicle_half_w = float(bb.extent.y)
-        except Exception:
-            pass
-
-        # compute safe offset so vehicle remains within lane (from lane center)
-        max_safe = max(0.02, lane_w / 2.0 - 0.02)  # small safety clamp
-        desired = dir_sign * (lane_w / 2.0 - vehicle_half_w - float(margin))
-        if desired > max_safe:
-            desired = max_safe
-        if desired < -max_safe:
-            desired = -max_safe
-        
-        # Safety validation: ensure computed value is finite and within expected bounds
-        try:
-            if not math.isfinite(desired) or abs(desired) > 2.5:
-                print(f"[WARNING]: Computed lane offset {desired} out of expected range; clamping to safe value")
-                desired = max(-2.5, min(2.5, desired))
-        except Exception:
-            pass
-        # Apply to traffic manager
-        try:
-            self.traffic_manager.global_lane_offset = desired
-        except Exception:
-            pass
-
-        try:
-            # If the player vehicle exists, apply per-vehicle offset as well
-            if self.player_vehicle is not None:
-                self.traffic_manager.vehicle_lane_offset(self.player_vehicle, desired)
-        except Exception:
-            pass
-
-        # Ensure traffic manager light/behavior is coherent: make NPCs obey lights by default
-        try:
-            # 0 => obey lights, so set ignore_lights_percentage to 0 for all vehicles
-            self.traffic_manager.ignore_lights_percentage(self.player_vehicle if self.player_vehicle else None, 0)
-        except Exception:
-            # some TM versions expect actor arg or global setting; set per-npc in spawn loop if needed
-            pass
-
-        try:
-            self._driving_side_offset = float(desired)
-        except Exception:
-            self._driving_side_offset = desired
-
-        # Log result for debugging
-        try:
-            print(f"[INFO]: enforce_driving_side: applied offset={desired:.2f}m (lane_w={lane_w:.2f}, veh_half_w={vehicle_half_w:.2f}) for side='{side}'")
-        except Exception:
-            pass
-
-        return desired
-
-    def detect_traffic_infrastructure_issues(self, max_distance=50.0):
-        """
-        Detect traffic lights and signs that may be facing away from ego vehicle.
-        
-        CARLA 0.9.15 maps are designed for right-hand traffic. When driving in left lanes,
-        traffic lights and signs may face the wrong direction.
-        
-        Args:
-            max_distance: Maximum distance (meters) to check for traffic infrastructure
-        
-        Returns:
-            dict with 'back_facing_lights' (count), 'warnings' (list), and 'signals' (list of signal metadata)
-        """
-        if not self.player_vehicle:
-            return {'back_facing_lights': 0, 'warnings': [], 'signals': []}
-        
-        ego_location = self.player_vehicle.get_location()
-        ego_transform = self.player_vehicle.get_transform()
-        ego_forward = ego_transform.get_forward_vector()
-        
-        warnings = []
-        back_facing_count = 0
-        signals = []
-        
-        try:
-            # Check traffic lights (actors we can query)
-            actors = self.world.get_actors().filter('traffic.traffic_light')
-            
-            for light in actors:
-                light_loc = light.get_location()
-                distance = light_loc.distance(ego_location)
-                
-                if distance < max_distance:
-                    # Get light's forward vector (direction it's facing)
-                    light_transform = light.get_transform()
-                    light_forward = light_transform.get_forward_vector()
-                    
-                    # Vector from light to ego
-                    to_ego = ego_location - light_loc
-                    to_ego_norm = to_ego / (distance + 0.001)  # normalize
-                    
-                    # Dot product: positive if light faces toward ego, negative if away
-                    dot = (light_forward.x * to_ego_norm.x + 
-                           light_forward.y * to_ego_norm.y + 
-                           light_forward.z * to_ego_norm.z)
-                    
-                    # Build signal metadata record
-                    # facing_dot interpretation:
-                    #   > 0.7: Light FACES ego (colored lens visible)
-                    #   0.0 to 0.7: Light at angle (partially visible)
-                    #   < -0.3: Light FACES AWAY (approaching from back, only metal housing visible)
-                    visible_from_ego = bool(dot > 0.3)  # Only consider visible if reasonably facing ego
-                    
-                    signal_record = {
-                        'id': int(light.id),
-                        'type': 'traffic_light',
-                        'subtype': 'traffic_light',  # vs 'speed_limit', 'stop_sign', etc.
-                        'position': [float(light_loc.x), float(light_loc.y), float(light_loc.z)],
-                        'distance': float(distance),
-                        'facing_dot': float(dot),
-                        'is_back_facing': bool(dot < -0.3),
-                        'visible_from_ego': visible_from_ego,
-                        'state': str(light.get_state()) if hasattr(light, 'get_state') else 'Unknown',
-                        'approaching_from': 'front' if dot > 0.3 else ('side' if dot > -0.3 else 'back')
-                    }
-                    signals.append(signal_record)
-                    
-                    if dot < -0.3:  # Light facing significantly away from ego
-                        back_facing_count += 1
-                        warnings.append(
-                            f"Traffic light at ({light_loc.x:.1f}, {light_loc.y:.1f}) "
-                            f"faces AWAY from ego (dist={distance:.1f}m, state={signal_record['state']})"
-                        )
-        except Exception as e:
-            warnings.append(f"Error scanning traffic lights: {e}")
-        
-        # Attempt to detect traffic signs (static meshes - best effort)
-        try:
-            # Get level bounding boxes for traffic signs (static meshes). These don't have orientation info, only positions
-            if hasattr(carla, 'CityObjectLabel'):
-                try:
-                    sign_bbs = self.world.get_level_bbs(carla.CityObjectLabel.TrafficSigns)
-                    for bb in sign_bbs:
-                        # Bounding box center
-                        sign_loc = bb.location
-                        distance = sign_loc.distance(ego_location)
-                        
-                        if distance < max_distance:
-                            # We can't determine orientation for static meshes, so mark as 'unknown'
-                            signal_record = {
-                                'id': -1,  # No actor ID for static meshes
-                                'type': 'traffic_sign',
-                                'subtype': 'unknown_sign',  # Could be speed_limit, stop, yield, etc.
-                                'position': [float(sign_loc.x), float(sign_loc.y), float(sign_loc.z)],
-                                'distance': float(distance),
-                                'facing_dot': None,  # Cannot determine for static meshes
-                                'is_back_facing': None,  # Unknown orientation
-                                'visible_from_ego': None,  # Cannot determine
-                                'state': 'N/A',
-                                'approaching_from': 'unknown'
-                            }
-                            signals.append(signal_record)
-                except Exception as sign_error:
-                    warnings.append(f"Failed to query traffic signs: {sign_error}")
-        except Exception as e:
-            warnings.append(f"Error scanning traffic signs: {e}")
-        
-        return {
-            'back_facing_lights': back_facing_count,
-            'warnings': warnings,
-            'signals': signals
-        }
-
-            
     def _compute_route_distance(self, waypoints):
         """Compute total distance of planned route from waypoints."""
         if not waypoints or len(waypoints) < 2:
@@ -900,69 +355,6 @@ class JapaneseStyleAutopilot:
         
         return total_distance
     
-    def _verify_and_correct_route_for_left_hand_traffic(self, route_waypoints):
-        """
-        Verify route waypoints align with left-hand driving and correct if needed.
-        
-        CARLA maps are designed for right-hand traffic. For left-hand simulation:
-        - Stay in SAME-DIRECTION lanes (don't cross to opposite - that's oncoming traffic!)
-        - Move to the LEFTMOST drivable lane within same direction
-        - Combined with lane offset, this creates left-side driving appearance
-        
-        Returns corrected list of waypoints.
-        """
-        print(f"[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED (got {len(route_waypoints) if route_waypoints else 0} waypoints)")
-        if not route_waypoints or len(route_waypoints) == 0:
-            print("[DEBUG] No waypoints to verify, returning early")
-            return route_waypoints
-        
-        corrected = []
-        corrections_made = 0
-        sample_log_interval = max(1, len(route_waypoints) // 10)
-        
-        for i, wp in enumerate(route_waypoints):
-            if wp is None:
-                corrected.append(wp)
-                continue
-            
-            # Traverse left within SAME direction until we find leftmost drivable lane
-            # DO NOT cross to opposite direction (that causes head-on collisions)
-            current = wp
-            leftmost = wp
-            original_direction = wp.lane_id > 0  # True if positive lane_id
-            
-            # Keep going left as long as we stay in same direction
-            while True:
-                left_wp = current.get_left_lane()
-                if not left_wp or left_wp.lane_type != carla.LaneType.Driving:
-                    break
-                
-                # Check if left lane is still in same direction
-                left_direction = left_wp.lane_id > 0
-                if left_direction != original_direction:
-                    # We've reached the opposite direction lanes - STOP here
-                    break
-                
-                # Left lane is still same direction - use it
-                leftmost = left_wp
-                current = left_wp
-            
-            # Use the leftmost lane we found
-            corrected.append(leftmost)
-            
-            if leftmost.lane_id != wp.lane_id:
-                corrections_made += 1
-                if corrections_made <= 3 or i % sample_log_interval == 0:
-                    print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to LEFTMOST same-direction lane {leftmost.lane_id}")
-        
-        if corrections_made > 0:
-            print(f"[INFO] Left-hand route correction: adjusted {corrections_made}/{len(route_waypoints)} waypoints to OPPOSITE direction lanes")
-            print(f"[INFO] Vehicle will now drive on the LEFT side of the road (true Japanese/UK style)")
-        else:
-            print(f"[WARN] No opposite-direction lanes found - vehicle will remain on RIGHT side of road")
-            print(f"[WARN] This map/route may not support true left-hand traffic simulation")
-        
-        return corrected
 
     def setup_camera(self):
         """Attach 6 RGB cameras around the vehicle: Front, Back, RF, LF, RB, LB.
@@ -1148,10 +540,7 @@ class JapaneseStyleAutopilot:
                 except Exception:
                     image.save_to_disk(color_path)
 
-                # Robust extraction of class ids from raw_data.
-                # CARLA sometimes stores the class id in the low byte of a uint32 per-pixel,
-                # or in one of the BGRA bytes. Try multiple strategies and pick the one with
-                # meaningful (non-zero) distribution.
+ 
                 mask = None
                 try:
                     arr32 = np.frombuffer(image.raw_data, dtype=np.uint32)
@@ -1343,16 +732,6 @@ class JapaneseStyleAutopilot:
         spawn_points = self.world.get_map().get_spawn_points()
         
         print(f"[INFO]: Spawning {num_vehicles} NPC vehicles...")
-        
-        # Use stored offset computed by enforce_driving_side if available, otherwise compute now
-        offset = getattr(self, '_driving_side_offset', None)
-        if offset is None:
-            try:
-                offset = self.enforce_driving_side(side='left', margin=0.10)
-                print(f"[INFO]: Computed NPC offset: {offset:.2f}m (LEFT)")
-            except Exception as e:
-                print(f"[WARN]: enforce_driving_side failed for NPCs, using fallback: {e}")
-                offset = -0.8  # Conservative fallback
 
         for i, spawn_point in enumerate(spawn_points[:num_vehicles]):
             vehicle_bp = blueprint_library.filter('vehicle.*')[i % 20]
@@ -1365,23 +744,13 @@ class JapaneseStyleAutopilot:
 
                 if vehicle:
                     vehicle.set_autopilot(True, self.traffic_manager.get_port())
-                    try:
-                        # apply per-NPC lane offset so NPCs follow the same side
-                        self.traffic_manager.vehicle_lane_offset(vehicle, float(offset)) 
-                    except Exception:
-                        pass
-                    try:
-                        # make NPCs obey traffic lights
-                        self.traffic_manager.ignore_lights_percentage(vehicle, 0)
-                    except Exception:
-                        pass
 
             except RuntimeError:
                 continue
                 
         # print("NPC vehicles spawned!")
         
-    def get_predefined_route(self):
+    def get_predefined_route_short(self):
         """Get predefined waypoints for different route types in self.town
         
         Uses spawn points to generate valid routes for any map instead of hardcoded coordinates.
@@ -1422,23 +791,189 @@ class JapaneseStyleAutopilot:
             print(f"[ERROR]: Failed to generate valid route for {self.route_type} in {self.town}")
             print(f"[ERROR]: No waypoints found from {count} spawn points with spacing {spacing}")
             return [], start_idx
-        
-        print(f"[INFO]: Generated route with {len(waypoints)} waypoints")
-        
+                
         # Store route for distance calculation
         self._route_waypoints = waypoints
         self._route_total_distance = self._compute_route_distance(waypoints)
         print(f"[INFO]: Total planned route distance: {self._route_total_distance:.1f} meters")
         
-        # CRITICAL: Correct waypoints for left-hand traffic if enabled
-        print(f"[DEBUG] get_predefined_route (mp.py): enforce_left_hand_traffic={getattr(self, 'enforce_left_hand_traffic', 'NOT_SET')}")
-        if hasattr(self, 'enforce_left_hand_traffic') and self.enforce_left_hand_traffic:
-            print(f"[DEBUG] Calling _verify_and_correct_route_for_left_hand_traffic with {len(waypoints)} waypoints")
-            waypoints = self._verify_and_correct_route_for_left_hand_traffic(waypoints)
-            print(f"[DEBUG] Route verification completed")
-        else:
-            print(f"[DEBUG] Skipping route verification")
+        return waypoints, start_idx
+    
+    def get_predefined_route_long1(self):
+        """Compute a route using CARLA agents GlobalRoutePlanner for long-run data collection.
+
+        Returns (waypoints, start_idx) where waypoints is a list of carla.Waypoint
+        instances and start_idx is an index into map.get_spawn_points() to use
+        as the spawn point.
+
+        For long runs, picks spawn points that are far apart to create extended routes.
+        If the agents package is not available, fall back to the parent's
+        simple waypoint lookup using self.route_type definitions.
+        """
+        # Try to use CARLA agents planner
+
+        # Import lazily to avoid hard dependency at module import time
+        from agents.navigation.global_route_planner import GlobalRoutePlanner
+        # CARLA 0.9.13+ API: pass map directly (no DAO)
+        # Use finer sampling (0.5m) to capture road curvature and intersections
+        grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=0.5)
+        spawn_points = self.world.get_map().get_spawn_points()
+        if len(spawn_points) < 2:
+            raise RuntimeError('Not enough spawn points to plan route')
         
+        # For long runs, pick distant spawn points to create extended routes
+        # Use spawn_idx if specified, otherwise random or default strategy
+        if self.spawn_idx is not None:
+            start_idx = self.spawn_idx % len(spawn_points)
+        elif self.random_spawn:
+            import random
+            start_idx = random.randint(0, len(spawn_points) - 1)
+            print(f"[INFO] Random spawn enabled: selected spawn point {start_idx}")
+        else:
+            start_idx = 0
+        
+        start = spawn_points[start_idx].location
+        
+        # Estimate required distance based on duration
+        # Assume average speed: 40 km/h = 11.1 m/s (conservative for city driving)
+        import math
+        avg_speed_mps = 11.1  # m/s
+        target_distance = self.duration * avg_speed_mps
+        
+        # Find a goal spawn point approximately target_distance away
+        # Add variety by selecting from multiple candidates (not just closest match)
+        distances = []
+        for idx, sp in enumerate(spawn_points):
+            if idx == start_idx:
+                continue
+            d = math.sqrt((sp.location.x - start.x)**2 + (sp.location.y - start.y)**2)
+            distances.append((idx, d))
+        
+        # Sort by distance
+        distances.sort(key=lambda x: x[1])
+        
+        # Find spawn points within target range: 0.7x to 1.5x target_distance
+        # (allows for road curvature and routing overhead)
+        min_dist = target_distance * 0.7
+        max_dist = target_distance * 1.5
+        candidates = [idx for idx, d in distances if min_dist <= d <= max_dist]
+        
+        # If no candidates in range, pick from closest 30% of all points for variety
+        if not candidates:
+            top_30_pct = max(1, len(distances) * 30 // 100)
+            candidates = [idx for idx, d in distances[:top_30_pct]]
+        
+        # Randomly pick one candidate for route variety (avoids always same routes)
+        import random
+        goal_idx = random.choice(candidates) if candidates else distances[-1][0]
+        
+        # For urban routes, try to pick goals that go through intersections/city centers
+        # (heuristic: prefer spawn points with more nearby spawn points = denser urban areas)
+        if self.route_type == 'urban' and len(candidates) > 3:
+            # Count nearby spawn points for each candidate (within 50m radius)
+            density_scores = []
+            for c_idx in candidates[:10]:  # Check top 10 candidates
+                c_loc = spawn_points[c_idx].location
+                nearby = sum(1 for sp in spawn_points 
+                            if math.sqrt((sp.location.x - c_loc.x)**2 + (sp.location.y - c_loc.y)**2) < 50.0)
+                density_scores.append((c_idx, nearby))
+            # Pick from top 3 densest areas
+            density_scores.sort(key=lambda x: x[1], reverse=True)
+            top_dense = [idx for idx, _ in density_scores[:3]]
+            if top_dense:
+                goal_idx = random.choice(top_dense)
+        
+        goal = spawn_points[goal_idx].location
+        straight_dist = math.sqrt((goal.x - start.x)**2 + (goal.y - start.y)**2)
+        
+        plan = grp.trace_route(start, goal)
+        waypoints = [wp for wp, _ in plan]
+        
+        # Calculate route complexity (total turning angle as proxy for curves)
+        total_turn = 0.0
+        for i in range(1, len(waypoints)):
+            prev_yaw = waypoints[i-1].transform.rotation.yaw
+            curr_yaw = waypoints[i].transform.rotation.yaw
+            delta = abs(curr_yaw - prev_yaw)
+            if delta > 180:
+                delta = 360 - delta
+            total_turn += delta
+        
+        print('=' * self.print_length)
+        print(f"[INFO][AGENT CARLA]: Planner route for duration={self.duration}s (target dist={target_distance:.0f}m @ {avg_speed_mps:.1f}m/s)")
+        print(f"[INFO][AGENT CARLA]: start={start_idx}, goal={goal_idx}, straight-line={straight_dist:.1f}m, waypoints={len(waypoints)}, candidates={len(candidates)}")
+        print(f"[INFO][AGENT CARLA]: Route complexity: total_turn={total_turn:.1f}°, avg_turn_per_wp={total_turn/max(1,len(waypoints)):.2f}°")
+        print('=' * self.print_length)
+        
+        # Store route for distance calculation (needed for results.json.gz statistics)
+        self._route_waypoints = waypoints
+        self._route_total_distance = self._compute_route_distance(waypoints)
+        print(f"[INFO]: Total planned route distance: {self._route_total_distance:.1f} meters")
+            
+        return waypoints, start_idx
+    
+    
+    
+
+    def get_predefined_route_long2(self):
+        """Alternative route planner for testing: denser sampling and multi-goal loop.
+
+        This planner uses a finer sampling resolution to produce more waypoints
+        (useful to stress-test autopilot controllers) and constructs a multi-goal
+        loop (start -> mid -> goal -> start) so the vehicle traverses varied
+        geometry within a single run. Falls back to the parent's route on error.
+        """
+        from agents.navigation.global_route_planner import GlobalRoutePlanner
+        print("[INFO]: Initializing GlobalRoutePlanner (alternate mode, dense sampling)...")
+        # Use denser sampling to increase path resolution for testing
+        grp = GlobalRoutePlanner(self.world.get_map(), sampling_resolution=0.5)
+        spawn_points = self.world.get_map().get_spawn_points()
+        if len(spawn_points) < 3:
+            raise RuntimeError('Not enough spawn points to plan alternate route')
+
+        # Choose a start index deterministically when spawn_idx is given
+        if self.spawn_idx is not None:
+            start_idx = self.spawn_idx % len(spawn_points)
+        elif self.random_spawn:
+            import random
+            start_idx = random.randint(0, len(spawn_points) - 1)
+        else:
+            start_idx = 0
+
+        start = spawn_points[start_idx].location
+
+        # Calculate target distances (shorter segments to create loop)
+        import math, random
+        avg_speed_mps = 11.1
+        total_target = max(200.0, self.duration * avg_speed_mps)  # ensure a minimum distance
+
+        # Pick two intermediate goal candidates at roughly 1/3 and 2/3 distances
+        distances = []
+        for idx, sp in enumerate(spawn_points):
+            if idx == start_idx:
+                continue
+            d = math.hypot(sp.location.x - start.x, sp.location.y - start.y)
+            distances.append((idx, d))
+        distances.sort(key=lambda x: x[1])
+
+        # Heuristic: pick mid and far candidates from the distribution
+        mid_candidates = distances[len(distances)//4: len(distances)//4 + 10] or distances[:10]
+        far_candidates = distances[-10:] or distances
+
+        mid_idx = random.choice([idx for idx, _ in mid_candidates])
+        far_idx = random.choice([idx for idx, _ in far_candidates])
+
+        mid = spawn_points[mid_idx].location
+        far = spawn_points[far_idx].location
+
+        # Trace a composite route: start -> mid -> far -> start
+        plan_sm = grp.trace_route(start, mid)
+        plan_mf = grp.trace_route(mid, far)
+        plan_fs = grp.trace_route(far, start)
+
+        waypoints = [wp for wp, _ in plan_sm] + [wp for wp, _ in plan_mf] + [wp for wp, _ in plan_fs]
+
+        print(f"[INFO]: Alternate planner produced {len(waypoints)} waypoints (start={start_idx}, mid={mid_idx}, far={far_idx})")
         return waypoints, start_idx
         
     def spawn_player_vehicle(self):
@@ -1447,17 +982,14 @@ class JapaneseStyleAutopilot:
         vehicle_bp = blueprint_library.find('vehicle.tesla.model3')
         vehicle_bp.set_attribute('role_name', 'hero')
         
-        # Get route and spawn at start
-        # Allow optional use of alternate planner when the instance sets
-        # `use_predefined_route2 = True` (manual toggle; no CLI flag added).
         if getattr(self, 'use_predefined_route2', False):
             try:
-                route_waypoints, start_idx = self.get_predefined_route2()
+                route_waypoints, start_idx = self.get_predefined_route_long2()
             except Exception:
                 # Fallback to default planner on any error
-                route_waypoints, start_idx = self.get_predefined_route()
+                route_waypoints, start_idx = self.get_predefined_route_short()
         else:
-            route_waypoints, start_idx = self.get_predefined_route()
+            route_waypoints, start_idx = self.get_predefined_route_long1()
         
         spawn_points = self.world.get_map().get_spawn_points()
         spawn_point = spawn_points[start_idx] if start_idx < len(spawn_points) else spawn_points[0]
@@ -1492,23 +1024,18 @@ class JapaneseStyleAutopilot:
                 else:
                     raise
         
-        # Now spawn NPC vehicles AFTER ego is placed (avoids blocking ego spawn)
         try:
             self.spawn_npc_vehicles(num_vehicles=30)
         except Exception as e:
             print(f"[WARN]: NPC spawn issues: {e}")
         
         if self.autopilot:
-            # Enable autopilot with Japanese traffic settings
-            # Attach cameras first so we can prime sensors before motion
             try:
                 self.setup_camera()
             except Exception as e:
                 print(f"Failed to setup camera sensor: {e}")
 
-            # Wait until all cameras have produced at least one valid image (priming),
-            # Prefer to wait for the first complete 6-camera frame to be written.
-            # This ensures we start motion only after a fully populated frame exists on disk.
+
             priming_start = time.time()
             priming_timeout = getattr(self, '_priming_timeout', 3.0)
             required = max(1, getattr(self, '_required_full_frames', 1))
@@ -1546,12 +1073,6 @@ class JapaneseStyleAutopilot:
 
             # Now enable autopilot/motion
             self.player_vehicle.set_autopilot(True, self.traffic_manager.get_port())
-            # CRITICAL: Use computed offset from enforce_driving_side, not hardcoded value
-            # This ensures consistent left-hand driving on all maps with varying lane widths
-            ego_offset = getattr(self, '_driving_side_offset', -1.5)
-            self.traffic_manager.vehicle_lane_offset(self.player_vehicle, ego_offset)
-            self.traffic_manager.ignore_lights_percentage(self.player_vehicle, 0)
-            print(f"[INFO]: Ego vehicle lane offset applied: {ego_offset:.2f}m (LEFT)")
 
             # Optional: Set destination for route following
             if route_waypoints:
@@ -1564,21 +1085,7 @@ class JapaneseStyleAutopilot:
             except Exception:
                 self._route_points = []
 
-            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic)")
-            
-            # Check for traffic infrastructure orientation issues
-            try:
-                infra_check = self.detect_traffic_infrastructure_issues(max_distance=50.0)
-                if infra_check['back_facing_lights'] > 0:
-                    print(f"[WARN]: Detected {infra_check['back_facing_lights']} back-facing traffic lights within 50m")
-                    print("[WARN]: Traffic signs/lights are oriented for RIGHT-hand traffic in CARLA 0.9.15 maps")
-                    print("[WARN]: Consider upgrading to CARLA 0.9.16+ for native left-hand traffic support")
-                    # Log first few warnings
-                    for w in infra_check['warnings'][:3]:
-                        print(f"[WARN]:   {w}")
-            except Exception as e:
-                print(f"[WARN]: Traffic infrastructure check failed: {e}")
-        else:
+            print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic) carla 0.9.16")
             raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
 
     def _get_forward_speed(self, transform=None, velocity=None):
@@ -1630,6 +1137,8 @@ class JapaneseStyleAutopilot:
                       (vehicle_lidar[:, 2] < z) & (vehicle_lidar[:, 2] > -z)).sum()
         return num_points
 
+    # get_bounding_boxes
+    
     def get_bounding_boxes(self, lidar=None):
         """Get bounding boxes matching data_agent.py output exactly - for simlingo_v2_2025_01_10 format"""
         results = []
@@ -2151,6 +1660,7 @@ class JapaneseStyleAutopilot:
         
         return results
 
+
     def record_data(self):
         """Record vehicle data using get_bounding_boxes() for enriched boxes format"""
         if not self.player_vehicle:
@@ -2294,33 +1804,6 @@ class JapaneseStyleAutopilot:
                 json.dump(boxes_data, f, indent=4)
         except Exception as e:
             print(f"[ERROR]: Error saving boxes: {e}")
-        
-        # Save left-hand traffic signal metadata (NEW)
-        try:
-            signal_metadata = self.detect_traffic_infrastructure_issues(max_distance=50.0)
-            signal_file = os.path.join(self.folderpath, 'left_signal', f'{frame_num:04d}.json.gz')
-            signal_data = {
-                'frame': frame_num,
-                'timestamp': datetime.now().isoformat(),
-                'ego_position': [float(transform.location.x), float(transform.location.y), float(transform.location.z)],
-                'ego_rotation': [float(transform.rotation.pitch), float(transform.rotation.yaw), float(transform.rotation.roll)],
-                'back_facing_count': signal_metadata['back_facing_lights'],
-                'signals': signal_metadata['signals']
-            }
-            with gzip.open(signal_file, 'wt', encoding='utf-8') as f:
-                json.dump(signal_data, f, indent=4)
-        except Exception as e:
-            if self._callback_debug:
-                print(f"[WARN] Failed to save signal metadata for frame {frame_num}: {e}")
-        
-        # Store minimal info for summary
-        data_point = {
-            'frame': frame_num,
-            'timestamp': time.time(),
-            'location': [transform.location.x, transform.location.y, transform.location.z],
-            'speed': speed * 3.6  # km/h
-        }
-        self.recording_data.append(data_point)
         
         # Track speed for min speed infraction (only after first 10 frames)
         if frame_num > 10:
@@ -2838,13 +2321,12 @@ class JapaneseStyleAutopilot:
                     except Exception as e:
                         if not getattr(self, '_stopping', False):
                             print(f"[WARN] Failed to write image for frame {frame_num} cam {cam_name}: {e}")
-            # Only sleep if no work was done
             if not to_write:
                 time.sleep(0.02)
 
 def main():
     print('\n')
-    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA')
+    parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA16')
     parser.add_argument('--autopilot', action='store_true', 
                        help='Enable autopilot mode (default: False)')
     parser.add_argument('--duration', type=int, default=60,
@@ -2869,7 +2351,7 @@ def main():
     
     args = parser.parse_args()
     
-    sim = JapaneseStyleAutopilot(
+    sim = JapaneseStyleAutopilot16(
         autopilot=args.autopilot,
         duration=args.duration,
         route_type=args.route,
