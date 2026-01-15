@@ -12,6 +12,7 @@ import threading
 import queue
 import traceback
 import json
+import weakref
 import argparse
 import os
 import gzip
@@ -1838,6 +1839,8 @@ class JapaneseStyleAutopilot16:
         # Increment frame counter atomically with buffer lock to avoid races
         with self._buffer_lock:
             self.frame_counter += 1
+        
+        self.recording_data.append(measurements)
         
     def save_to_xml(self, filename=None):
         """Save recorded data to XML file"""

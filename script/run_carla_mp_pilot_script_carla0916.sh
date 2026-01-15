@@ -542,3 +542,6 @@ fi
 sep
 
 exit $EXIT_CODE
+
+
+## bash script/run_carla_mp_pilot_script_carla0916.sh --mode autopilot --duration 10 --route urban --town Town02 --weather ClearNoon --spawn-index 42 --fps 20
