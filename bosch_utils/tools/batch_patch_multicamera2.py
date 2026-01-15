@@ -547,8 +547,8 @@ def batch_patch(dataset_path, layout='three_quarter', output_name='patched.png',
             elapsed = time.time() - start_time
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             eta = (len(rgb_folders) - i - 1) / rate if rate > 0 else 0
-            print(f"[INFO]: Patching {i+1}/{len(rgb_folders)} ({100*(i+1)/len(rgb_folders):.1f}%) | "
-                  f"Rate: {rate:.1f} frames/s | ETA: {eta:.1f}s")
+            # print(f"[INFO]: Patching {i+1}/{len(rgb_folders)} ({100*(i+1)/len(rgb_folders):.1f}%) | "
+            #       f"Rate: {rate:.1f} frames/s | ETA: {eta:.1f}s")
 
         if patch_single_folder(folder, layout=layout, output_name=output_name):
             success_count += 1

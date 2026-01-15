@@ -159,9 +159,13 @@ class JapaneseStyleAutopilot:
             spawn_idx (int): Spawn point index to use (None = use route default).
         """
 
-        # Connect to CARLA
-        print(f"[INFO]: Connecting to CARLA server on localhost:{port_localhost}...", flush=True)
-        self.client = carla.Client('localhost', port_localhost)
+        # Connect to CARLA (respect CARLA_PORT env var if set)
+        try:
+            env_port = int(os.environ.get('CARLA_PORT', port_localhost))
+        except Exception:
+            env_port = port_localhost
+        print(f"[INFO]: Connecting to CARLA server on localhost:{env_port}...", flush=True)
+        self.client = carla.Client('localhost', env_port)
         # Allow longer timeouts for slower hosts
         self.client_timout_carla = 15.0  # Reduced from 30s to fail faster if CARLA not responding
         self.client.set_timeout(self.client_timout_carla)
@@ -513,13 +517,22 @@ class JapaneseStyleAutopilot:
         # Compute and apply geometry-aware left-hand driving configuration
         try:
             # prefer to compute a safe offset using current map and default spawn point
-            self.enforce_driving_side(side='left', margin=0.10)
+            self.enforce_driving_side(side='left', margin=0.05)  # Reduce margin for more aggressive left
         except Exception:
-            # Fallback to a conservative default offset (meters)
+            # Fallback to a more aggressive left offset (meters)
             try:
-                self.traffic_manager.global_lane_offset = -0.8
+                self.traffic_manager.global_lane_offset = -1.5  # Increased from -0.8 for stronger left positioning
             except Exception:
                 pass
+
+        try:
+            if self.player_vehicle:
+                # Disable automatic lane changes - vehicle stays in leftmost lane
+                # This prevents wrong-side passing but vehicle may get stuck behind slow traffic
+                self.traffic_manager.auto_lane_change(self.player_vehicle, False)
+                print("[INFO] Disabled auto lane changes - TM autopilot cannot do left-side passing")
+        except Exception as e:
+            print(f"[WARN] Could not configure lane change behavior: {e}")
 
         # NOTE: NPCs are spawned AFTER ego vehicle to avoid blocking spawn points
         # See spawn_player_vehicle() which calls spawn_npc_vehicles() after ego spawns
@@ -531,6 +544,8 @@ class JapaneseStyleAutopilot:
         CARLA 0.9.15 maps are designed for right-hand traffic. When driving in
         left lanes, signals face away from camera. This method relocates movable actors
         (traffic lights, stop/yield signs) and spawns new speed limit signs at mirrored positions.
+        
+        ALWAYS flips when FLIP_INFRASTRUCTURE=1, regardless of which lane ego is in.
         
         **Trade-offs**:
         - Vision models see front-facing signals (better training data quality)
@@ -920,6 +935,11 @@ class JapaneseStyleAutopilot:
         """
         Verify route waypoints align with left-hand driving and correct if needed.
         
+        CARLA maps are designed for right-hand traffic. For left-hand simulation:
+        - Stay in SAME-DIRECTION lanes (don't cross to opposite - that's oncoming traffic!)
+        - Move to the LEFTMOST drivable lane within same direction
+        - Combined with lane offset, this creates left-side driving appearance
+        
         Returns corrected list of waypoints.
         """
         print(f"[DEBUG] _verify_and_correct_route_for_left_hand_traffic ENTERED (got {len(route_waypoints) if route_waypoints else 0} waypoints)")
@@ -936,26 +956,42 @@ class JapaneseStyleAutopilot:
                 corrected.append(wp)
                 continue
             
-            # Check if left lane exists and is drivable
-            left_wp = wp.get_left_lane()
-            if left_wp and left_wp.lane_type == carla.LaneType.Driving:
-                # Only switch if left lane is same direction
-                same_direction = (wp.lane_id > 0) == (left_wp.lane_id > 0)
-                if same_direction:
-                    corrected.append(left_wp)
-                    corrections_made += 1
-                    
-                    if corrections_made <= 3 or i % sample_log_interval == 0:
-                        print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to left lane {left_wp.lane_id}")
-                else:
-                    corrected.append(wp)
-            else:
-                corrected.append(wp)
+            # Traverse left within SAME direction until we find leftmost drivable lane
+            # DO NOT cross to opposite direction (that causes head-on collisions)
+            current = wp
+            leftmost = wp
+            original_direction = wp.lane_id > 0  # True if positive lane_id
+            
+            # Keep going left as long as we stay in same direction
+            while True:
+                left_wp = current.get_left_lane()
+                if not left_wp or left_wp.lane_type != carla.LaneType.Driving:
+                    break
+                
+                # Check if left lane is still in same direction
+                left_direction = left_wp.lane_id > 0
+                if left_direction != original_direction:
+                    # We've reached the opposite direction lanes - STOP here
+                    break
+                
+                # Left lane is still same direction - use it
+                leftmost = left_wp
+                current = left_wp
+            
+            # Use the leftmost lane we found
+            corrected.append(leftmost)
+            
+            if leftmost.lane_id != wp.lane_id:
+                corrections_made += 1
+                if corrections_made <= 3 or i % sample_log_interval == 0:
+                    print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to LEFTMOST same-direction lane {leftmost.lane_id}")
         
         if corrections_made > 0:
-            print(f"[INFO] Left-hand route correction: adjusted {corrections_made}/{len(route_waypoints)} waypoints")
+            print(f"[INFO] Left-hand route correction: adjusted {corrections_made}/{len(route_waypoints)} waypoints to OPPOSITE direction lanes")
+            print(f"[INFO] Vehicle will now drive on the LEFT side of the road (true Japanese/UK style)")
         else:
-            print(f"[INFO] Route already aligned with left-hand traffic")
+            print(f"[WARN] No opposite-direction lanes found - vehicle will remain on RIGHT side of road")
+            print(f"[WARN] This map/route may not support true left-hand traffic simulation")
         
         return corrected
 

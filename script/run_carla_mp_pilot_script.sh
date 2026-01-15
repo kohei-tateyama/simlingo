@@ -22,9 +22,9 @@ export SAVE_PATH=/workspace/simlingo/outputs/test_run/
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # Make CARLA and Traffic Manager ports configurable (defaults preserved)
-export CARLA_PORT=${CARLA_PORT:-2000}
-export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
-
+export CARLA_PORT=${CARLA_PORT:-2001}
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8001}
+export FLIP_INFRASTRUCTURE="1"
 # Fix conda activation for non-interactive scripts
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
@@ -635,6 +635,7 @@ echo ""
 sep
 if [ $EXIT_CODE -eq 0 ]; then
     info "All tasks completed successfully!"
+    info "Note that the completion might depends on the time. Check the infractions too!
 else
     err "Some tasks encountered errors (exit code: $EXIT_CODE)"
 fi

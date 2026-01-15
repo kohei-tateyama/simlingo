@@ -88,7 +88,10 @@ class DataAgentMulticamera(AutoPilot):
         """
         # Store for potential future use, but AutoPilot doesn't use these
         self._carla_host = carla_host
-        self._carla_port = carla_port
+        try:
+            self._carla_port = int(os.environ.get('CARLA_PORT', carla_port))
+        except Exception:
+            self._carla_port = carla_port
         self._debug = debug
         
         # Initialize sensor_interface required by standard leaderboard

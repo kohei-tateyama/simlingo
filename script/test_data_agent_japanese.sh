@@ -23,30 +23,31 @@ export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0" # "3"
+export REPETITION="3" # "1"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtest, routes_validation, routes_all)
 export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
-
-export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
-
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
+export ROUTES_SUBSET="5,6,7" # "0,1,2,3,4,5,6,7,8,9" # "5"
+export FLIP_INFRASTRUCTURE="1"
+export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
-export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
+# export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}" # seconds TOTAL for all routes
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo
 
 # CARLA port (can be overridden by environment before running the script)
-export PORT_CARLA=${PORT_CARLA:-2000}
+export PORT_CARLA=${PORT_CARLA:-2001}
+# Also set CARLA_PORT for code that reads that env var
+export CARLA_PORT=${CARLA_PORT:-${PORT_CARLA}}
 # Traffic Manager port (can be overridden)
-export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8001}
 
 # Color helpers
 GREEN="\033[0;32m"
@@ -232,9 +233,9 @@ run_leaderboard() {
 
     if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
         python leaderboard/leaderboard_evaluator.py \
-        --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
-        --routes-subset=0 \
-        --repetitions=1 \
+        --routes=${ROUTES} \
+        --routes-subset=${ROUTES_SUBSET} \
+        --repetitions=${REPETITION} \
         --agent=${TEAM_AGENT} \
         --agent-config=${TEAM_CONFIG} \
         --checkpoint=results_japanese_test.json \
@@ -242,9 +243,9 @@ run_leaderboard() {
         --traffic-manager-port=${TRAFFIC_MANAGER_PORT}
     else
         timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py \
-            --routes=/workspace/simlingo/leaderboard/data/routes_devtest.xml \
-            --routes-subset=0 \
-            --repetitions=1 \
+            --routes=${ROUTES} \
+            --routes-subset=${ROUTES_SUBSET} \
+            --repetitions=${REPETITION} \
             --agent=${TEAM_AGENT} \
             --agent-config=${TEAM_CONFIG} \
             --checkpoint=results_japanese_test.json \

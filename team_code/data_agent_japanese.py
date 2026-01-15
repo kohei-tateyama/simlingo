@@ -89,7 +89,11 @@ class DataAgentJapanese(AutoPilot):
         """
         # Store for potential future use, but AutoPilot doesn't use these
         self._carla_host = carla_host
-        self._carla_port = carla_port
+        # Allow environment override so the agent uses the same CARLA port as the launcher
+        try:
+            self._carla_port = int(os.environ.get('CARLA_PORT', carla_port))
+        except Exception:
+            self._carla_port = carla_port
         self._debug = debug
         
         # Initialize sensor_interface required by standard leaderboard
@@ -109,15 +113,18 @@ class DataAgentJapanese(AutoPilot):
         signal.signal(signal.SIGINT, self._signal_handler)
 
     def setup(self, path_to_conf_file, route_index=None, traffic_manager=None):
-        # Leaderboard doesn't provide route_index, so generate one from timestamp
+        # Leaderboard provides route_index (0, 1, 2, ...) - use it for unique folder naming
         if route_index is None:
-            # Use route counter for consistent naming
+            # Fallback: Use route counter for consistent naming
             route_index = getattr(self, '_route_counter', 0)
             import time
             timestamp = time.strftime("%m_%d_%H_%M_%S")
             route_id = f"{route_index}_route0_{timestamp}"
         else:
-            route_id = route_index
+            # Use route_index with high-resolution timestamp for uniqueness
+            import time
+            timestamp = time.strftime("%m_%d_%H_%M_%S")
+            route_id = f"{route_index}_route{route_index}_{timestamp}"
         
         # Store route_id as instance variable for signal handler
         self.route_id = route_id
@@ -156,6 +163,10 @@ class DataAgentJapanese(AutoPilot):
                 consolidated_root = base_path / 'training_3_scenarios' / 'routes_devtest' / weather_config
                 consolidated_root.mkdir(parents=True, exist_ok=True)
                 self.save_path = consolidated_root / f"{town}_Rep{rep}_{route_id}"
+            
+            # Log the unique folder for this route
+            print(f"[INFO] Route {route_index}: saving to {self.save_path}")
+            print(f"[INFO] Route ID: {route_id}")
 
             # If SAVE_PATH was set and there are existing top-level run folders (Town*_Rep*),
             # move them into the consolidated weather folder to avoid polluting the SAVE_PATH root.
@@ -495,26 +506,31 @@ class DataAgentJapanese(AutoPilot):
             if wp is None:
                 continue
             
-            # Check if left lane exists and is drivable
-            left_wp = wp.get_left_lane()
-            if left_wp is None:
-                continue
+            # For true left-hand traffic: traverse left until we cross to opposite direction
+            # (from positive lane_ids to negative lane_ids, or vice versa)
+            current = wp
+            left_wp = current.get_left_lane()
             
-            # Only switch if left lane is same direction (lane_id sign matches)
-            if left_wp.lane_type == carla.LaneType.Driving:
-                same_direction = (wp.lane_id > 0) == (left_wp.lane_id > 0)
-                if same_direction:
-                    # Use left lane for left-hand driving
+            while left_wp and left_wp.lane_type == carla.LaneType.Driving:
+                # Check if we've crossed to opposite direction (lane_id sign changed)
+                if (current.lane_id > 0) != (left_wp.lane_id > 0):
+                    # Found opposite direction lane - this is true left-hand traffic!
                     route_wps[i] = left_wp
                     corrections_made += 1
                     
                     # Log sample corrections
                     if corrections_made <= 3 or i % sample_log_interval == 0:
-                        print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to left lane {left_wp.lane_id} (road {wp.road_id})")
+                        print(f"[INFO] Route waypoint {i}: switched from lane {wp.lane_id} to OPPOSITE lane {left_wp.lane_id} (road {wp.road_id}) - TRUE left-hand traffic")
+                    break
+                
+                # Continue traversing left within same direction
+                current = left_wp
+                left_wp = current.get_left_lane()
         
         # Update route points array to match corrected waypoints
         if corrections_made > 0:
-            print(f"[INFO] Left-hand traffic route correction: adjusted {corrections_made}/{len(route_wps)} waypoints to use left lanes")
+            print(f"[INFO] Left-hand traffic route correction: adjusted {corrections_made}/{len(route_wps)} waypoints to OPPOSITE direction lanes")
+            print(f"[INFO] Vehicle will now drive on the LEFT side of the road (true Japanese/UK style)")
             
             # Regenerate route_points from corrected waypoints
             route_points = []
@@ -527,7 +543,9 @@ class DataAgentJapanese(AutoPilot):
                 self._waypoint_planner.route_points = np.array(route_points)
                 print(f"[INFO] Route points array regenerated with {len(route_points)} corrected waypoints")
         else:
-            print(f"[INFO] Route already aligned with left-hand traffic (no corrections needed)")
+            warn_msg = "[WARN] No opposite-direction lanes found - vehicle will remain on RIGHT side of road"
+            print(warn_msg)
+            print("[WARN] This map may not support true left-hand traffic simulation")
         
         # Log ego vehicle's current lane for comparison
         try:
@@ -548,17 +566,34 @@ class DataAgentJapanese(AutoPilot):
         # Compute and apply geometry-aware left-hand driving configuration
         try:
             # prefer to compute a safe offset using current map and default spawn point
-            self.enforce_driving_side(side='left', margin=0.10)
+            self.enforce_driving_side(side='left', margin=0.05)  # Reduce margin for more aggressive left
         except Exception:
-            # Fallback to a conservative default offset (meters)
+            # Fallback to a more aggressive left offset (meters)
             try:
-                self.tm.global_lane_offset = -0.8
+                self.tm.global_lane_offset = -1.5  # Increased from -0.8 for stronger left positioning
             except Exception:
                 pass
+        
+        # CRITICAL: Configure lane change behavior for left-hand traffic
+        # CARLA's TM is designed for right-hand traffic (passes on LEFT, cruises on RIGHT)
+        # For left-hand traffic we need: pass on RIGHT, cruise on LEFT
+        # SOLUTION: Enable auto lane changes + override _manage_route_obstacle_scenarios
+        # to flip all lane selection logic (get_left_lane -> get_right_lane for overtaking)
+        try:
+            if self._vehicle:
+                # Enable automatic lane changes - our overridden _manage_route_obstacle_scenarios
+                # will handle proper RIGHT-side overtaking for left-hand traffic
+                self.tm.auto_lane_change(self._vehicle, True)
+                print("[INFO] Enabled auto lane changes with custom RIGHT-side overtaking logic (left-hand traffic)")
+        except Exception as e:
+            print(f"[WARN] Could not configure lane change behavior: {e}")
 
     def flip_world_infrastructure_for_lht(self):
         """
         **Usage**: Enable via environment variable FLIP_INFRASTRUCTURE=1
+        
+        Flip traffic lights and signs to face left-hand lanes for proper camera visibility.
+        ALWAYS flips when FLIP_INFRASTRUCTURE=1, regardless of which lane ego is in.
         """
         if not int(os.environ.get('FLIP_INFRASTRUCTURE', '0')):
             return
@@ -701,7 +736,7 @@ class DataAgentJapanese(AutoPilot):
                     self.tm = client.get_trafficmanager(8000)
                 else:
                     # Fallback: create new client connection
-                    client = carla.Client('localhost', 2000)
+                    client = carla.Client('localhost', self._carla_port)
                     client.set_timeout(10.0)
                     self.tm = client.get_trafficmanager(8000)
             except Exception as e:
@@ -713,11 +748,11 @@ class DataAgentJapanese(AutoPilot):
         # Compute and apply geometry-aware left-hand driving configuration
         try:
             # prefer to compute a safe offset using current map and default spawn point
-            self.enforce_driving_side(side='left', margin=0.10)
+            self.enforce_driving_side(side='left', margin=0.05)  # Reduce margin for more aggressive left
         except Exception:
-            # Fallback to a conservative default offset (meters)
+            # Fallback to a more aggressive left offset (meters)
             try:
-                self.tm.global_lane_offset = -0.8
+                self.tm.global_lane_offset = -1.5  # Increased from -0.8 for stronger left positioning
             except Exception:
                 pass
 
@@ -994,15 +1029,360 @@ class DataAgentJapanese(AutoPilot):
 
         return result
 
-    def _manage_route_obstacle_scenarios(self, target_speed, ego_speed, route_wp, vehicles, route_np):
+    def _manage_route_obstacle_scenarios(self, target_speed, ego_speed, route_waypoints, list_vehicles, route_points):
         """
-        Override parent method to handle missing active_scenarios attribute.
+        Override parent's obstacle/overtaking logic for left-hand traffic.
         
-        Standard leaderboard doesn't have CarlaDataProvider.active_scenarios,
-        so we skip scenario-specific obstacle management and use basic control.
+        Key changes for Japan/UK driving:
+        - Swap get_left_lane() → get_right_lane() for overtaking (pass on RIGHT)
+        - Swap get_right_lane() → get_left_lane() for obstacle avoidance directions
+        - Flip all "left"/"right" direction strings when determining which lane to use
+        
+        This allows proper right-side overtaking in left-hand traffic systems.
         """
-        # Return defaults: no speed reduction, no keep_driving, no obstacle info
-        return target_speed, False, [target_speed, None, None, None]
+        # Import from scenario_runner (only available in Bench2Drive setup)
+        try:
+            from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
+        except ImportError:
+            # Standard leaderboard doesn't have scenario_runner, return defaults
+            return target_speed, False, [target_speed, None, None, None]
+        
+        # Check if active_scenarios exists (Bench2Drive only)
+        if not hasattr(CarlaDataProvider, 'active_scenarios'):
+            return target_speed, False, [target_speed, None, None, None]
+        
+        # Inner helper functions (copied from parent, with left/right flips where needed)
+        def compute_min_time_for_distance(distance, target_speed, ego_speed):
+            """Calculate minimum time needed to travel distance with acceleration."""
+            current_speed = ego_speed
+            acceleration = 1.
+            min_time_needed = 0.0
+            distance_to_target_speed = max(0., min(distance, (target_speed**2 - current_speed**2) / (2 * acceleration)))
+            
+            if distance_to_target_speed > 0:
+                average_speed = (current_speed + target_speed) / 2
+                min_time_needed += distance_to_target_speed / average_speed
+                current_speed = target_speed
+            
+            remaining_distance = distance - distance_to_target_speed
+            if remaining_distance > 0:
+                min_time_needed += remaining_distance / current_speed
+            
+            return min_time_needed
+        
+        def get_previous_road_lane_ids(starting_waypoint):
+            """Get previous road/lane IDs for given waypoint."""
+            current_waypoint = starting_waypoint
+            previous_lane_ids = [(current_waypoint.road_id, current_waypoint.lane_id)]
+            
+            for _ in range(self.config.previous_road_lane_retrieve_distance):
+                previous_waypoints = current_waypoint.previous(1)
+                if len(previous_waypoints) == 0:
+                    break
+                current_waypoint = previous_waypoints[0]
+                
+                if (current_waypoint.road_id, current_waypoint.lane_id) not in previous_lane_ids:
+                    previous_lane_ids.append((current_waypoint.road_id, current_waypoint.lane_id))
+            
+            return previous_lane_ids
+        
+        def is_overtaking_path_clear(from_index, to_index, list_vehicles, ego_location,
+                                      target_speed, ego_speed, previous_lane_ids, min_speed=50./3.6):
+            """Check if overtaking path is clear of oncoming traffic."""
+            to_location = self._waypoint_planner.route_points[to_index]
+            to_location = carla.Location(to_location[0], to_location[1], to_location[2])
+            
+            from_location = self._waypoint_planner.route_points[from_index]
+            from_location = carla.Location(from_location[0], from_location[1], from_location[2])
+            
+            ego_distance = to_location.distance(ego_location) + \
+                          self._vehicle.bounding_box.extent.x * 2 + \
+                          self.config.check_path_free_safety_distance
+            ego_time = compute_min_time_for_distance(ego_distance, min(min_speed, target_speed), ego_speed)
+            
+            path_clear = True
+            for vehicle in list_vehicles:
+                if vehicle.id == self._vehicle.id:
+                    continue
+                
+                vehicle_location = vehicle.get_location()
+                vehicle_waypoint = self.world_map.get_waypoint(vehicle_location)
+                
+                if (vehicle_waypoint.road_id, vehicle_waypoint.lane_id) in previous_lane_ids:
+                    diff_vector = vehicle_location - ego_location
+                    dot_product = self._vehicle.get_transform().get_forward_vector().dot(diff_vector)
+                    if dot_product < 0:
+                        continue
+                    
+                    diff_vector_2 = to_location - vehicle_location
+                    dot_product_2 = vehicle.get_transform().get_forward_vector().dot(diff_vector_2)
+                    if dot_product_2 < 0:
+                        path_clear = False
+                        break
+                    
+                    other_vehicle_distance = to_location.distance(vehicle_location) - vehicle.bounding_box.extent.x
+                    other_vehicle_time = other_vehicle_distance / max(1., vehicle.get_velocity().length())
+                    
+                    if other_vehicle_time < ego_time + self.config.check_path_free_safety_time:
+                        path_clear = False
+                        break
+            
+            return path_clear
+        
+        def get_horizontal_distance(actor1, actor2):
+            """Calculate horizontal distance between actors (ignoring Z)."""
+            location1, location2 = actor1.get_location(), actor2.get_location()
+            diff_vector = carla.Vector3D(location1.x - location2.x, location1.y - location2.y, 0)
+            return diff_vector.length()
+        
+        def sort_scenarios_by_distance(ego_location):
+            """Sort active scenarios by distance from ego."""
+            distances = []
+            for (_, scenario_data) in CarlaDataProvider.active_scenarios:
+                first_actor = scenario_data[0]
+                distances.append(ego_location.distance(first_actor.get_location()))
+            
+            indices = np.argsort(distances)
+            CarlaDataProvider.active_scenarios = [CarlaDataProvider.active_scenarios[i] for i in indices]
+        
+        keep_driving = False
+        speed_reduced_by_obj = [target_speed, None, None, None]
+        
+        # Remove ended scenarios
+        active_scenarios = CarlaDataProvider.active_scenarios.copy()
+        for i, (scenario_type, scenario_data) in enumerate(active_scenarios):
+            first_actor, last_actor = scenario_data[:2]
+            if not first_actor.is_alive or (last_actor is not None and not last_actor.is_alive):
+                CarlaDataProvider.active_scenarios.remove(active_scenarios[i])
+        
+        if len(CarlaDataProvider.active_scenarios) == 0:
+            return target_speed, keep_driving, speed_reduced_by_obj
+        
+        ego_location = self._vehicle.get_location()
+        
+        if len(CarlaDataProvider.active_scenarios) != 1:
+            sort_scenarios_by_distance(ego_location)
+        
+        scenario_type, scenario_data = CarlaDataProvider.active_scenarios[0]
+        
+        # Handle different scenario types with LEFT/RIGHT flipped for left-hand traffic
+        if scenario_type == "InvadingTurn":
+            first_cone, last_cone, offset = scenario_data
+            closest_distance = first_cone.get_location().distance(ego_location)
+            
+            if closest_distance < self.config.default_max_distance_to_process_scenario:
+                self._waypoint_planner.shift_route_for_invading_turn(first_cone, last_cone, offset)
+                CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+        
+        elif scenario_type in ["Accident", "ConstructionObstacle", "ParkedObstacle"]:
+            first_actor, last_actor, direction = scenario_data[:3]
+            horizontal_distance = get_horizontal_distance(self._vehicle, first_actor)
+            
+            if horizontal_distance < self.config.default_max_distance_to_process_scenario:
+                transition_length = {
+                    "Accident": self.config.transition_smoothness_distance,
+                    "ConstructionObstacle": self.config.transition_smoothness_factor_construction_obstacle,
+                    "ParkedObstacle": self.config.transition_smoothness_distance
+                }[scenario_type]
+                
+                # FLIP: Swap direction for left-hand traffic
+                flipped_direction = "left" if direction == "right" else "right"
+                _, _ = self._waypoint_planner.shift_route_around_actors(
+                    first_actor, last_actor, flipped_direction, transition_length)
+                CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+        
+        elif scenario_type in ["AccidentTwoWays", "ConstructionObstacleTwoWays",
+                              "ParkedObstacleTwoWays", "VehicleOpensDoorTwoWays"]:
+            first_actor, last_actor, direction, changed_route, from_index, to_index, path_clear = scenario_data
+            horizontal_distance = get_horizontal_distance(self._vehicle, first_actor)
+            
+            if horizontal_distance < self.config.default_max_distance_to_process_scenario and not changed_route:
+                transition_length = {
+                    "AccidentTwoWays": self.config.transition_length_accident_two_ways,
+                    "ConstructionObstacleTwoWays": self.config.transition_length_construction_obstacle_two_ways,
+                    "ParkedObstacleTwoWays": self.config.transition_length_parked_obstacle_two_ways,
+                    "VehicleOpensDoorTwoWays": self.config.transition_length_vehicle_opens_door_two_ways
+                }[scenario_type]
+                
+                add_before_length = {
+                    "AccidentTwoWays": self.config.add_before_accident_two_ways,
+                    "ConstructionObstacleTwoWays": self.config.add_before_construction_obstacle_two_ways,
+                    "ParkedObstacleTwoWays": self.config.add_before_parked_obstacle_two_ways,
+                    "VehicleOpensDoorTwoWays": self.config.add_before_vehicle_opens_door_two_ways
+                }[scenario_type]
+                
+                add_after_length = {
+                    "AccidentTwoWays": self.config.add_after_accident_two_ways,
+                    "ConstructionObstacleTwoWays": self.config.add_after_construction_obstacle_two_ways,
+                    "ParkedObstacleTwoWays": self.config.add_after_parked_obstacle_two_ways,
+                    "VehicleOpensDoorTwoWays": self.config.add_after_vehicle_opens_door_two_ways
+                }[scenario_type]
+                
+                factor = {
+                    "AccidentTwoWays": self.config.factor_accident_two_ways,
+                    "ConstructionObstacleTwoWays": self.config.factor_construction_obstacle_two_ways,
+                    "ParkedObstacleTwoWays": self.config.factor_parked_obstacle_two_ways,
+                    "VehicleOpensDoorTwoWays": self.config.factor_vehicle_opens_door_two_ways
+                }[scenario_type]
+                
+                # FLIP: Swap direction for left-hand traffic
+                flipped_direction = "left" if direction == "right" else "right"
+                from_index, to_index = self._waypoint_planner.shift_route_around_actors(
+                    first_actor, last_actor, flipped_direction, transition_length, factor,
+                    add_before_length, add_after_length)
+                
+                changed_route = True
+                scenario_data[3] = changed_route
+                scenario_data[4] = from_index
+                scenario_data[5] = to_index
+            
+            if changed_route and from_index - self._waypoint_planner.route_index < \
+                    self.config.max_distance_to_overtake_two_way_scnearios and not path_clear:
+                # CRITICAL FIX: Use get_right_lane() for overtaking in left-hand traffic
+                # RIGHT lane is the overtaking lane (like passing lane on highway)
+                target_lane = route_waypoints[0].get_right_lane() if direction == "right" else route_waypoints[0].get_left_lane()
+                
+                if target_lane is None:
+                    return target_speed, keep_driving, speed_reduced_by_obj
+                
+                prev_road_lane_ids = get_previous_road_lane_ids(target_lane)
+                
+                overtake_speed = self.config.overtake_speed_vehicle_opens_door_two_ways \
+                    if scenario_type == "VehicleOpensDoorTwoWays" else self.config.default_overtake_speed
+                
+                path_clear = is_overtaking_path_clear(
+                    from_index, to_index, list_vehicles, ego_location,
+                    target_speed, ego_speed, prev_road_lane_ids, min_speed=overtake_speed)
+                
+                scenario_data[6] = path_clear
+            
+            if path_clear:
+                if self._waypoint_planner.route_index >= to_index - \
+                        self.config.distance_to_delete_scenario_in_two_ways:
+                    CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+                
+                target_speed = {
+                    "AccidentTwoWays": self.config.default_overtake_speed,
+                    "ConstructionObstacleTwoWays": self.config.default_overtake_speed,
+                    "ParkedObstacleTwoWays": self.config.default_overtake_speed,
+                    "VehicleOpensDoorTwoWays": self.config.overtake_speed_vehicle_opens_door_two_ways
+                }[scenario_type]
+                keep_driving = True
+            else:
+                distance_to_leading_actor = float(from_index + 15 - 
+                                                  self._waypoint_planner.route_index) / self.config.points_per_meter
+                target_speed = self._compute_target_speed_idm(
+                    desired_speed=target_speed,
+                    leading_actor_length=self._vehicle.bounding_box.extent.x,
+                    ego_speed=ego_speed,
+                    leading_actor_speed=0,
+                    distance_to_leading_actor=distance_to_leading_actor,
+                    s0=self.config.idm_two_way_scenarios_minimum_distance,
+                    T=self.config.idm_two_way_scenarios_time_headway)
+                
+                if speed_reduced_by_obj is None or speed_reduced_by_obj[0] > target_speed:
+                    speed_reduced_by_obj = [target_speed, first_actor.type_id, first_actor.id, distance_to_leading_actor]
+        
+        elif scenario_type == "HazardAtSideLaneTwoWays":
+            first_actor, last_actor, changed_route, from_index, to_index, path_clear = scenario_data
+            horizontal_distance = get_horizontal_distance(self._vehicle, first_actor)
+            
+            if horizontal_distance < self.config.max_distance_to_process_hazard_at_side_lane_two_ways and not changed_route:
+                to_index = self._waypoint_planner.get_closest_route_index(
+                    self._waypoint_planner.route_index, last_actor.get_location())
+                to_index += 135
+                from_index = self._waypoint_planner.route_index
+                
+                # CRITICAL FIX: Use get_right_lane() for overtaking in left-hand traffic
+                starting_wp = route_waypoints[0].get_right_lane()
+                prev_road_lane_ids = get_previous_road_lane_ids(starting_wp)
+                
+                path_clear = is_overtaking_path_clear(
+                    from_index, to_index, list_vehicles, ego_location,
+                    target_speed, ego_speed, prev_road_lane_ids,
+                    min_speed=self.config.default_overtake_speed)
+                
+                if path_clear:
+                    transition_length = self.config.transition_smoothness_distance
+                    self._waypoint_planner.shift_route_smoothly(from_index, to_index, False, transition_length)  # False = shift RIGHT
+                    changed_route = True
+                    scenario_data[2] = changed_route
+                    scenario_data[3] = from_index
+                    scenario_data[4] = to_index
+                    scenario_data[5] = path_clear
+            
+            if path_clear:
+                if self._waypoint_planner.route_index >= to_index:
+                    CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+                target_speed, keep_driving = self.config.default_overtake_speed, True
+        
+        elif scenario_type == "HazardAtSideLane":
+            first_actor, last_actor, changed_first_part_of_route, from_index, to_index, path_clear = scenario_data
+            horizontal_distance = get_horizontal_distance(self._vehicle, last_actor)
+            
+            if horizontal_distance < self.config.max_distance_to_process_hazard_at_side_lane and not changed_first_part_of_route:
+                transition_length = self.config.transition_smoothness_distance
+                # FLIP: Swap to "left" for avoidance (away from overtaking lane)
+                from_index, to_index = self._waypoint_planner.shift_route_around_actors(
+                    first_actor, last_actor, "left", transition_length)
+                
+                to_index -= transition_length
+                changed_first_part_of_route = True
+                scenario_data[2] = changed_first_part_of_route
+                scenario_data[3] = from_index
+                scenario_data[4] = to_index
+            
+            if changed_first_part_of_route:
+                to_idx_ = self._waypoint_planner.extend_lane_shift_transition_for_hazard_at_side_lane(
+                    last_actor, to_index)
+                to_index = to_idx_
+                scenario_data[4] = to_index
+            
+            if self._waypoint_planner.route_index > to_index:
+                CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+        
+        elif scenario_type == "YieldToEmergencyVehicle":
+            emergency_veh, _, changed_route, from_index, to_index, to_left = scenario_data
+            horizontal_distance = get_horizontal_distance(self._vehicle, emergency_veh)
+            
+            if horizontal_distance < self.config.default_max_distance_to_process_scenario and not changed_route:
+                from_index = self._waypoint_planner.route_index + 30 * self.config.points_per_meter
+                to_index = from_index + int(2 * self.config.points_per_meter) * self.config.points_per_meter
+                
+                transition_length = self.config.transition_smoothness_distance
+                # FLIP: In left-hand traffic, yield by moving LEFT (towards edge), not right
+                to_left = self._waypoint_planner.route_waypoints[from_index].lane_change == carla.LaneChange.Left
+                self._waypoint_planner.shift_route_smoothly(from_index, to_index, to_left, transition_length)
+                
+                changed_route = True
+                to_index -= transition_length
+                scenario_data[2] = changed_route
+                scenario_data[3] = from_index
+                scenario_data[4] = to_index
+                scenario_data[5] = to_left
+            
+            if changed_route:
+                to_idx_ = self._waypoint_planner.extend_lane_shift_transition_for_yield_to_emergency_vehicle(
+                    to_left, to_index)
+                to_index = to_idx_
+                scenario_data[4] = to_index
+                
+                diff = emergency_veh.get_location() - ego_location
+                dot_res = self._vehicle.get_transform().get_forward_vector().dot(diff)
+                if dot_res > 0:
+                    CarlaDataProvider.active_scenarios = CarlaDataProvider.active_scenarios[1:]
+        
+        # Visualization for debugging
+        if self.visualize == 1:
+            for i in range(min(route_points.shape[0] - 1, self.config.draw_future_route_till_distance)):
+                loc = route_points[i]
+                loc = carla.Location(loc[0], loc[1], loc[2] + 0.1)
+                self._world.debug.draw_point(
+                    location=loc, size=0.05,
+                    color=self.config.future_route_color,
+                    life_time=self.config.draw_life_time)
+        
+        return target_speed, keep_driving, speed_reduced_by_obj
 
     def _get_forward_speed(self, transform=None, velocity=None):
         """
