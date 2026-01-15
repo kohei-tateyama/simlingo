@@ -461,10 +461,10 @@ cd .. && bash ImportAssets.sh
 
 ```bash
 # Create base environment
+cd  /workspace/simlingo
 conda env create -f environment16.yaml
 conda activate simlingo16
-pip install /workspace/carla0916/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl
-pip install torch==2.2.0
+pip install /workspace/carla0916/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl && pip install torch==2.2.0
 # pip install flash-attn==2.7.0.post2
 ```
 

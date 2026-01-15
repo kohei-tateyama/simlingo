@@ -9,8 +9,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
 # =============================================================================
-## This script is an updated versionn of the how_to_run_headless.sh and it allows runnning the simlingo agent as well as other code for gathering data in headless mode.
-# This script is also a bnetter verison fo run_carla_autopilot.sh
+# Left hand driving version for run_carla_autopilot_mp_pilot_script.sh via carla 0.9.16
+# ============================================================================
+
+# ============================================================================
+# CONFIG 
 # ============================================================================
 
 export CARLA_ROOT=/workspace/carla0916
@@ -21,19 +24,29 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 # Make CARLA and Traffic Manager ports configurable (defaults preserved)
 export CARLA_PORT=${CARLA_PORT:-2000}
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
-export FLIP_INFRASTRUCTURE="1"
-# Fix conda activation for non-interactive scripts
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate simlingo
 
-# Color & logging helpers
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-BLUE="\033[0;34m"
-RED="\033[0;31m"
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate simlingo16
+
+MODE="autopilot"  # Only one aviable
+AUTOPILOT_DURATION=60
+AUTOPILOT_ROUTE="highway"
+AUTOPILOT_TOWN="Town13"
+MULTICAMERA=true
+AUTOPILOT_LONG=false
+AUTOPILOT_WEATHER=""
+AUTOPILOT_SPAWN_INDEX=""
+AUTOPILOT_RANDOM_SPAWN=false
+AUTOPILOT_FPS=20
+
+
+# Color & logging helpers for carla 0.9.16
+GREEN="\033[0;92m"
+YELLOW="\033[0;93m"
+BLUE="\033[0;94m"
+RED="\033[0;91m"
 RESET="\033[0m"
 
-# START_WAIT=${START_WAIT:-120}
 START_WAIT=${START_WAIT:-80}
 
 info() {
@@ -59,43 +72,26 @@ sep() {
 cleanup_on_exit() {
     local exit_code=$?
     echo ""
-    warn "Script exiting (code: $exit_code) - ensuring CARLA cleanup..."
+    warn "Script exiting (code: $exit_code) - ensuring CARLA 0.9.16 cleanup..."
     stop_carla 2>/dev/null || true
     exit $exit_code
 }
 
 trap cleanup_on_exit EXIT INT TERM
 
-# ============================================================================
-# PARSE COMMAND LINE ARGUMENTS
-# ============================================================================
-MODE="evaluation"  # Default mode
-AUTOPILOT_DURATION=60
-AUTOPILOT_ROUTE="highway"
-AUTOPILOT_TOWN="Town13"
-MULTICAMERA=true
-AUTOPILOT_LONG=false
-AUTOPILOT_WEATHER=""
-AUTOPILOT_SPAWN_INDEX=""
-AUTOPILOT_RANDOM_SPAWN=false
-
 show_help() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Run CARLA simulations with different modes simulating japanese streets.
-This is an headless script that starts CARLA in a Docker container, runs
+Run CARLA 0.9.16 simulations with different modes simulating japanese streets.
+This is an headless script that starts CARLA 0.9.16 in a Docker container, runs
 the specified mode, and then cleans up.
-
-This script can also run the simlingo agent "evaluation" in headless mode.
 
 OPTIONS:
     -h, --help              Show this help message
-    -m, --mode MODE         Simulation mode (default: evaluation)
+    -m, --mode MODE         Simulation mode (default/only avaiable: autopilot)
                            Options:
-                             - evaluation: Run Bench2Drive evaluation simlingo agent 
                              - autopilot: Japanese-style autopilot driving
-                             - both: Run both modes sequentially
     
     AUTOPILOT MODE OPTIONS:
     -d, --duration SEC      Duration in seconds (default: 60)
@@ -108,30 +104,23 @@ OPTIONS:
                            - urban (90s)
                            - simple (30s)
     --multicamera           Force multicamera mode (overrides MULTICAMERA env)
-    --autopilot-long            Run the long-version autopilot (overrides AUTOPILOT_LONG env)
+    --autopilot-long        Run the long-version autopilot (overrides AUTOPILOT_LONG env)
     --spawn-index INDEX     Spawn point index (0-based, forwarded to autopilot)
     --random-spawn          Randomize spawn location (only for autopilot-long)
 
 EXAMPLES:
-    # Run default evaluation simlingo agent
+    # Run default autopilot mode
     $0
     
     # Run Japanese autopilot for 120 seconds on highway
     $0 --mode autopilot --duration 120 --route highway
-    
-    # Run all autopilot variations
-    $0 --mode autopilot --autopilot-all
 
-    # Running the fdifferent class of the autopilot
-    $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --no-autopilot-long
     $0 --mode autopilot --duration 10 --route highway --multicamera --fps 20 --autopilot-long
 
 EOF
     exit 0
 }
 
-RUN_ALL_AUTOPILOT=false
-AUTOPILOT_FPS=60
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -153,10 +142,6 @@ while [[ $# -gt 0 ]]; do
         --town)
             AUTOPILOT_TOWN="$2"
             shift 2
-            ;;
-        --autopilot-all)
-            RUN_ALL_AUTOPILOT=true
-            shift
             ;;
         --multicamera)
             MULTICAMERA=true
@@ -194,7 +179,7 @@ done
 # ============================================================================
 cleanup_carla() {
     sep
-    info "Cleaning up existing CARLA instances..."
+    info "Cleaning up existing CARLA 0.9.16 instances..."
     sep
 
     # Kill all CARLA processes on host
@@ -202,7 +187,7 @@ cleanup_carla() {
     killall -9 CarlaUE4 2>/dev/null || true
 
     # Kill processes using CARLA ports (skip CARLA_PORT+1 - reserved)
-    info "Freeing CARLA ports around ${CARLA_PORT} (skipping ${CARLA_PORT}+1)..."
+    info "Freeing CARLA 0.9.16 ports around ${CARLA_PORT} (skipping ${CARLA_PORT}+1)..."
 
     # Force free CARLA_PORT
     pids=$(lsof -ti:${CARLA_PORT} 2>/dev/null)
@@ -223,7 +208,7 @@ cleanup_carla() {
     done
 
     # Do not automatically remove carla-server container here so logs/crash dumps can be inspected.
-    info "Stopping any running CARLA Docker containers (will not remove crashed containers)..."
+    info "Stopping any running CARLA 0.9.16 Docker containers (will not remove crashed containers)..."
     docker ps --filter "name=carla-server" -q | xargs -r docker stop 2>/dev/null || true
     docker ps -a --filter "name=carla" -q | xargs -r docker stop 2>/dev/null || true
 
@@ -262,9 +247,18 @@ start_carla() {
 
     # Verify custom CARLA 0.9.16 image with Bench2Drive maps exists
     echo ""
-    info "Checking for custom CARLA image..."
-    if ! docker images | grep -q "carla-bench2drive.*0.9.16"; then
-        err "Custom CARLA image 'carla-bench2drive:0.9.16' not found!"
+    info "Checking for CARLA 0.9.16 image..."
+    if ! docker images | grep -q "carlasim/carla.*0.9.16\|carla-bench2drive.*0.9.16"; then
+        warn "CARLA 0.9.16 image not found locally - pulling from DockerHub..."
+        docker pull carlasim/carla:0.9.16
+        if [ $? -ne 0 ]; then
+            err "Failed to pull carlasim/carla:0.9.16"
+            err "Alternative: build locally with 'cd /workspace/carla0916 && docker build -t carla-bench2drive:0.9.16 -f Dockerfile .'"
+            exit 1
+        fi
+        # Tag it for consistency with your naming convention
+        docker tag carlasim/carla:0.9.16 carla-bench2drive:0.9.16
+        info "Tagged carlasim/carla:0.9.16 as carla-bench2drive:0.9.16"
     fi
 
     info "Using carla-bench2drive:0.9.16"
@@ -279,6 +273,56 @@ start_carla() {
     # Start CARLA in headless mode - FORCE port ${CARLA_PORT}
     mkdir -p ${WORK_DIR}/carla_logs
 
+    # Create left-hand traffic configuration script for 0.9.16
+    # This modifies OpenDRIVE XML files to enable LHT via userData tags
+    mkdir -p ${WORK_DIR}/tmp_carla_config
+    cat > ${WORK_DIR}/tmp_carla_config/enable_lht.sh << 'EOFCONFIG'
+#!/bin/bash
+# Enable left-hand traffic for classic CARLA towns via OpenDRIVE XML modification
+# Based on: https://github.com/carla-simulator/carla/pull/8951
+
+CARLA_HOME="/workspace"
+MAPS_DIR="${CARLA_HOME}/CarlaUE4/Content/Carla/Maps"
+
+# Only modify classic towns (Town01-Town12) - Town13+ may have native LHT
+TOWNS_TO_MODIFY="Town01 Town02 Town03 Town04 Town05 Town06 Town07 Town10HD"
+
+echo "[LHT-CONFIG] Checking for OpenDRIVE files to modify..."
+
+for town in $TOWNS_TO_MODIFY; do
+    XODR_FILE="${MAPS_DIR}/${town}/OpenDrive/${town}.xodr"
+    
+    if [ ! -f "$XODR_FILE" ]; then
+        echo "[LHT-CONFIG] Skipping ${town} (file not found: $XODR_FILE)"
+        continue
+    fi
+    
+    # Check if already modified (avoid duplicate modifications)
+    if grep -q 'carla:lane_direction.*left' "$XODR_FILE" 2>/dev/null; then
+        echo "[LHT-CONFIG] ${town} already has LHT config, skipping"
+        continue
+    fi
+    
+    echo "[LHT-CONFIG] Enabling LHT for ${town}..."
+    
+    # Backup original
+    cp "$XODR_FILE" "${XODR_FILE}.backup_rht" 2>/dev/null || true
+    
+    # Add left-hand traffic userData to the OpenDRIVE header
+    # Insert after <header> tag
+    sed -i '/<header/a\        <userData>\n            <vectorLane code="carla:lane_direction" value="left"/>\n        </userData>' "$XODR_FILE"
+    
+    if [ $? -eq 0 ]; then
+        echo "[LHT-CONFIG] ✓ ${town} configured for left-hand traffic"
+    else
+        echo "[LHT-CONFIG] ✗ Failed to modify ${town}, restoring backup"
+        [ -f "${XODR_FILE}.backup_rht" ] && cp "${XODR_FILE}.backup_rht" "$XODR_FILE"
+    fi
+done
+
+echo "[LHT-CONFIG] Configuration complete"
+EOFCONFIG
+
     docker run -d \
         --name carla-server \
         --runtime=nvidia \
@@ -288,9 +332,11 @@ start_carla() {
         --ulimit core=-1 \
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
-        -v ${WORK_DIR}/carla_logs:/home/carla/CarlaUE4/Saved/Logs \
+        --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
+        -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
+        -v ${WORK_DIR}/tmp_carla_config:/tmp/carla_config:ro \
         carla-bench2drive:0.9.16 \
-        bash -c "cd /home/carla && mkdir -p CarlaUE4/Saved/Logs && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${CARLA_PORT} -carla-rpc-port=${CARLA_PORT} -log"
+        bash -c "bash /tmp/carla_config/enable_lht.sh && cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${CARLA_PORT} -carla-rpc-port=${CARLA_PORT} -log"
 
     info "Waiting for CARLA to start (${START_WAIT}s)..."
     sleep ${START_WAIT}
@@ -329,7 +375,6 @@ try:
     maps = client.get_available_maps()
     
     print(f'[INFO]: CARLA connection successful on port ${CARLA_PORT}')
-    print(f'[INFO]: DO NOT CHECK THE NEXT TOWN')
     print(f'[INFO]: Server version  : {version}')
     print(f'[INFO]: Total maps      : {len(maps)}')
     
@@ -337,25 +382,23 @@ try:
         print(f'[ERROR]: Expected CARLA 0.9.16, got {version}')
         sys.exit(1)
     
-    # Check for Town13
-    town13_maps = [m for m in maps if 'Town13' in m]
-    if town13_maps:
-        print(f'[INFO]: Town13 found: {town13_maps}')
-        print(f'[INFO]: DO NOT CHECK THIS TOWN')
+    # Check for requested town
+    requested_town = '${AUTOPILOT_TOWN}'
+    matching_maps = [m for m in maps if requested_town in m]
+    if matching_maps:
+        print(f'[INFO]: Requested town "{requested_town}" found: {matching_maps[0]}')
     else:
-        print(f'[WARNING]: Town13 NOT found!')
-        print(f'[INFO]: DO NOT CHECK THIS TOWN')
-        print(f'Available maps: {[m.split("/")[-1] for m in maps[:10]]}')
-        sys.exit(1)
+        print(f'[WARNING]: Requested town "{requested_town}" NOT found in available maps')
+        print(f'[INFO]: Available maps: {[m.split("/")[-1] for m in maps[:15]]}')
         
 except Exception as e:
-    print(f'[ERROR]: CARLA connection failed on port ${CARLA_PORT}: {e}')
+    print(f'[ERROR]: CARLA 0.9.16 connection failed on port ${CARLA_PORT}: {e}')
     sys.exit(1)
 EOF
 
     if [ $? -ne 0 ]; then
         echo ""
-        err "CARLA verification failed"
+        err "CARLA 0.9.16 verification failed"
         sep
         warn "Full container logs:"
         docker logs carla-server 2>&1
@@ -364,15 +407,15 @@ EOF
         exit 1
     fi
 
-    info "CARLA connection verified on port ${CARLA_PORT}"
+    info "CARLA 0.9.16 connection verified on port ${CARLA_PORT}"
 }
 
 # ============================================================================
-# STOP CARLA FUNCTION
+# STOP CARLA 0.9.16 FUNCTION
 # ============================================================================
 stop_carla() {
     echo ""
-    info "Stopping CARLA container..."
+    info "Stopping CARLA 0.9.16 container..."
     docker rm -f carla-server 2>/dev/null || true
     sleep 3
 }
@@ -454,9 +497,7 @@ run_autopilot() {
 # ============================================================================
 
 sep
-sep
-info "CARLA Simulation Runner - Mode: $MODE"
-sep
+info "CARLA 0.9.16 (!!)  Simulation Runner - Mode: $MODE"
 sep
 
 # Cleanup before starting
@@ -469,14 +510,12 @@ start_carla
 EXIT_CODE=0
 
 case $MODE in
-    
     autopilot)
         run_autopilot $AUTOPILOT_DURATION $AUTOPILOT_ROUTE
         EXIT_CODE=$?
         ;;
-        
     both)
-        # Run evaluation first
+        # Run evaluation 
         info "Not implemented here"
         ;;
     *)

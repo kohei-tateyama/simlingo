@@ -35,8 +35,8 @@ export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}" # seconds TOTAL for all routes
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}" # seconds TOTAL for all routes
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh

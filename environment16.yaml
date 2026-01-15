@@ -3,7 +3,6 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
   - _libgcc_mutex=0.1=main
   - _openmp_mutex=5.1=1_gnu
   - asttokens=2.0.5
@@ -38,7 +37,7 @@ dependencies:
   - ptyprocess=0.7.0
   - pure_eval=0.2.2
   - pygments=2.15.1
-  - python=3.8.18
+  - python=3.10
   - pyzmq=25.1.2
   - readline=8.2
   - setuptools=68.2.2
@@ -167,7 +166,7 @@ dependencies:
     - omegaconf==2.3.0
     - onnx==1.15.0
     - openai==1.76.0
-    - opencv-python==4.2.0.32
+    - opencv-python==4.10.0.84
     - ordered-set==4.1.0
     - orjson==3.10.15
     - packaging==23.2

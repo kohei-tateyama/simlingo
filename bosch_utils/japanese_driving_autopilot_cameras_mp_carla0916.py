@@ -18,35 +18,25 @@ import gzip
 from PIL import Image as PILImage
 import math
 import yaml
+import random
+import colorsys
 from pathlib import Path
 from bosch_utils.japanese_driving_autopilot_cameras_mp import _resolve_weather_param
 from bosch_utils.config import cfg, RECORDING_OUTPUT_DIR, IMAGE_FORMAT, IMAGE_EXT, JPG_QUALITY, PNG_COMPRESS_LEVEL, NEW_SIMLINGO_MATCH
 
-# from simlingo.bosch_utils.config import (
-#     cfg,
-#     RECORDING_OUTPUT_DIR,
-#     IMAGE_FORMAT,
-#     IMAGE_EXT,
-#     JPG_QUALITY,
-#     PNG_COMPRESS_LEVEL,
-#     SIMLINGO_VERSION_DIR, NEW_SIMLINGO_MATCH, GLOBAL_LANE_OFFSET,
-#     SET_GLOBAL_DISTANCE_TO_LEADING_VEHICLE,
-#     MARGIN, DEFAULT_LANE_W, DEFAULT_VEHICLE_HALF_W,
-#     MIN_SAFE_DISTANCE_SAFE, MAX_SAFE_DISTANCE_SAFE,
-#     MAX_DISTANCE_SAFE, MIN_DISTANCE_SAFE,
-#     MAX_DETECT_INFRASTRUCTURE_OFFSET, MIN_NORMALIZATION_SCALE,
-#     OFFSET_1, OFFSET_2, SAMPLING_RESOLUTION,
-#     AVERAGE_SPEEDS_MPS, MIN_DISTANCE_TARGET, MAX_DISTANCE_TARGET,
-#     NEARBY_POINTS
-# )
 
 
 class JapaneseStyleAutopilot16:
-    def __init__(self, autopilot=False, duration=60, 
-                 route_type='highway', port_localhost=2000, 
-                 port_traffic=8000, town='Town13', 
-                 fps=20.0, num_imgs_per_frame=6, 
-                 callback_debug=False, weather='SoftRainNight',
+    def __init__(self, autopilot=False, 
+                 duration=60, 
+                 route_type='highway', 
+                 port_localhost=2000, 
+                 port_traffic=8000, 
+                 town='Town13', 
+                 fps=20.0, 
+                 num_imgs_per_frame=6, 
+                 callback_debug=False, 
+                 weather='SoftRainNight',
                  spawn_idx=None):
         
         """Initialize the Japanese-style driving autopilot with 6 cameras.
@@ -89,7 +79,6 @@ class JapaneseStyleAutopilot16:
         print(f'[INFO]: Recording imgs at {self.fps} FPS with interval {self.sleep_interval:.3f}s', flush=True)
         # If a world is already loaded on the server, prefer using it to avoid heavy reloads
         try:
-            print(f"[DEBUG MP] About to call self.client.get_world()... 10-30s on first call ...", flush=True)
             current_world = self.client.get_world()
             print(f"[INFO]: client.get_world() returned successfully", flush=True)
             current_map_name = getattr(current_world.get_map(), 'name', '')
@@ -98,8 +87,6 @@ class JapaneseStyleAutopilot16:
                 if self.town in current_map_name:
                     print(f"[INFO]: Current map matches requested town '{self.town}' — using it", flush=True)
                     self.world = current_world
-                    # self.world.set_weather(weather) # even the custom one
-                    time.sleep(1)
                     skip_load = True
                 else:
                     print(f"[INFO]: Current map '{current_map_name}' does NOT match requested town '{self.town}' — will load correct map", flush=True)
@@ -109,14 +96,11 @@ class JapaneseStyleAutopilot16:
         except Exception as e:
             skip_load = False
 
-        # If user explicitly wants to force a map load, set FORCE_LOAD env var or pass --force-load
         FORCE_LOAD = False
 
-        print(f"[DEBUG MP] skip_load={skip_load}, FORCE_LOAD={FORCE_LOAD}", flush=True)
         if not skip_load and not FORCE_LOAD:
             try:
                 available_maps = self.client.get_available_maps()
-                # print(f"[DEBUG MP] Available maps: {available_maps}", flush=True)
             except Exception:
                 available_maps = []
 
@@ -165,19 +149,41 @@ class JapaneseStyleAutopilot16:
                     raise RuntimeError(error_msg)
 
         time.sleep(1)
-        print("")
-        print('=' * self.print_length, flush=True)
-        print('[INFO]: Setting the Japanese world configuration...', flush=True)
-        # Get traffic manager
-        print(f"[DEBUG] Getting traffic manager on port {self.port_traffic}...", flush=True)
+        self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
+            
+        # Apply weather to world
+        print(f"[INFO]: Setting weather to {weather}...", flush=True)
         try:
-            self.traffic_manager = self.client.get_trafficmanager(self.port_traffic)
-            print(f"[INFO] Traffic manager obtained successfully", flush=True)
+            weather_preset = getattr(carla.WeatherParameters, weather, None)
+            if weather_preset:
+                self.world.set_weather(weather_preset)
+                print(f"[INFO]: Weather '{weather}' applied successfully", flush=True)
+            else:
+                print(f"[WARN]: Unknown weather preset '{weather}', using default", flush=True)
         except Exception as e:
-            print(f"[ERROR] Failed to get traffic manager: {e}", flush=True)
-            raise
-           
+            print(f"[WARN]: Failed to set weather: {e}", flush=True)
+        
         self.weather = weather
+        
+        # Enable synchronous mode for deterministic sensor timing
+        print(f"[INFO]: Configuring synchronous mode...", flush=True)
+        try:
+            settings = self.world.get_settings()
+            settings.synchronous_mode = True
+            settings.fixed_delta_seconds = self.sleep_interval
+            self.world.apply_settings(settings)
+            self.traffic_manager.set_synchronous_mode(True)
+            print(f"[INFO]: Synchronous mode enabled (dt={self.sleep_interval}s)", flush=True)
+            # Tick world once to process sync mode activation
+            try:
+                self.world.tick()
+                print(f"[DEBUG]: World ticked after sync mode activation", flush=True)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[WARN]: Could not enable synchronous mode: {e}", flush=True)
+        
+        print(f"[DEBUG]: Setting autopilot parameters...", flush=True)
         # Autopilot settings
         self.autopilot = autopilot
         self.duration = duration  # seconds
@@ -191,18 +197,15 @@ class JapaneseStyleAutopilot16:
         self._actors_cache_frame = -999   # Frame number when cache was last updated
         self._actors_cache_interval = 10  # Update cache every N frames (at 20fps = every 0.5s)
         
+        print(f"[DEBUG]: Building folder path...", flush=True)
         # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         # self.foldername = f"autopilot_multicamera_japanese_{self.route_type}_{timestamp}"
         # self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
-
-        # self.foldername = f"database/{SIMLINGO_VERSION_DIR}/auto_short_multicam_jp/training_{self.town}_scenario/routes_{self.route_type}_duration_{self.duration}_training/{self.weather}_weather/ego_{self.spawn_idx}" # ok work
-        # If NEW_SIMLINGO_MATCH is absolute (leading '/'), strip it so RECORDING_OUTPUT_DIR
-        # remains the true base directory when joining.
         new_simlingo_rel = NEW_SIMLINGO_MATCH.lstrip(os.sep)
 
         self.foldername = os.path.join(
-            new_simlingo_rel,
-            "auto_short_multicam_jp",
+            new_simlingo_rel + "_carla0916_", 
+            "auto_multicam_jp",
             "routes_training",
             f"{self.weather}_weather",
             f"{self.town}_Rep0_scenario",
@@ -214,7 +217,8 @@ class JapaneseStyleAutopilot16:
         # Prepend the configured RECORDING_OUTPUT_DIR to form the absolute folder path
         self.folderpath = os.path.join(RECORDING_OUTPUT_DIR, self.foldername)
         
-        print(f'[INFO]: Created the folder: {self.folderpath}')
+        print(f'[INFO]: Folder path: {self.folderpath}', flush=True)
+        print(f'[DEBUG]: Creating directories...', flush=True)
 
         # TODO move this into the config.py/yaml
         os.makedirs(self.folderpath, exist_ok=True)
@@ -222,6 +226,7 @@ class JapaneseStyleAutopilot16:
         os.makedirs(os.path.join(self.folderpath, 'rgb'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'measurements'), exist_ok=True)
         os.makedirs(os.path.join(self.folderpath, 'boxes'), exist_ok=True)
+        print(f'[DEBUG]: Directories created successfully', flush=True)
         self.last_image_filename = None
         self.sensors = []
 
@@ -242,8 +247,10 @@ class JapaneseStyleAutopilot16:
         self._required_full_frames = 1 # How many full frames to wait for before enabling autopilot
         self._last_frame_seen_time = {} # Track last seen time per frame for flush
         self._buffer_timeout = 0.5  # seconds
+        print(f'[DEBUG]: Starting writer thread...', flush=True)
         self._writer_thread = threading.Thread(target=self._buffer_writer, daemon=True)
         self._writer_thread.start()
+        print(f'[DEBUG]: Writer thread started', flush=True)
         try:
             self._debug_log_path = os.path.join(self.folderpath, 'debug.log')
             with open(self._debug_log_path, 'a') as _:
@@ -270,6 +277,7 @@ class JapaneseStyleAutopilot16:
             'route_timeout': []
         }
         self._speed_samples = []  # Track speed samples for min speed check
+        print(f'[DEBUG]: __init__ completed successfully', flush=True)
 
     def _log_debug(self, msg):
         try:
@@ -357,145 +365,96 @@ class JapaneseStyleAutopilot16:
     
 
     def setup_camera(self):
-        """Attach 6 RGB cameras around the vehicle: Front, Back, RF, LF, RB, LB.
-        Save images into per-frame folders: /folderpath/0XXX/{F,B,RF,LF,RB,LB}.png
+        """
+        Attach 6 RGB cameras around the vehicle with staggered initialization 
+        to prevent deadlocks in CARLA 0.9.16.
         """
         if not self.player_vehicle:
             raise RuntimeError("Player vehicle not spawned yet")
 
         blueprint_library = self.world.get_blueprint_library()
         
-        # Define 6 camera configurations: name, transform, FOV
-        # Heights matched; front/back on center-line; corners angled appropriately
+        # Standard 6-camera layout
         camera_configs = [
-            {
-                'name': 'F',  # Front camera
-                'transform': carla.Transform(
-                    carla.Location(x=2.5, y=0.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=0.0, roll=0.0)
-                ),
-                'fov': '110'
-            },
-            {
-                'name': 'B',  # Back camera
-                'transform': carla.Transform(
-                    carla.Location(x=-2.5, y=0.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=180.0, roll=0.0)
-                ),
-                'fov': '110'
-            },
-            {
-                'name': 'RF',  # Right Front camera
-                'transform': carla.Transform(
-                    carla.Location(x=1.0, y=1.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=55.0, roll=0.0)
-                ),
-                'fov': '110'
-            },
-            {
-                'name': 'LF',  # Left Front camera
-                'transform': carla.Transform(
-                    carla.Location(x=1.0, y=-1.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=-55.0, roll=0.0)
-                ),
-                'fov': '110'
-            },
-            {
-                'name': 'RB',  # Right Back camera
-                'transform': carla.Transform(
-                    carla.Location(x=-1.0, y=1.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=125.0, roll=0.0)
-                ),
-                'fov': '110'
-            },
-            {
-                'name': 'LB',  # Left Back camera
-                'transform': carla.Transform(
-                    carla.Location(x=-1.0, y=-1.0, z=1.5),
-                    carla.Rotation(pitch=0.0, yaw=-125.0, roll=0.0)
-                ),
-                'fov': '110'
-            }
+            {'name': 'F',  'transform': carla.Transform(carla.Location(x=2.5, y=0.0, z=1.5), carla.Rotation(yaw=0.0))},
+            {'name': 'B',  'transform': carla.Transform(carla.Location(x=-2.5, y=0.0, z=1.5), carla.Rotation(yaw=180.0))},
+            {'name': 'RF', 'transform': carla.Transform(carla.Location(x=1.0, y=1.0, z=1.5), carla.Rotation(yaw=55.0))},
+            {'name': 'LF', 'transform': carla.Transform(carla.Location(x=1.0, y=-1.0, z=1.5), carla.Rotation(yaw=-55.0))},
+            {'name': 'RB', 'transform': carla.Transform(carla.Location(x=-1.0, y=1.0, z=1.5), carla.Rotation(yaw=125.0))},
+            {'name': 'LB', 'transform': carla.Transform(carla.Location(x=-1.0, y=-1.0, z=1.5), carla.Rotation(yaw=-125.0))}
         ]
-        
-        # Spawn each camera and attach callback
-        for cam_config in camera_configs:
+
+        # Get sync mode status
+        settings = self.world.get_settings()
+        is_sync = settings.synchronous_mode
+
+        for i, cam_config in enumerate(camera_configs):
             cam_bp = blueprint_library.find('sensor.camera.rgb')
             cam_bp.set_attribute('image_size_x', str(self.image_size_x))
             cam_bp.set_attribute('image_size_y', str(self.image_size_y))
-            cam_bp.set_attribute('fov', cam_config['fov'])
-            # Ensure cameras sample at same rate as recording loop
-            try:
-                cam_bp.set_attribute('sensor_tick', str(self.sleep_interval))
-            except Exception:
-                pass
+            cam_bp.set_attribute('fov', '110')
+            
+            # In 0.9.16, avoid setting sensor_tick during initialization 
+            # to prevent thread flooding
             
             camera = self.world.spawn_actor(
                 cam_bp, 
                 cam_config['transform'], 
                 attach_to=self.player_vehicle
             )
-            
-            # Create closure to capture camera name
+
+            # Use weakref to allow the class to be garbage collected properly
+            weak_self = weakref.ref(self)
             cam_name = cam_config['name']
-            
-            def make_callback(camera_name):
-                def _on_image(image):
-                    if getattr(self, '_stopping', False):
-                        return
 
-                    try:
-                        # Always use internal frame_counter for consistent numbering with record_data()
-                        # (image.frame is the simulator's global frame number, often very high like 20000+)
-                        with self._buffer_lock:
-                            frame_num = int(self.frame_counter)
+            def _on_image(image, name=cam_name):
+                me = weak_self()
+                if not me or getattr(me, '_stopping', False):
+                    return
 
-                        # Convert CARLA image and push into in-memory buffer for coordinated writing
-                        try:
-                            img_array = np.frombuffer(image.raw_data, dtype=np.uint8)
-                            img_array = img_array.reshape((image.height, image.width, 4))  # BGRA
-                            img_rgb = img_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
+                # 1. Quick conversion: BGRA -> RGB
+                # 0.9.16 handles raw_data as a memoryview; this is the fastest way to slice it
+                array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+                array = np.reshape(array, (image.height, image.width, 4))
+                rgb_frame = array[:, :, :3][:, :, ::-1] # Remove Alpha and flip BGR to RGB
 
-                            # Validate image is not all black (common during startup/shutdown)
-                            im_max = int(img_rgb.max())
-                            # Only emit verbose per-callback debug lines when explicitly enabled
-                            if getattr(self, '_callback_debug', False):
-                                self._log_debug(f"callback {camera_name} frame={frame_num} max={im_max}")
-                            if im_max < 5:
-                                return
+                # 2. Validation check (is the image dark/empty?)
+                if rgb_frame[:10, :10, :].max() < 1: # Check small patch for performance
+                    return
 
-                            # Mark this camera as primed (saw first valid image)
-                            try:
-                                self._camera_primed[camera_name] = True
-                            except Exception:
-                                pass
+                # 3. Thread-safe Buffer Write
+                with me._buffer_lock:
+                    f_idx = int(me.frame_counter)
+                    
+                    # Ensure the frame entry exists
+                    if f_idx not in me._image_buffer:
+                        me._image_buffer[f_idx] = {}
+                    
+                    # Store the frame
+                    me._image_buffer[f_idx][name] = rgb_frame.copy()
+                    me._last_frame_seen_time[f_idx] = time.time()
+                    
+                    # Update counters
+                    counts = me.frame_camera_counts.setdefault(f_idx, set())
+                    counts.add(name)
+                    me._camera_primed[name] = True
 
-                            # Push into buffer so writer can detect complete frames even before _ready_to_record
-                            with self._buffer_lock:
-                                frame_dict = self._image_buffer.setdefault(frame_num, {})
-                                # store a copy to avoid referencing shared memory
-                                frame_dict[camera_name] = img_rgb.copy()
-                                self._last_frame_seen_time[frame_num] = time.time()
-                                # update camera counts for diagnostics
-                                try:
-                                    s = self.frame_camera_counts.setdefault(frame_num, set())
-                                    s.add(camera_name)
-                                except Exception:
-                                    pass
-                        except Exception as e:
-                            if not getattr(self, '_stopping', False):
-                                print(f"[WARN] Failed to process {camera_name} image: {e}")
-                                traceback.print_exc()
-                    except Exception as e:
-                        if not getattr(self, '_stopping', False):
-                            print(f"[ERROR] Camera callback error for {camera_name}: {e}")
-
-                return _on_image
-            
-            camera.listen(make_callback(cam_name))
+            # Start listening
+            camera.listen(_on_image)
             self.sensors.append(camera)
-        
-        print(f"[INFO]: Attached 6 cameras: F, B, RF, LF, RB, LB")
+
+            # CRITICAL FIX: Staggered Ticking
+            # We tick every 2 cameras to let the server process the 'spawn' commands
+            if is_sync and (i + 1) % 2 == 0:
+                print(f"[DEBUG]: Staggered tick after spawning {cam_name}...", flush=True)
+                self.world.tick()
+
+        # Final sync to ensure all 6 are registered
+        if is_sync:
+            self.world.tick()
+
+        print(f"[INFO]: Attached 6 cameras and synced with 0.9.16 server.")
+
         
         # Semantic segmentation camera (DISABLED)
         # Uncomment below to enable semantic segmentation recording
@@ -503,6 +462,11 @@ class JapaneseStyleAutopilot16:
         #     self.setup_semantic_camera()
         # except Exception as e:
         #     print(f"Failed to setup semantic camera: {e}")
+        
+        
+        
+        
+        
 
     def setup_semantic_camera(self):
         """Attach a semantic segmentation camera and save mask + metadata per frame."""
@@ -978,10 +942,12 @@ class JapaneseStyleAutopilot16:
         
     def spawn_player_vehicle(self):
         """Spawn the player-controlled vehicle"""
+        print(f"[DEBUG]: spawn_player_vehicle() started", flush=True)
         blueprint_library = self.world.get_blueprint_library()
         vehicle_bp = blueprint_library.find('vehicle.tesla.model3')
         vehicle_bp.set_attribute('role_name', 'hero')
         
+        print(f"[DEBUG]: Getting route waypoints...", flush=True)
         if getattr(self, 'use_predefined_route2', False):
             try:
                 route_waypoints, start_idx = self.get_predefined_route_long2()
@@ -989,11 +955,14 @@ class JapaneseStyleAutopilot16:
                 # Fallback to default planner on any error
                 route_waypoints, start_idx = self.get_predefined_route_short()
         else:
+            print(f"[DEBUG]: Calling get_predefined_route_long1()...", flush=True)
             route_waypoints, start_idx = self.get_predefined_route_long1()
         
+        print(f"[DEBUG]: Route planning completed, got {len(route_waypoints)} waypoints", flush=True)
         spawn_points = self.world.get_map().get_spawn_points()
         spawn_point = spawn_points[start_idx] if start_idx < len(spawn_points) else spawn_points[0]
         
+        print(f"[DEBUG]: Spawning player vehicle at index {start_idx}...", flush=True)
         # Try to spawn with collision retry logic
         max_spawn_attempts = min(50, len(spawn_points))  # Try up to 50 points
         spawn_attempt = 0
@@ -1024,32 +993,51 @@ class JapaneseStyleAutopilot16:
                 else:
                     raise
         
+        print(f"[DEBUG]: Player vehicle spawned successfully", flush=True)
+        print(f"[DEBUG]: Spawning NPC vehicles...", flush=True)
         try:
             self.spawn_npc_vehicles(num_vehicles=30)
         except Exception as e:
             print(f"[WARN]: NPC spawn issues: {e}")
         
+        print(f"[DEBUG]: Autopilot={self.autopilot}, setting up cameras if enabled...", flush=True)
         if self.autopilot:
             try:
+                print(f"[DEBUG]: Calling setup_camera()...", flush=True)
                 self.setup_camera()
+                print(f"[DEBUG]: setup_camera() completed", flush=True)
+                # Give cameras time to initialize in CARLA before expecting callbacks
+                print(f"[DEBUG]: Sleeping 0.5s to let cameras initialize...", flush=True)
+                time.sleep(0.5)
             except Exception as e:
                 print(f"Failed to setup camera sensor: {e}")
 
-
+            print(f"[DEBUG]: Starting camera priming loop...", flush=True)
             priming_start = time.time()
             priming_timeout = getattr(self, '_priming_timeout', 3.0)
             required = max(1, getattr(self, '_required_full_frames', 1))
             got_required = False
+            tick_count = 0
             while (time.time() - priming_start) < priming_timeout:
+                # CRITICAL: Increment frame_counter each tick so cameras produce different frame numbers
+                # This allows _buffer_writer to detect complete frames (otherwise all images go to frame 0)
+                with self._buffer_lock:
+                    self.frame_counter += 1
+                
                 # If running in synchronous mode, the world needs ticks to deliver sensor callbacks.
                 try:
                     settings = self.world.get_settings()
                     if getattr(settings, 'synchronous_mode', False):
                         try:
                             self.world.tick()
-                        except Exception:
-                            # ignore tick failures here; we'll sleep instead
+                            tick_count += 1
+                            if tick_count % 10 == 0:
+                                print(f"[DEBUG]: Priming tick {tick_count}, frame={self.frame_counter}, complete_frames={self._complete_frame_count}/{required}", flush=True)
+                        except Exception as e:
+                            print(f"[WARN]: Tick failed during priming: {e}", flush=True)
                             time.sleep(0.02)
+                        # Pace ticks at simulation rate (0.05s for 20fps)
+                        time.sleep(self.sleep_interval)
                     else:
                         # in async mode, sleep briefly to let callbacks run
                         time.sleep(0.02)
@@ -1061,23 +1049,34 @@ class JapaneseStyleAutopilot16:
                     break
 
             priming_elapsed = time.time() - priming_start
+            print(f"[DEBUG]: Priming loop ended after {priming_elapsed:.2f}s, {tick_count} ticks, {self._complete_frame_count} complete frames", flush=True)
+            print(f"[DEBUG]: Checking priming results: got_required={got_required}, required={required}", flush=True)
             if got_required:
                 print(f"[INFO]: Observed {required} complete 6-camera frame(s) after {priming_elapsed:.2f}s, enabling autopilot...")
             else:
                 # Fallback: if we didn't see a full frame, fall back to per-camera priming flags
+                print(f"[DEBUG]: Checking per-camera priming flags...", flush=True)
                 primed_ok = all(self._camera_primed.values())
+                print(f"[DEBUG]: Per-camera primed_ok={primed_ok}, values={self._camera_primed}", flush=True)
                 if primed_ok:
                     print(f"[INFO]: Per-camera priming satisfied after {priming_elapsed:.2f}s, enabling autopilot...")
                 else:
                     print(f"[WARN]: Camera priming incomplete after {priming_elapsed:.2f}s, enabling autopilot anyway")
 
             # Now enable autopilot/motion
+            print(f"[DEBUG]: About to enable autopilot on vehicle...", flush=True)
             self.player_vehicle.set_autopilot(True, self.traffic_manager.get_port())
+            print(f"[DEBUG]: set_autopilot() completed", flush=True)
 
             # Optional: Set destination for route following
+            print(f"[DEBUG]: Setting Traffic Manager path with {len(route_waypoints)} waypoints...", flush=True)
             if route_waypoints:
-                self.traffic_manager.set_path(self.player_vehicle, 
-                                             [wp.transform.location for wp in route_waypoints])
+                try:
+                    self.traffic_manager.set_path(self.player_vehicle, 
+                                                 [wp.transform.location for wp in route_waypoints])
+                    print(f"[DEBUG]: TM set_path() completed", flush=True)
+                except Exception as e:
+                    print(f"[WARN]: Failed to set TM path: {e}", flush=True)
 
             # store a lightweight copy of the planned route (list of [x,y]) for later measurement files
             try:
@@ -1086,7 +1085,6 @@ class JapaneseStyleAutopilot16:
                 self._route_points = []
 
             print("[INFO]: Autopilot enabled (Japanese-style left-hand traffic) carla 0.9.16")
-            raise KeyboardInterrupt("[ERROR]: Manual driving not implemented.")
 
     def _get_forward_speed(self, transform=None, velocity=None):
         """Calculate forward speed by projecting velocity onto forward vector"""
@@ -2088,17 +2086,25 @@ class JapaneseStyleAutopilot16:
     def run(self):
         """Run autopilot simulation"""
         try:
-            # Try to enable synchronous mode for deterministic sensor pairing
+            # Check if synchronous mode is already enabled (should be from __init__)
             original_settings = None
             sync_enabled = False
             try:
-                original_settings = self.world.get_settings()
-                new_settings = self.world.get_settings()
-                new_settings.synchronous_mode = True
-                new_settings.fixed_delta_seconds = self.sleep_interval
-                self.world.apply_settings(new_settings)
-                sync_enabled = True
-                print(f"[INFO]: Enabled synchronous mode (dt={self.sleep_interval}s)")
+                current_settings = self.world.get_settings()
+                sync_enabled = getattr(current_settings, 'synchronous_mode', False)
+                if sync_enabled:
+                    print(f"[INFO]: Synchronous mode already enabled from init")
+                    original_settings = current_settings
+                else:
+                    print(f"[WARN]: Synchronous mode not enabled, attempting to enable now...")
+                    new_settings = self.world.get_settings()
+                    new_settings.synchronous_mode = True
+                    new_settings.fixed_delta_seconds = self.sleep_interval
+                    self.world.apply_settings(new_settings)
+                    self.traffic_manager.set_synchronous_mode(True)
+                    sync_enabled = True
+                    original_settings = new_settings
+                    print(f"[INFO]: Enabled synchronous mode (dt={self.sleep_interval}s)")
             except Exception as e:
                 print(f"[WARN]: Could not enable synchronous mode, falling back to async: {e}")
 
@@ -2150,10 +2156,6 @@ class JapaneseStyleAutopilot16:
                         time.sleep(self.sleep_interval)
                 else:
                     time.sleep(self.sleep_interval)
-
-                # if getattr(self, '_ready_to_record', False):
-                #     if frame_count % 3 == 0:
-                #         self.record_data()
 
                 if getattr(self, '_ready_to_record', False):
                     self.record_data()
@@ -2328,7 +2330,7 @@ def main():
     print('\n')
     parser = argparse.ArgumentParser(description='Japanese-style autopilot driving in CARLA16')
     parser.add_argument('--autopilot', action='store_true', 
-                       help='Enable autopilot mode (default: False)')
+                       help='Enable autopilot mode (default: True)')
     parser.add_argument('--duration', type=int, default=60,
                        help='Duration of recording in seconds (default: 60)')
     parser.add_argument('--route', type=str, default='highway',
@@ -2360,19 +2362,6 @@ def main():
         weather=args.weather,
         spawn_idx=args.spawn_index
     )
-    # Print an estimate of expected recorded frames using current inputs
-    try:
-        est = sim.estimate_recorded_frames(
-            D=args.duration,
-            fps=args.fps,
-            Tprim=getattr(sim, '_priming_timeout', 0.0),
-            Toverhead=(getattr(sim, '_buffer_timeout', 0.0) + 0.1),
-            W=getattr(sim, '_warmup_frames', 0),
-            Nlost=0
-        )
-        print(f"[INFO]: Estimated recorded frames: {est}")
-    except Exception:
-        pass
     sim.run()
     
     # Output dataset path for shell script to capture and pass to post-processing
