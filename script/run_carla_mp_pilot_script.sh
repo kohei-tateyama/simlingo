@@ -13,17 +13,22 @@ cd "$REPO_ROOT" || exit 1
 # This script is also a bnetter verison fo run_carla_autopilot.sh
 # ============================================================================
 
-# Set environment variables
+# Set environment variables ## correct 
+# export CARLA_ROOT=/workspace/carla0915
+# export WORK_DIR=/workspace/simlingo
+# export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
+# export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
+# export SAVE_PATH=/workspace/simlingo/outputs/test_run/
+# export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
+
 export CARLA_ROOT=/workspace/carla0915
 export WORK_DIR=/workspace/simlingo
-export SCENARIO_RUNNER_ROOT=${WORK_DIR}/Bench2Drive/scenario_runner
-export LEADERBOARD_ROOT=${WORK_DIR}/Bench2Drive/leaderboard
 export SAVE_PATH=/workspace/simlingo/outputs/test_run/
-export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
+export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI"
 
 # Make CARLA and Traffic Manager ports configurable (defaults preserved)
-export CARLA_PORT=${CARLA_PORT:-2001}
-export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8001}
+export CARLA_PORT=${CARLA_PORT:-2000}
+export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 export FLIP_INFRASTRUCTURE="1"
 # Fix conda activation for non-interactive scripts
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -635,7 +640,7 @@ echo ""
 sep
 if [ $EXIT_CODE -eq 0 ]; then
     info "All tasks completed successfully!"
-    info "Note that the completion might depends on the time. Check the infractions too!
+    info "Note that completion may depend on timing. Check the infractions too!"
 else
     err "Some tasks encountered errors (exit code: $EXIT_CODE)"
 fi

@@ -446,3 +446,36 @@ done
 
     - One-liner to count the elements inside any folder 
     `find . -mindepth 1 -maxdepth 1 | wc -l`
+
+
+# Starting Migration to 0.9.16
+```bash
+mkdir /workspace/carla0916
+cd /workspace/carla0916
+wget https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.16.tar.gz  # run this
+tar -xvf CARLA_0.9.16.tar.gz
+rm CARLA_0.9.16.tar.gz
+cd Import && wget https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/AdditionalMaps_0.9.16.tar.gz
+cd .. && bash ImportAssets.sh
+```
+
+```bash
+# Create base environment
+conda env create -f environment16.yaml
+conda activate simlingo16
+pip install /workspace/carla0916/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl
+pip install torch==2.2.0
+# pip install flash-attn==2.7.0.post2
+```
+
+```bash
+conda activate simlingo16
+export CARLA_ROOT=/workspace/carla0916
+export WORK_DIR=/workspace/simlingo
+# Note: I am excluding SCENARIO_RUNNER and LEADERBOARD for now to avoid 0.15 code conflicts
+export SAVE_PATH=export CARLA_WHEEL=$(ls ${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.16-cp310*.whl)
+export PYTHONPATH="${WORK_DIR}:${CARLA_WHEEL}:${CARLA_ROOT}/PythonAPI/carla"
+# export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl:${CARLA_ROOT}/PythonAPI/carla"
+echo "Switched to CARLA 0.9.16 environment"
+```
+
