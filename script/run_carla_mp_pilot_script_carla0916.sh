@@ -273,55 +273,131 @@ start_carla() {
     # Start CARLA in headless mode - FORCE port ${CARLA_PORT}
     mkdir -p ${WORK_DIR}/carla_logs
 
-    # Create left-hand traffic configuration script for 0.9.16
-    # This modifies OpenDRIVE XML files to enable LHT via userData tags
-    mkdir -p ${WORK_DIR}/tmp_carla_config
-    cat > ${WORK_DIR}/tmp_carla_config/enable_lht.sh << 'EOFCONFIG'
+    # Create left-hand traffic configuration scripts for 0.9.16
+    # We write a small Python tool (enable_lht.py) that idempotently sets
+    # rule="LHT" on <road> elements and injects a carla:lane_direction userData.
+    # A lightweight shell wrapper (enable_lht.sh) runs this Python inside the
+    # container (falls back to `python` if `python3` is not present).
+    # Use a dedicated folder for CARLA 0.9.16 one-off config tools
+    TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
+    mkdir -p "${TMP_CONFIG_DIR}"
+
+    # Only create the helper files if they don't already exist to avoid
+    # overwriting backups and unnecessary filesystem churn on repeated runs.
+    if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.py" ]; then
+    cat > "${TMP_CONFIG_DIR}/enable_lht.py" << 'EOF_PY'
+#!/usr/bin/env python3
+"""
+Idempotently set OpenDrive roads to LHT and inject CARLA userData vectorLane tag.
+
+This script creates a backup <file>.backup_rht the first time it modifies a file.
+"""
+import os
+import shutil
+import sys
+import xml.etree.ElementTree as ET
+
+# Adjust maps dir if CARLA is installed elsewhere in the container
+MAPS_DIR = "/workspace/CarlaUE4/Content/Carla/Maps"
+TOWNS = [
+    "Town01","Town02","Town03","Town04","Town05","Town06","Town07","Town10HD","Town12","Town13",
+]
+
+def find_element_any_ns(parent, tag):
+    for child in parent:
+        if child.tag.endswith('}' + tag) or child.tag == tag:
+            return child
+    return None
+
+def has_vectorlane_in_header(header):
+    for ud in header:
+        for node in ud:
+            if node.tag.lower().endswith('vectorlane') and node.attrib.get('code','').endswith('carla:lane_direction'):
+                return True
+    return False
+
+def ensure_userdata_header(root):
+    header = find_element_any_ns(root, 'header')
+    if header is None:
+        return False
+    if has_vectorlane_in_header(header):
+        return False
+    userData = ET.Element('userData')
+    vectorLane = ET.Element('vectorLane', {'code': 'carla:lane_direction', 'value': 'left'})
+    userData.append(vectorLane)
+    header.append(userData)
+    return True
+
+def set_roads_rule_lht(root):
+    changed = 0
+    for elem in root.iter():
+        tag = elem.tag
+        if isinstance(tag, str) and (tag.endswith('}road') or tag == 'road'):
+            prev = elem.attrib.get('rule')
+            if prev != 'LHT':
+                elem.attrib['rule'] = 'LHT'
+                changed += 1
+    return changed
+
+def process_xodr(path):
+    print("Processing:", path)
+    tree = ET.parse(path)
+    root = tree.getroot()
+    modified = False
+
+    modified |= ensure_userdata_header(root)
+    changed_roads = set_roads_rule_lht(root)
+    modified |= (changed_roads > 0)
+
+    if modified:
+        bak = path + ".backup_rht"
+        if not os.path.exists(bak):
+            shutil.copy2(path, bak)
+            print("  backed up to", bak)
+        tree.write(path, encoding='utf-8', xml_declaration=True)
+        print(f"  modified (roads updated: {changed_roads})")
+    else:
+        print("  no changes needed")
+
+def main():
+    any_changed = False
+    for town in TOWNS:
+        xodr = os.path.join(MAPS_DIR, town, "OpenDrive", f"{town}.xodr")
+        if not os.path.isfile(xodr):
+            print(f"[WARN] {xodr} not found, skipping")
+            continue
+        try:
+            process_xodr(xodr)
+            any_changed = True
+        except Exception as e:
+            print(f"[ERROR] failed to process {xodr}: {e}", file=sys.stderr)
+    if any_changed:
+        print("Done. Restart CARLA to pick up modified maps.")
+    else:
+        print("No files changed.")
+
+if __name__ == '__main__':
+    main()
+EOF_PY
+    fi
+
+    if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.sh" ]; then
+    cat > "${TMP_CONFIG_DIR}/enable_lht.sh" << 'EOF_SH'
 #!/bin/bash
-# Enable left-hand traffic for classic CARLA towns via OpenDRIVE XML modification
-# Based on: https://github.com/carla-simulator/carla/pull/8951
-
-CARLA_HOME="/workspace"
-MAPS_DIR="${CARLA_HOME}/CarlaUE4/Content/Carla/Maps"
-
-# Only modify classic towns (Town01-Town12) - Town13+ may have native LHT
-TOWNS_TO_MODIFY="Town01 Town02 Town03 Town04 Town05 Town06 Town07 Town10HD"
-
-echo "[LHT-CONFIG] Checking for OpenDRIVE files to modify..."
-
-for town in $TOWNS_TO_MODIFY; do
-    XODR_FILE="${MAPS_DIR}/${town}/OpenDrive/${town}.xodr"
-    
-    if [ ! -f "$XODR_FILE" ]; then
-        echo "[LHT-CONFIG] Skipping ${town} (file not found: $XODR_FILE)"
-        continue
+# Wrapper executed inside the CARLA container to run the Python modifier.
+set -e
+if command -v python3 >/dev/null 2>&1; then
+    python3 /tmp/carla_config/enable_lht.py
+elif command -v python >/dev/null 2>&1; then
+    python /tmp/carla_config/enable_lht.py
+else
+    echo "[LHT-CONFIG] No python interpreter found inside container; skipping OpenDrive edits"
+    exit 0
+fi
+EOF_SH
     fi
-    
-    # Check if already modified (avoid duplicate modifications)
-    if grep -q 'carla:lane_direction.*left' "$XODR_FILE" 2>/dev/null; then
-        echo "[LHT-CONFIG] ${town} already has LHT config, skipping"
-        continue
-    fi
-    
-    echo "[LHT-CONFIG] Enabling LHT for ${town}..."
-    
-    # Backup original
-    cp "$XODR_FILE" "${XODR_FILE}.backup_rht" 2>/dev/null || true
-    
-    # Add left-hand traffic userData to the OpenDRIVE header
-    # Insert after <header> tag
-    sed -i '/<header/a\        <userData>\n            <vectorLane code="carla:lane_direction" value="left"/>\n        </userData>' "$XODR_FILE"
-    
-    if [ $? -eq 0 ]; then
-        echo "[LHT-CONFIG] ✓ ${town} configured for left-hand traffic"
-    else
-        echo "[LHT-CONFIG] ✗ Failed to modify ${town}, restoring backup"
-        [ -f "${XODR_FILE}.backup_rht" ] && cp "${XODR_FILE}.backup_rht" "$XODR_FILE"
-    fi
-done
 
-echo "[LHT-CONFIG] Configuration complete"
-EOFCONFIG
+    chmod +x "${TMP_CONFIG_DIR}/enable_lht.sh" "${TMP_CONFIG_DIR}/enable_lht.py" 2>/dev/null || true
 
     docker run -d \
         --name carla-server \
@@ -334,7 +410,7 @@ EOFCONFIG
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-        -v ${WORK_DIR}/tmp_carla_config:/tmp/carla_config:ro \
+        -v ${TMP_CONFIG_DIR}:/tmp/carla_config:ro \
         carla-bench2drive:0.9.16 \
         bash -c "bash /tmp/carla_config/enable_lht.sh && cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${CARLA_PORT} -carla-rpc-port=${CARLA_PORT} -log"
 
@@ -369,7 +445,7 @@ import sys
 
 try:
     client = carla.Client('localhost', ${CARLA_PORT})
-    client.set_timeout(30.0)  # increase timeout to allow slower startups
+    client.set_timeout(30.0)  
     world = client.get_world()
     version = client.get_server_version()
     maps = client.get_available_maps()

@@ -1,5 +1,7 @@
 # bosch_utils
 
+# CARLA 0.9.15
+
 This folder contains utility scripts, classes, and method used for dataset inspection, augmentation, and local image description tayloring the simLingo original repo onto the Japanese streets and Bosch ADAS paradigm.
 
 The classes and files here can be run as stand-alone or trought the `script/run_carla_mp_pilot_script.sh`. Right now, we can run also the simlingo agent. I am pretty sure that we could use it to gather data, we would need to adopt method form the `(Long)JapaneseStyleAutopilot` class methods and enforce the Japanese driving rule. NOTE THAT this will most likely perform (very) bad.
@@ -50,7 +52,32 @@ code /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/aut
 bash ./script/open_imgs_code.sh /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_urban_duration_40_training/ClearNoon_weather/ego_10/  
 ```
 
-### To run the data collection
+# CARLA 0.9.16
+
+This version enables the Left Hand Traffic (LHT) to be set directly using the OpenDRIVE `rule` for any road. This will robustly enable a left-hand driving dsata collection. However, this cannot use the leaderboard planner oer any of the simlingo code. We replice the data collection pipeline.
+
+The entruypoint is `script/run_carla_mp_pilot_script_carla0916.sh`, this is a modified version of `script/run_carla_mp_pilot_script_.sh`. The bash file takes care to generate a left-hand driving routes in carla 0.9.16 generating the following folder to modify the openDRIVE roads, namely, `simlingo/tmp_carla_config`. The mentioned folder contians a `.sh` file and a `.py` file. Next it runs the `multicamera`, `GlobalPlanner` from carla in `japanese_driving_autopilot_cameras_mp_carla0916.py`.
+
+The main code is `japanese_driving_autopilot_cameras_mp_carla0916.py`, this is an unpadeted version of `japanese_driving_autopilot_cameras_mp_`* merging the `_long.py` and the `_mp.py` version. In this code, we do not implement a single camera view.
+
+
+# CARLA SHARED 
+
+All the functions/method related operation on imgs, text generation, etc. They are shared. We here report the complete list in `bosch_utils/tools/`:
+- augment_rgb_dataset.py,
+- batch_patch_multicamera2.py, batch_patch_multicamera.py, [patch_multicamera.py],
+- [gaussian_spatter_todo.py],
+- open_gz.py,
+- compare_structure.py,
+- imgs_features.py,
+- convert_simlingo_xml_to_lht.py,
+- `image_commentary3_todo.py`, `[image_commentary2_todo.py]`.
+
+The brackets `[.]` means that the code is deprecated.
+
+---
+
+# To run the data collection
 
 I strongly suggest to use `tmux`, whcih is already installed in the machine 
 
