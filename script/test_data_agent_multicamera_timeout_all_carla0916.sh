@@ -283,15 +283,16 @@ run_leaderboard() {
     info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
     sep
-
-    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
+    # Build base args (we'll append --routes-subset per route)
+    BASE_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     if [ -n "${LEADERBOARD_CHECKPOINT:-}" ]; then
-        LB_ARGS+=(--checkpoint=${LEADERBOARD_CHECKPOINT})
+        BASE_ARGS+=(--checkpoint=${LEADERBOARD_CHECKPOINT})
     fi
-    # Validate ROUTES_SUBSET against actual route ids in the routes XML
-    if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
-        # Build list of valid ids from the routes file
-        VALID_IDS=$(python - <<'PY'
+
+    # Validate ROUTES_SUBSET and parse into array
+    if [ -z "${ROUTES_SUBSET:-}" ] || [ "${ROUTES_SUBSET}" = "0" ]; then
+        # Build default subset from routes file (all ids)
+        ROUTES_SUBSET=$(python - <<'PY'
 import xml.etree.ElementTree as ET, os, sys
 routes_file = os.environ.get('ROUTES','')
 if not routes_file or not os.path.exists(routes_file):
@@ -303,68 +304,85 @@ ids = [r.get('id') for r in root.findall('.//route') if r.get('id')]
 print(','.join(ids), end='')
 PY
 )
+    fi
 
-        if [ -n "$VALID_IDS" ]; then
-            # Filter requested ROUTES_SUBSET by checking membership in VALID_IDS string
-            OLD_SUBSET="$ROUTES_SUBSET"
-            NEW_SUBSET=""
-            IFS=, read -ra REQ_ARR <<< "$OLD_SUBSET"
-            for rid in "${REQ_ARR[@]}"; do
-                if [[ ",${VALID_IDS}," == *",${rid},"* ]]; then
-                    if [ -z "$NEW_SUBSET" ]; then
-                        NEW_SUBSET="$rid"
-                    else
-                        NEW_SUBSET="$NEW_SUBSET,$rid"
-                    fi
-                else
-                    warn "Requested route id '$rid' not found in ${ROUTES}; it will be ignored"
-                fi
-            done
-            # Normalize commas and remove accidental leading/trailing commas
-            NEW_SUBSET=$(echo "$NEW_SUBSET" | sed -e 's/,\+/,/g' -e 's/^,//' -e 's/,$//')
-            if [ -n "$NEW_SUBSET" ]; then
-                ROUTES_SUBSET="$NEW_SUBSET"
-                LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
-            else
-                warn "After filtering, no valid route ids remain in ROUTES_SUBSET; not passing --routes-subset"
-            fi
+    IFS=',' read -ra ROUTE_IDS <<< "${ROUTES_SUBSET}"
+
+    total_routes=${#ROUTE_IDS[@]}
+    current_route=0
+    overall_exit=0
+
+    for route_id in "${ROUTE_IDS[@]}"; do
+        current_route=$((current_route + 1))
+        sep
+        info "Running route ${route_id} (${current_route}/${total_routes})"
+        sep
+
+        # Compose args for this route
+        ARGS=("${BASE_ARGS[@]}" --routes-subset=${route_id})
+
+        if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
+            python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         else
-            warn "Could not read route ids from ${ROUTES}; skipping subset validation"
-            LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
+            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         fi
-    fi
 
-    if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-        python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
-    else
-        # Run leaderboard under a small bash wrapper so we can trap SIGTERM and kill the whole
-        # process group. This ensures timeout terminates leaderboard and any children it spawned.
-        # The wrapper uses: trap "kill 0" SIGTERM ; exec "$@" -- python ...
-        timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
-    fi
+        exit_code=$?
 
-    local exit_code=$?
+        sep
+        if [ $exit_code -eq 0 ]; then
+            info "✓ Route ${route_id} completed successfully!"
+            FOUND_OUTPUT=1
+        else
+            FOUND_OUTPUT=0
+            if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
+                FOUND_OUTPUT=1
+            elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
+                FOUND_OUTPUT=1
+            fi
+
+            if [ $FOUND_OUTPUT -eq 1 ]; then
+                warn "Route ${route_id} exited with code ${exit_code} but saved output files — treating as success"
+                exit_code=0
+            elif [ $exit_code -eq 124 ]; then
+                warn "Route ${route_id} timeout reached (${LEADERBOARD_TIMEOUT}s) - checking for partial data..."
+                if [ $FOUND_OUTPUT -eq 1 ]; then
+                    exit_code=0
+                fi
+            else
+                warn "Route ${route_id} exited with code $exit_code"
+            fi
+        fi
+
+        if [ $exit_code -ne 0 ]; then
+            overall_exit=$exit_code
+        fi
+
+        # Run patching immediately after each route if data exists
+        if [ $exit_code -eq 0 ] || [ $FOUND_OUTPUT -eq 1 ]; then
+            info "Patching multicamera images for route ${route_id}..."
+            patch_multicamera_images
+            patch_exit=$?
+            if [ $patch_exit -ne 0 ]; then
+                warn "Image patching failed for route ${route_id}"
+            fi
+            # ensure we are back in leaderboard dir for next iteration
+            cd /workspace/simlingo/leaderboard
+        else
+            warn "Skipping patching for route ${route_id} (no data collected)"
+        fi
+
+    done
 
     sep
-    if [ $exit_code -eq 0 ]; then
-        info "Leaderboard evaluation completed successfully!"
+    if [ $overall_exit -eq 0 ]; then
+        info "All ${total_routes} routes completed successfully!"
     else
-        info "Leaderboard exited with code $exit_code — attempting to display saved results.json.gz (if any)"
-        FOUND_RESULTS=0
-        for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
-            info "Found results file: $f"
-            FOUND_RESULTS=1
-        done
-        if [ $FOUND_RESULTS -eq 0 ]; then
-            info "No results.json.gz found under ${SAVE_PATH}"
-        fi
-        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
-            exit_code=0
-        fi
+        warn "Some routes encountered errors (exit code: ${overall_exit})"
     fi
     sep
 
-    return $exit_code
+    return $overall_exit
 }
 
 # =============================================================================
