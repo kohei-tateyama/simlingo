@@ -16,6 +16,9 @@ except Exception:
 RECORDING_OUTPUT_DIR = "/workspace/simlingo/recording_japan_manual"
 
 
+# THIS SCRIPT ENABLES A MANUAL DRIVING OF THE EGO USING CARLA 0.9.15.
+# THIS CODE HAS NEVER BEEN TESTED.
+
 class JapaneseDrivingCameras:
     def __init__(self, duration=60, port_localhost=2000, town='Town13', fps=20.0):
         self.client = carla.Client('localhost', port_localhost)

@@ -60,6 +60,8 @@ The entruypoint is `script/run_carla_mp_pilot_script_carla0916.sh`, this is a mo
 
 The main code is `japanese_driving_autopilot_cameras_mp_carla0916.py`, this is an unpadeted version of `japanese_driving_autopilot_cameras_mp_`* merging the `_long.py` and the `_mp.py` version. In this code, we do not implement a single camera view.
 
+Please note that `simlingo/script/getting_data_training_carla0916.sh` reports the data collection script.
+
 
 # CARLA SHARED 
 
