@@ -21,10 +21,11 @@ export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916
 export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0"
+export REPETITION="1" # MINIMUM IS 1
 export SCENARIO_NAME="training_3_scenarios"
 export ROUTE_CONFIG="routes_devtest"
 export WEATHER_CONFIG="test_clear_noon"
+export ROUTES_SUBSET="24206, 25378"  # "0,1,2,3,4,5,6,7,8,9" 
 
 ## RHT
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
@@ -32,7 +33,7 @@ export WEATHER_CONFIG="test_clear_noon"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
-## LHT
+## LHT available = {'Town01','Town01_Opt','Town02','Town02_Opt','Town03','Town03_Opt','Town04','Town04_Opt','Town05','Town05_Opt','Town10HD','Town10HD_Opt'}
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
@@ -273,7 +274,7 @@ PY
 # =============================================================================
 run_leaderboard() {
     sep
-    info "Running data_agent_multicamera.py via leaderboard against CARLA 0.9.16"
+    info "Running data_agent_multicamera_carla0916.py via leaderboard against CARLA 0.9.16"
     sep
 
     cd /workspace/simlingo/leaderboard
@@ -284,7 +285,7 @@ run_leaderboard() {
     info "Output   : ${SAVE_PATH}"
     sep
     # Build base args (we'll append --routes-subset per route)
-    BASE_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
+    BASE_ARGS=(--routes=${ROUTES} --repetitions=${REPETITION} --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     if [ -n "${LEADERBOARD_CHECKPOINT:-}" ]; then
         BASE_ARGS+=(--checkpoint=${LEADERBOARD_CHECKPOINT})
     fi
@@ -306,6 +307,8 @@ PY
 )
     fi
 
+    # Normalize ROUTES_SUBSET by removing whitespace around commas and ids
+    ROUTES_SUBSET=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]')
     IFS=',' read -ra ROUTE_IDS <<< "${ROUTES_SUBSET}"
 
     total_routes=${#ROUTE_IDS[@]}
@@ -318,8 +321,9 @@ PY
         info "Running route ${route_id} (${current_route}/${total_routes})"
         sep
 
-        # Compose args for this route
-        ARGS=("${BASE_ARGS[@]}" --routes-subset=${route_id})
+        # Trim route_id whitespace (defensive) and compose args for this route
+        route_id=$(echo "${route_id}" | xargs)
+        ARGS=("${BASE_ARGS[@]}" "--routes-subset=${route_id}")
 
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
             python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
