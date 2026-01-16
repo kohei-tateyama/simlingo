@@ -73,7 +73,19 @@ cleanup_on_exit() {
     local exit_code=$?
     echo ""
     warn "Script exiting (code: $exit_code) - ensuring CARLA 0.9.16 cleanup..."
+    # Run comprehensive cleanup: kill host CARLA processes, free ports, stop containers
+    cleanup_carla 2>/dev/null || true
+    # Ensure container is removed
     stop_carla 2>/dev/null || true
+
+    # As a last resort, kill any processes still using CARLA ports
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof -ti:${CARLA_PORT} &>/dev/null; then
+            warn "Force killing processes on port ${CARLA_PORT} after cleanup..."
+            kill -9 $(lsof -ti:${CARLA_PORT}) 2>/dev/null || true
+        fi
+    fi
+
     exit $exit_code
 }
 

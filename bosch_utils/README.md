@@ -121,3 +121,5 @@ To reattach interactively when needed
 To kill `Ctrl-C` inside the session (which can be reattached below) or, very mean,  
 `tmux kill-session -t datajob`
 `tmux kill-server`
+
+<!-- ps aux | egrep 'CarlaUE4|carla-server|carla' | egrep -v 'egrep|run_carla_mp_pilot_script' || true -->

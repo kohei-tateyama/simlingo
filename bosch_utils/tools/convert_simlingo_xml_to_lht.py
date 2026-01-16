@@ -12,7 +12,9 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000):
     tree = ET.parse(xml_path)
     root = tree.get_root()
 
-    print("Converting routes to Left-Hand Traffic...")
+    print("[INFO] Converting routes Left-Hand Traffic... Once per file ...")
+    print(f"[INFO] Connecting to CARLA at 0.9.16 {host}:{port}...")
+    print(f"[INFO] Reading from RHT in {xml_path}...")
 
     for route in root.findall('route'):
         for waypoint in route.findall('.//waypoint'):
@@ -38,7 +40,14 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000):
 
     # 3. Save the new LHT-ready XML
     tree.write(output_path)
-    print(f"Success! Saved to {output_path}")
+    print(f"[INFO] Saved to LHF in {output_path}")
 
 if __name__ == "__main__":
-    shift_route_to_lht('bench2drive220.xml', 'bench2drive220_LHT.xml')
+    name_folder = "/workspace/simlingo/leaderboard/data/" 
+    name_files = ["routes_devtest", "bench2drive220", "routes_validation", "routes_training"]
+    format = ".xml"
+    new = "_LHT" 
+    
+    for i in name_files:
+        shift_route_to_lht(name_folder + i + format, name_folder + i + new + format)
+    

@@ -1897,10 +1897,19 @@ class JapaneseStyleAutopilot16:
             print("[WARN]: No data to save!")
             return
         
-        # Save records.json.gz
+        # Build simlingo-style route id/timestamp like DataAgent does:
+        # "{route_index}_route0_%m_%d_%H_%M_%S"
+        try:
+            route_index = str(os.environ.get('ROUTE_INDEX') or os.environ.get('ROUTE_COUNTER') or '0')
+        except Exception:
+            route_index = '0'
+        timestamp_sim = time.strftime("%m_%d_%H_%M_%S")
+        route_id_sim = f"{route_index}_route0_{timestamp_sim}"
+
+        # Save records.json.gz using simlingo-style index
         records = {
             'meta_data': {
-                'index': self.foldername,
+                'index': route_id_sim,
                 'town': f'Carla/Maps/{self.town}/{self.town}'
             },
             'states': [],
@@ -1978,11 +1987,12 @@ class JapaneseStyleAutopilot16:
         else:
             route_id_std = f'{self.town}_{self.route_type}_route'
 
+        # Use simlingo-style timestamp for human-readable fields, keep full path in info_timestamp
         results = {
-            'timestamp': short_timestamp,
+            'timestamp': route_id_sim,
             'info_timestamp': info_timestamp,
             'index': 0,
-            'route_id': route_id_std,
+            'route_id': route_id_std + '_rep0',
             'status': status,
             'num_infractions': num_infractions,
             'infractions': self._infractions_log,
