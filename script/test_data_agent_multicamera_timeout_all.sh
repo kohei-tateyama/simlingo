@@ -191,7 +191,7 @@ import sys
 import os
 
 try:
-    port = int(os.environ.get('PORT_CARLA', '${PORT_CARLA}'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(30.0)
     world = client.get_world()

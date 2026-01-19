@@ -76,12 +76,13 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
 
 [USED]
 python bosch_utils/tools/image_commentary3_todo.py \
-  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/" \
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
   --recursive -v
-
+  
+  
 python bosch_utils/tools/image_commentary3_todo.py \
-  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/auto_long_multicam_jp/routes_training/ClearNoon_weather/Town02_Rep0_scenario/routes_urban/duration_15/ego_42/rgb" \
-  --recursive -v
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
+  --recursive --n-gpu-layers 32 --threads 12 --ctx-size 8192 -v
 
 """
 
@@ -118,11 +119,12 @@ class LlamaVisionInference:
                  llama_bin: str = DEFAULT_LLAMA_BIN,
                  model_path: str = DEFAULT_MODEL,
                  mmproj_path: str = DEFAULT_MMPROJ,
-                 threads: int = 8,
-                 ctx_size: int = 4096,
-                 n_gpu_layers: int = 16,
+                 threads: int = 8, # 12
+                 ctx_size: int = 4096, # 8192
+                 n_gpu_layers: int = 16, # 32
                  predict_tokens: int = 512,
                  server_port: int = 8081):
+        
         self.llama_bin = llama_bin
         self.model_path = model_path
         self.mmproj_path = mmproj_path
@@ -269,7 +271,7 @@ Current Driving State:
                 base_prompt += f"- Speed reduced due to: {cause['type']} at {cause['distance']} meters\n"
         
         base_prompt += """
-Analyze the 360-degree scene and generate a concise driving commentary with clear reasoning and action.
+Analyze the 360-degree scene and generate a concise left and right hand driving commentary with clear reasoning and action. 
 
 Format your response as:
 Commentary: [Concise driving commentary mentioning key objects, their positions (front/rear/left/right), colors, and your driving decision reasoning]

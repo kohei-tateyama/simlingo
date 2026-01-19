@@ -38,13 +38,14 @@ export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive22
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
 
-export ROUTES_SUBSET="1773" # "24206, 25378" 
+# export ROUTES_SUBSET="1773" # "24206, 25378" 
 # ## Running all the routes in the ROUTES massive data collection =========================
 # # Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
-#     build_routes_subset # export ROUTES_SUBSET
+    info "Remember to remove the leaderboard timeout"
+    build_routes_subset # export ROUTES_SUBSET
 fi
 # ## Running all the routes in the ROUTES massive data collection =========================
 
@@ -55,8 +56,8 @@ export SAVE_FLAT=0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
 
 # CARLA port (can be overridden by environment before running the script)
 export PORT_CARLA=${PORT_CARLA:-2000}
@@ -180,7 +181,7 @@ import sys
 import os
 
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(30.0)
     world = client.get_world()
@@ -213,7 +214,7 @@ import os
 import xml.etree.ElementTree as ET
 
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(10.0)
     
@@ -378,7 +379,7 @@ import sys
 import os
 import time
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(10.0)
     
@@ -387,7 +388,7 @@ try:
     target_map_short = '${route_town}'
     
     if current_map != target_map_short:
-        print(f'Switching from {current_map} to {target_map_short}...')
+        # print(f'Switching from {current_map} to {target_map_short}...')
         
         # Get the actual full path from CARLA's available maps
         available_maps = client.get_available_maps()

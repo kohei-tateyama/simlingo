@@ -182,7 +182,7 @@ import sys
 import os
 
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(30.0)
     world = client.get_world()
@@ -215,7 +215,7 @@ import os
 import xml.etree.ElementTree as ET
 
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(10.0)
     
@@ -378,7 +378,7 @@ import sys
 import os
 import time
 try:
-    port = int(os.environ.get('PORT_CARLA', '2000'))
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
     client = carla.Client('localhost', port)
     client.set_timeout(10.0)
     
