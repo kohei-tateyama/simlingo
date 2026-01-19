@@ -27,13 +27,23 @@ export REPETITION="1" # "0"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtest, routes_validation, routes_all)
 export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
-export ROUTES_SUBSET="5,6,7,8"  # "0,1,2,3,4,5,6,7,8,9" 
+# export ROUTES_SUBSET="5,6,7,8"  # "0,1,2,3,4,5,6,7,8,9" 
 export FLIP_INFRASTRUCTURE="1"
 export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
+# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" 
+
+## export ROUTES_SUBSET="5,6,7,8"  # "0,1,2,3,4,5,6,7,8,9" 
+## Running all the routes in the ROUTES massive data collection =========================
+# Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
+if [ -f "${WORK_DIR}/script/common.sh" ]; then
+    # shellcheck source=/dev/null
+    . "${WORK_DIR}/script/common.sh"
+    build_routes_subset # export ROUTES_SUBSET
+fi
+## Running all the routes in the ROUTES massive data collection =========================
 
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
 LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}" # seconds TOTAL for all routes
@@ -47,17 +57,7 @@ export PORT_CARLA=${PORT_CARLA:-2000}
 # Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 
-# Color helpers
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RED="\033[0;31m"
-BLUE="\033[0;34m"
-RESET="\033[0m"
-
-info() { echo -e "${GREEN}[INFO]${RESET} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
-err() { echo -e "${RED}[ERROR]${RESET} $*"; }
-sep() { printf "%b\n" "${BLUE}$(printf '=%.0s' {1..80})${RESET}"; }
+# Color and logging helpers provided by script/common.sh (sourced earlier)
 
 # =============================================================================
 # CLEANUP FUNCTION
@@ -242,6 +242,35 @@ run_leaderboard() {
         info "Running route ${route_id} (${current_route}/${total_routes})"
         sep
 
+        # Determine town for this route id from the routes XML and export it so the agent
+        # can place the correct Town name in the output path (avoid mismatches).
+        export ROUTE_ID_TMP="${route_id}"
+        route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    root = tree.getroot()
+    for r in root.findall('.//route'):
+        if r.get('id') == rid:
+            town = r.get('town') or r.get('map') or ''
+            print(town)
+            sys.exit(0)
+print('', end='')
+PY
+        )
+        unset ROUTE_ID_TMP
+        if [ -n "${route_town}" ]; then
+            export FORCE_TOWN="${route_town}"
+            info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id}"
+        else
+            unset FORCE_TOWN
+        fi
+        export FORCE_ROUTE_ID="${route_id}"
+
+        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
+
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
             python leaderboard/leaderboard_evaluator.py \
                 --routes="${ROUTES}" \
@@ -335,14 +364,27 @@ patch_multicamera_images() {
     # Debug: Show what we're searching for
     info "Searching for datasets under: ${SAVE_PATH}"
     
-    # Find the most recent dataset directory. Look for Town*_Rep* folders that contain rgb/ subfolder
-    # Use maxdepth 5 to reach: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
-    # Then filter to only those with rgb/ subfolder to ensure we get the dataset root, not frame folders
-    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
-        if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
-            echo "$dir"
+    # Prefer dataset path containing FORCE_ROUTE_ID if set
+    DATASET_PATH=""
+    if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID}"
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*route${FORCE_ROUTE_ID}_*" -print -quit 2>/dev/null)
+        if [ -z "${DATASET_PATH}" ]; then
+            DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*${FORCE_ROUTE_ID}*" -print -quit 2>/dev/null)
         fi
-    done | sort -r | head -1)
+        if [ -n "${DATASET_PATH}" ]; then
+            info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        fi
+    fi
+
+    # If not found by route token, find the most recent dataset directory. Look for Town*_Rep* folders
+    if [ -z "${DATASET_PATH}" ]; then
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
+            if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+                echo "$dir"
+            fi
+        done | sort -r | head -1)
+    fi
     
     # Fallback: try without measurements check
     if [ -z "$DATASET_PATH" ]; then

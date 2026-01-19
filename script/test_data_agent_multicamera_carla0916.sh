@@ -24,7 +24,7 @@ export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="1"
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
-export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
+# export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
 
 ## RHT
 # export ROUTE_CONFIG="routes_devtest_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
@@ -40,6 +40,16 @@ export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive22
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
 
+## export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
+## Running all the routes in the ROUTES massive data collection =========================
+# Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
+if [ -f "${WORK_DIR}/script/common.sh" ]; then
+    # shellcheck source=/dev/null
+    . "${WORK_DIR}/script/common.sh"
+    build_routes_subset # export ROUTES_SUBSET
+fi
+## Running all the routes in the ROUTES massive data collection =========================
+
 # Use consolidated save layout (include scenario/route_config/weather)
 export SAVE_FLAT=0
 
@@ -47,26 +57,16 @@ export SAVE_FLAT=0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
+
 LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
-
 
 # CARLA port (can be overridden by environment before running the script)
 export PORT_CARLA=${PORT_CARLA:-2000}
 # Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 
-# Color helpers
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RED="\033[0;31m"
-BLUE="\033[0;34m"
-RESET="\033[0m"
-
-info() { echo -e "${GREEN}[INFO]${RESET} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
-err() { echo -e "${RED}[ERROR]${RESET} $*"; }
-sep() { printf "%b\n" "${BLUE}$(printf '=%.0s' {1..80})${RESET}"; }
+# Color and logging helpers provided by script/common.sh (sourced earlier)
 
 # =============================================================================
 # CLEANUP FUNCTION

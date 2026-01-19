@@ -14,33 +14,38 @@ export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
 export LEADERBOARD_ROOT=${WORK_DIR}/leaderboard
 export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
-
 # Data collection settings
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera.py
 export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_right_drive
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0" # "3"
+export REPETITION="1" # mimimum
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100" # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
-
-export ROUTES_SUBSET="1711, 24206" 
 
 export ROUTE_CONFIG="bench2drive220" # bench2drive220, routes_training, routes_validation (routes_town12_only, routes_devtest, routes_validation, routes_all)
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (similar, check this TODO)
+# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (we can use this, carla format for lua)
 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" 
-# Checkpoint file for leaderboard (also exported so agents can read it)
+## export ROUTES_SUBSET="1711, 24206" ## We can set this to run all the routes one by one
+
+## Running all the routes in the ROUTES massive data collection =========================
+# Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
+if [ -f "${WORK_DIR}/script/common.sh" ]; then
+    # shellcheck source=/dev/null
+    . "${WORK_DIR}/script/common.sh"
+    build_routes_subset  # export ROUTES_SUBSET
+fi
+## Running all the routes in the ROUTES massive data collection =========================
+
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # runs the game until the end
 CHECKPOINT_FILENAME="results_japanese_test.json"
 export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
-
 LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-120}"
 
 # Activate conda environment
@@ -52,17 +57,7 @@ export PORT_CARLA=${PORT_CARLA:-2001}
 # Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 
-# Color helpers
-GREEN="\033[0;32m"
-YELLOW="\033[0;33m"
-RED="\033[0;31m"
-BLUE="\033[0;34m"
-RESET="\033[0m"
-
-info() { echo -e "${GREEN}[INFO]${RESET} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${RESET} $*"; }
-err() { echo -e "${RED}[ERROR]${RESET} $*"; }
-sep() { printf "%b\n" "${BLUE}$(printf '=%.0s' {1..80})${RESET}"; }
+# Color and logging helpers provided by script/common.sh (sourced earlier)
 
 # =============================================================================
 # CLEANUP FUNCTION
