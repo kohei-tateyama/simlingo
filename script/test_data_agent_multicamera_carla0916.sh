@@ -21,22 +21,27 @@ export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916
 export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0"
+export REPETITION="1"
 export SCENARIO_NAME="training_3_scenarios"
-export ROUTE_CONFIG="routes_devtest"
-export WEATHER_CONFIG="test_clear_noon"
+export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
+export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
 
 ## RHT
+# export ROUTE_CONFIG="routes_devtest_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
 ## LHT
+export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
+
+# Use flat save layout: put Town_Rep... folder directly under SAVE_PATH
+export SAVE_FLAT=1
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -263,6 +268,18 @@ PY
         else
             info "Using manual ROUTES_SUBSET: ${ROUTES_SUBSET}"
         fi
+    fi
+    # If ROUTES_SUBSET is set to a specific route id (or comma list), set SAVE_SUBDIR
+    # so the agent will store outputs under a folder that includes the route id(s).
+    if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
+        # sanitize and convert commas to underscores for filesystem friendliness
+        ROUTES_SUB_CLEAN=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]' | tr ',' '_')
+        if [ "${SAVE_FLAT:-0}" = "1" ]; then
+            export SAVE_SUBDIR="${ROUTES_SUB_CLEAN}"
+        else
+            export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}/${ROUTES_SUB_CLEAN}"
+        fi
+        info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR}"
     fi
     
     sep

@@ -118,14 +118,16 @@ class DataAgentMulticamera(AutoPilot):
         except Exception:
             self.scenario_name = 'Scenario'
 
-        # Leaderboard doesn't provide route_index, so generate one from timestamp
+        # Leaderboard doesn't provide route_index, so generate a readable route_id from timestamp
         if route_index is None:
             # Use route counter for consistent naming
             route_index = getattr(self, '_route_counter', 0)
             import time
             timestamp = time.strftime("%m_%d_%H_%M_%S")
-            route_id = f"{route_index}_route0_{timestamp}"
+            # Use a stable 'route{index}_{timestamp}' pattern to avoid duplicating index parts
+            route_id = f"route{route_index}_{timestamp}"
         else:
+            # If leaderboard provided a route identifier (often numeric id), keep it as-is
             route_id = route_index
         
         # Store route_id as instance variable for signal handler
@@ -181,31 +183,41 @@ class DataAgentMulticamera(AutoPilot):
             rep = os.environ.get("REPETITION", "0")
 
             weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")
-            # Build consolidated path: training_3_scenarios/routes_devtest/<weather>/<Town>_Rep{rep}_{route_id}
-            if save_subdir:
-                # honor provided subdir (can include nested folders separated by /)
-                self.save_path = base_path / Path(save_subdir) / weather_config / f"{town}_Rep{rep}_{route_id}"
+            route_config_env = os.environ.get('ROUTE_CONFIG', 'routes_devtest')
+            # Build consolidated path: <SCENARIO_NAME>/<route_config>/<weather>/<Town>_Rep{rep}_{route_id}
+            # Optionally support a flat layout (no scenario/weather nesting) when SAVE_FLAT=1
+            save_flat = os.environ.get('SAVE_FLAT', '0') == '1'
+            if save_flat:
+                # Directly put Town_Rep... folder under the base SAVE_PATH
+                self.save_path = base_path / f"{town}_Rep{rep}_{route_id}"
             else:
-                consolidated_root = base_path / 'training_3_scenarios' / 'routes_devtest' / weather_config
-                consolidated_root.mkdir(parents=True, exist_ok=True)
-                self.save_path = consolidated_root / f"{town}_Rep{rep}_{route_id}"
+                if save_subdir:
+                    # honor provided subdir (can include nested folders separated by /)
+                    self.save_path = base_path / Path(save_subdir) / weather_config / f"{town}_Rep{rep}_{route_id}"
+                else:
+                    # Use ROUTE_CONFIG environment variable to be coherent with runners
+                    consolidated_root = base_path / (os.environ.get('SCENARIO_NAME', 'training_3_scenarios')) / route_config_env / weather_config
+                    consolidated_root.mkdir(parents=True, exist_ok=True)
+                    self.save_path = consolidated_root / f"{town}_Rep{rep}_{route_id}"
 
             # If SAVE_PATH was set and there are existing top-level run folders (Town*_Rep*),
             # move them into the consolidated weather folder to avoid polluting the SAVE_PATH root.
+            # Skip this reorganization when using the flat layout.
             try:
-                for child in sorted(base_path.iterdir()):
-                    if not child.is_dir():
-                        continue
-                    # skip known safe folders
-                    if child.name in ['training_3_scenarios', 'outputs', 'output']:
-                        continue
-                    # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
-                    if ('_Rep' in child.name) or child.name.startswith('Town'):
-                        try:
-                            shutil.move(str(child), str(consolidated_root))
-                            print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
-                        except Exception as e:
-                            print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
+                if not save_flat:
+                    for child in sorted(base_path.iterdir()):
+                        if not child.is_dir():
+                            continue
+                        # skip known safe folders
+                        if child.name in ['training_3_scenarios', 'outputs', 'output']:
+                            continue
+                        # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
+                        if ('_Rep' in child.name) or child.name.startswith('Town'):
+                            try:
+                                shutil.move(str(child), str(consolidated_root))
+                                print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
+                            except Exception as e:
+                                print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
             except Exception:
                 pass
             self.save_path.mkdir(parents=True, exist_ok=True)

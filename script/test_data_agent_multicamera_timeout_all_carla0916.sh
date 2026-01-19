@@ -23,21 +23,25 @@ export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bos
 export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="1" # MINIMUM IS 1
 export SCENARIO_NAME="training_3_scenarios"
-export ROUTE_CONFIG="routes_devtest"
-export WEATHER_CONFIG="test_clear_noon"
+export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 export ROUTES_SUBSET="24206, 25378"  # "0,1,2,3,4,5,6,7,8,9" 
 
 ## RHT
+# export ROUTE_CONFIG="routes_devtest" # "routes_training", "bench2drive220", routes_validation", "routes_devtest"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
 ## LHT available = {'Town01','Town01_Opt','Town02','Town02_Opt','Town03','Town03_Opt','Town04','Town04_Opt','Town05','Town05_Opt','Town10HD','Town10HD_Opt'}
+export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
+
+# Use flat save layout: put Town_Rep... folder directly under SAVE_PATH
+export SAVE_FLAT=1
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -310,6 +314,17 @@ PY
     # Normalize ROUTES_SUBSET by removing whitespace around commas and ids
     ROUTES_SUBSET=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]')
     IFS=',' read -ra ROUTE_IDS <<< "${ROUTES_SUBSET}"
+
+    # Set SAVE_SUBDIR based on ROUTES_SUBSET and SAVE_FLAT
+    if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
+        ROUTES_SUB_CLEAN=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]' | tr ',' '_')
+        if [ "${SAVE_FLAT:-0}" = "1" ]; then
+            export SAVE_SUBDIR="${ROUTES_SUB_CLEAN}"
+        else
+            export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}/${ROUTES_SUB_CLEAN}"
+        fi
+        info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR}"
+    fi
 
     total_routes=${#ROUTE_IDS[@]}
     current_route=0
