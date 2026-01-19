@@ -184,9 +184,9 @@ class DataAgentMulticamera(AutoPilot):
             except Exception:
                 town = None
 
-            # Fallback to environment variable if map detection failed
+            # Fallback to environment variable if map detection failed. Prefer FORCE_TOWN
             if not town:
-                town = os.environ.get("TOWN", "Town03")
+                town = os.environ.get('FORCE_TOWN', '') or os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
 
             weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")

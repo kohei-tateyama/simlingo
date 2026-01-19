@@ -27,7 +27,7 @@ export REPETITION="0" # "3"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100" # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
 
-export ROUTES_SUBSET="0,1" 
+export ROUTES_SUBSET="1711, 24206" 
 
 export ROUTE_CONFIG="bench2drive220" # bench2drive220, routes_training, routes_validation (routes_town12_only, routes_devtest, routes_validation, routes_all)
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
@@ -286,9 +286,36 @@ PY
 
         # Trim whitespace defensively
         route_id=$(echo "${route_id}" | xargs)
+        # Determine town for this route id from the routes XML and export it so the agent
+        # can place the correct Town name in the output path (avoid mismatches).
+        export ROUTE_ID_TMP="${route_id}"
+        route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    root = tree.getroot()
+    for r in root.findall('.//route'):
+        if r.get('id') == rid:
+            town = r.get('town') or r.get('map') or ''
+            print(town)
+            sys.exit(0)
+print('', end='')
+PY
+    )
+    unset ROUTE_ID_TMP
+        if [ -n "${route_town}" ]; then
+            export FORCE_TOWN="${route_town}"
+            info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id}"
+        else
+            # fallback to existing TOWN env
+            unset FORCE_TOWN
+        fi
         export FORCE_ROUTE_ID="${route_id}"
         ARGS=("${BASE_ARGS[@]}" --routes-subset=${route_id})
 
+        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
             python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         else
@@ -363,13 +390,26 @@ patch_multicamera_images() {
     
     info "Searching for datasets under: ${SAVE_PATH}"
     
-    # Prefer .last_run sentinel written by the agent during the run
-    if [ -f "${SAVE_PATH}/.last_run" ]; then
+    # If FORCE_ROUTE_ID is set, prefer a dataset path containing that token
+    if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID}"
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*route${FORCE_ROUTE_ID}_*" -print -quit 2>/dev/null)
+        if [ -z "${DATASET_PATH}" ]; then
+            DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*${FORCE_ROUTE_ID}*" -print -quit 2>/dev/null)
+        fi
+        if [ -n "${DATASET_PATH}" ]; then
+            info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        fi
+    fi
+
+    # Prefer .last_run sentinel written by the agent during the run (fallback)
+    if [ -z "${DATASET_PATH:-}" ] && [ -f "${SAVE_PATH}/.last_run" ]; then
         DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
         info "Found .last_run sentinel: ${DATASET_PATH}"
-    else
-        # Find the most recent dataset directory. Look for Town*_Rep* folders that contain rgb/ subfolder
-        # Use maxdepth 5 to reach: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
+    fi
+
+    # If still empty, fall back to most recent Town*_Rep* with rgb/measurements
+    if [ -z "${DATASET_PATH:-}" ]; then
         DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
             if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
                 echo "$dir"

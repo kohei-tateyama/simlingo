@@ -353,6 +353,26 @@ PY
                 # can include it in the Town folder name (as Route<id>).
                 if [[ "$ROUTES_SUBSET" != *,* ]]; then
                     export FORCE_ROUTE_ID="$ROUTES_SUBSET"
+                    single_id=$(echo "$ROUTES_SUBSET" | xargs)
+                    export ROUTE_ID_TMP="${single_id}"
+                    route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    for r in tree.getroot().findall('.//route'):
+        if r.get('id') == rid:
+            print(r.get('town') or r.get('map') or '')
+            sys.exit(0)
+print('', end='')
+PY
+                    )
+                    unset ROUTE_ID_TMP
+                    if [ -n "${route_town}" ]; then
+                        export FORCE_TOWN="${route_town}"
+                        info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${single_id}"
+                    fi
                 fi
             else
                 warn "After filtering, no valid route ids remain in ROUTES_SUBSET; not passing --routes-subset"
@@ -362,6 +382,26 @@ PY
             LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
             if [[ "${ROUTES_SUBSET}" != *,* ]]; then
                 export FORCE_ROUTE_ID="${ROUTES_SUBSET}"
+                single_id=$(echo "${ROUTES_SUBSET}" | xargs)
+                export ROUTE_ID_TMP="${single_id}"
+                route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    for r in tree.getroot().findall('.//route'):
+        if r.get('id') == rid:
+            print(r.get('town') or r.get('map') or '')
+            sys.exit(0)
+print('', end='')
+PY
+                )
+                unset ROUTE_ID_TMP
+                if [ -n "${route_town}" ]; then
+                    export FORCE_TOWN="${route_town}"
+                    info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${single_id}"
+                fi
             fi
         fi
     fi

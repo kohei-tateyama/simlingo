@@ -346,9 +346,34 @@ PY
 
         # Trim route_id whitespace (defensive) and compose args for this route
         route_id=$(echo "${route_id}" | xargs)
+        # Derive town for this route and export FORCE_TOWN so agent uses correct Town
+        export ROUTE_ID_TMP="${route_id}"
+        route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    root = tree.getroot()
+    for r in root.findall('.//route'):
+        if r.get('id') == rid:
+            town = r.get('town') or r.get('map') or ''
+            print(town)
+            sys.exit(0)
+print('', end='')
+PY
+    )
+    unset ROUTE_ID_TMP
+        if [ -n "${route_town}" ]; then
+            export FORCE_TOWN="${route_town}"
+            info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id}"
+        else
+            unset FORCE_TOWN
+        fi
         export FORCE_ROUTE_ID="${route_id}"
         ARGS=("${BASE_ARGS[@]}" "--routes-subset=${route_id}")
 
+        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
             python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         else
@@ -423,11 +448,26 @@ patch_multicamera_images() {
 
     info "Searching for datasets under: ${SAVE_PATH}"
 
-    # Prefer .last_run sentinel written by the agent during the run
-    if [ -f "${SAVE_PATH}/.last_run" ]; then
+    # If FORCE_ROUTE_ID is set, prefer a dataset path containing that token
+    if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID}"
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*route${FORCE_ROUTE_ID}_*" -print -quit 2>/dev/null)
+        if [ -z "${DATASET_PATH}" ]; then
+            DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*${FORCE_ROUTE_ID}*" -print -quit 2>/dev/null)
+        fi
+        if [ -n "${DATASET_PATH}" ]; then
+            info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        fi
+    fi
+
+    # Prefer .last_run sentinel written by the agent during the run (fallback)
+    if [ -z "${DATASET_PATH:-}" ] && [ -f "${SAVE_PATH}/.last_run" ]; then
         DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
         info "Found .last_run sentinel: ${DATASET_PATH}"
-    else
+    fi
+
+    # If still empty, fall back to most recent Town*_Rep* with rgb/measurements
+    if [ -z "${DATASET_PATH:-}" ]; then
         DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
             if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
                 echo "$dir"

@@ -155,7 +155,8 @@ class DataAgentMulticamera(AutoPilot):
             # If you want a custom path, set env var SAVE_SUBDIR (e.g. "training_3_scenarios/routes_devtest").
             save_subdir = os.environ.get('SAVE_SUBDIR', None)
 
-            town = os.environ.get("TOWN", "Town03")
+            # Allow runner to force the Town used for naming (important when route XML town differs)
+            town = os.environ.get('FORCE_TOWN', '') or os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
             forced_route = os.environ.get('FORCE_ROUTE_ID', '')
 

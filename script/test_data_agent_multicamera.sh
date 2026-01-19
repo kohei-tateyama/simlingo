@@ -258,9 +258,32 @@ run_leaderboard() {
             export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}"
         fi
         info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR} (route ids excluded)"
-        # Export FORCE_ROUTE_ID if a single id specified so agent uses it in Town folder
+        # Export FORCE_ROUTE_ID and FORCE_TOWN if a single id specified so agent uses it in Town folder
         if [[ "${ROUTES_SUBSET}" != *,* ]]; then
-            export FORCE_ROUTE_ID="${ROUTES_SUBSET}"
+            single_id=$(echo "${ROUTES_SUBSET}" | xargs)
+            export FORCE_ROUTE_ID="${single_id}"
+            # Extract town from routes XML for this single id
+            export ROUTE_ID_TMP="${single_id}"
+            route_town=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os, sys
+rid = os.environ.get('ROUTE_ID_TMP','')
+routes_file = os.environ.get('ROUTES','')
+if routes_file and os.path.exists(routes_file) and rid:
+    tree = ET.parse(routes_file)
+    root = tree.getroot()
+    for r in root.findall('.//route'):
+        if r.get('id') == rid:
+            town = r.get('town') or r.get('map') or ''
+            print(town)
+            sys.exit(0)
+print('', end='')
+PY
+            )
+            unset ROUTE_ID_TMP
+            if [ -n "${route_town}" ]; then
+                export FORCE_TOWN="${route_town}"
+                info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${single_id}"
+            fi
         fi
     fi
 
@@ -340,13 +363,26 @@ patch_multicamera_images() {
     
     info "Searching for datasets under: ${SAVE_PATH}"
     
-    # Prefer .last_run sentinel written by the agent during the run
-    if [ -f "${SAVE_PATH}/.last_run" ]; then
+    # If FORCE_ROUTE_ID is set, prefer a dataset path containing that token
+    if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID}"
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "*route${FORCE_ROUTE_ID}_*" -print -quit 2>/dev/null)
+        if [ -z "${DATASET_PATH}" ]; then
+            DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "*${FORCE_ROUTE_ID}*" -print -quit 2>/dev/null)
+        fi
+        if [ -n "${DATASET_PATH}" ]; then
+            info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        fi
+    fi
+
+    # Prefer .last_run sentinel written by the agent during the run (fallback)
+    if [ -z "${DATASET_PATH:-}" ] && [ -f "${SAVE_PATH}/.last_run" ]; then
         DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
         info "Found .last_run sentinel: ${DATASET_PATH}"
-    else
-        # Find the most recent dataset directory. Look for Town*_Rep* folders that contain rgb/ subfolder
-        # Use maxdepth 5 to reach: {SAVE_PATH}/{scenario}/{route_config}/{weather}/{Town}_Rep*
+    fi
+
+    # If still empty, fall back to most recent Town*_Rep* with rgb/measurements
+    if [ -z "${DATASET_PATH:-}" ]; then
         DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 5 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
             if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
                 echo "$dir"
