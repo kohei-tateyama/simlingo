@@ -27,7 +27,7 @@ export REPETITION="0" # "3"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100" # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
 
-export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
+export ROUTES_SUBSET="0,1" 
 
 export ROUTE_CONFIG="bench2drive220" # bench2drive220, routes_training, routes_validation (routes_town12_only, routes_devtest, routes_validation, routes_all)
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
@@ -41,7 +41,7 @@ export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 CHECKPOINT_FILENAME="results_japanese_test.json"
 export LEADERBOARD_CHECKPOINT=${LEADERBOARD_CHECKPOINT:-${LEADERBOARD_ROOT}/${CHECKPOINT_FILENAME}}
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-120}"
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -232,25 +232,39 @@ run_leaderboard() {
     sep
     info "Running data_agent_multicamera.py via leaderboard"
     sep
-    
+
     cd /workspace/simlingo/leaderboard
 
     info "Agent    : ${TEAM_AGENT}"
-    info "Routes   : routes_devtest.xml (ONLY FIRST ROUTE for testing)"
+    info "Routes   : ${ROUTES}"
     info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
     sep
+    # Build base args (we'll append --routes-subset per route when iterating)
+    BASE_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
 
-    # Agent has signal handler to gracefully save files on timeout
-    info "Running single route"
+    # If ROUTES_SUBSET is empty or '0', build a default list of all ids from routes file
+    if [ -z "${ROUTES_SUBSET:-}" ] || [ "${ROUTES_SUBSET}" = "0" ]; then
+        ROUTES_SUBSET=$(python - <<'PY'
+import xml.etree.ElementTree as ET, os
+routes_file = os.environ.get('ROUTES','')
+if not routes_file or not os.path.exists(routes_file):
+    print('', end='')
+    raise SystemExit(0)
+tree = ET.parse(routes_file)
+root = tree.getroot()
+ids = [r.get('id') for r in root.findall('.//route') if r.get('id')]
+print(','.join(ids), end='')
+PY
+)
+    fi
 
-    # Build leaderboard arguments, only include --routes-subset when explicitly set and not '0'
-    LB_ARGS=(--routes=${ROUTES} --repetitions=1 --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --checkpoint=${LEADERBOARD_CHECKPOINT} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
+    # Normalize ROUTES_SUBSET by removing whitespace and split into array
+    ROUTES_SUBSET=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]')
+    IFS=',' read -ra ROUTE_IDS <<< "${ROUTES_SUBSET}"
+
+    # Ensure SAVE_SUBDIR does not include the per-route id; agent will embed route id
     if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
-        # Normalize and sanitize ROUTES_SUBSET
-        ROUTES_SUBSET=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]')
-        LB_ARGS+=(--routes-subset=${ROUTES_SUBSET})
-        # Set SAVE_SUBDIR without route ids so agent can embed the route id in the Town folder
         ROUTES_SUB_CLEAN=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]' | tr ',' '_')
         if [ "${SAVE_FLAT:-0}" = "1" ]; then
             export SAVE_SUBDIR="${ROUTES_SUB_CLEAN}"
@@ -258,76 +272,85 @@ run_leaderboard() {
             export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}"
         fi
         info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR} (route ids excluded)"
-        # Export FORCE_ROUTE_ID if a single id specified so agent uses it in Town folder
-        if [[ "${ROUTES_SUBSET}" != *,* ]]; then
-            export FORCE_ROUTE_ID="${ROUTES_SUBSET}"
-        fi
     fi
 
-    if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-        python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
-    else
-        timeout "${LEADERBOARD_TIMEOUT}" python leaderboard/leaderboard_evaluator.py "${LB_ARGS[@]}"
-    fi
+    total_routes=${#ROUTE_IDS[@]}
+    current_route=0
+    overall_exit=0
 
-    local exit_code=$?
+    for route_id in "${ROUTE_IDS[@]}"; do
+        current_route=$((current_route + 1))
+        sep
+        info "Running route ${route_id} (${current_route}/${total_routes})"
+        sep
 
-    sep
-    if [ $exit_code -eq 0 ]; then
-        info "Leaderboard evaluation completed successfully!"
-    else
-        # If leaderboard failed (possibly due to timeout), try to show saved results.json.gz for debugging
-        info "Leaderboard exited with code $exit_code — attempting to display saved results.json.gz (if any)"
-        FOUND_RESULTS=0
-        for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
-            # info "Found results file: $f"
-            # if command -v gzip >/dev/null 2>&1; then
-            #     gzip -dc "$f" | python -m json.tool || true
-            # else
-            #     echo "(gzip not available) Showing raw file path: $f"
-            # fi
-            FOUND_RESULTS=1
-        done
-        if [ $FOUND_RESULTS -eq 0 ]; then
-            info "No results.json.gz found under ${SAVE_PATH}"
-        fi
+        # Trim whitespace defensively
+        route_id=$(echo "${route_id}" | xargs)
+        export FORCE_ROUTE_ID="${route_id}"
+        ARGS=("${BASE_ARGS[@]}" --routes-subset=${route_id})
 
-        # If the agent's signal handler saved output files, treat run as success.
-        FOUND_OUTPUT=0
-
-        # Look for results.json.gz or records.json.gz anywhere under SAVE_PATH within a reasonable depth
-        if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
-            FOUND_OUTPUT=1
-        elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
-            FOUND_OUTPUT=1
-        fi
-
-        if [ $FOUND_OUTPUT -eq 1 ]; then
-            warn "Process exited with code ${exit_code} but found saved output files — treating as success"
-            exit_code=0
-        elif [ $exit_code -eq 124 ]; then
-            warn "Timeout reached (LEADERBOARD_TIMEOUT=${LEADERBOARD_TIMEOUT}) - waiting up to 30s for agent to flush results.json.gz"
-            # Give the agent a short grace period to write results after receiving SIGTERM
-            waited=0
-            while [ $waited -lt 30 ]; do
-                if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
-                    warn "Found results.json.gz after timeout — treating as success"
-                    exit_code=0
-                    break
-                fi
-                sleep 1
-                waited=$((waited+1))
-            done
-            if [ $exit_code -ne 0 ]; then
-                warn "No output files found after waiting ${waited}s"
-            fi
+        if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
+            python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         else
-            warn "Leaderboard exited with code $exit_code"
+            # Use a wrapper that kills the process group on SIGTERM and allows a short -k grace period
+            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
         fi
+
+        exit_code=$?
+
+        sep
+        if [ $exit_code -eq 0 ]; then
+            info "✓ Route ${route_id} completed successfully!"
+            FOUND_OUTPUT=1
+        else
+            FOUND_OUTPUT=0
+            if find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" -print -quit | grep -q .; then
+                FOUND_OUTPUT=1
+            elif find "${SAVE_PATH}" -maxdepth 6 -type f -name "records.json.gz" -print -quit | grep -q .; then
+                FOUND_OUTPUT=1
+            fi
+
+            if [ $FOUND_OUTPUT -eq 1 ]; then
+                warn "Route ${route_id} exited with code ${exit_code} but saved output files — treating as success"
+                exit_code=0
+            elif [ $exit_code -eq 124 ]; then
+                warn "Route ${route_id} timeout reached (${LEADERBOARD_TIMEOUT}s) - checking for partial data..."
+                if [ $FOUND_OUTPUT -eq 1 ]; then
+                    exit_code=0
+                fi
+            else
+                warn "Route ${route_id} exited with code $exit_code"
+            fi
+        fi
+
+        if [ $exit_code -ne 0 ]; then
+            overall_exit=$exit_code
+        fi
+
+        # Patch per-route if data exists
+        if [ $exit_code -eq 0 ] || [ $FOUND_OUTPUT -eq 1 ]; then
+            info "Patching multicamera images for route ${route_id}..."
+            patch_multicamera_images
+            patch_exit=$?
+            if [ $patch_exit -ne 0 ]; then
+                warn "Image patching failed for route ${route_id}"
+            fi
+            cd /workspace/simlingo/leaderboard
+        else
+            warn "Skipping patching for route ${route_id} (no data collected)"
+        fi
+
+    done
+
+    sep
+    if [ $overall_exit -eq 0 ]; then
+        info "All ${total_routes} routes completed successfully!"
+    else
+        warn "Some routes encountered errors (exit code: ${overall_exit})"
     fi
     sep
 
-    return $exit_code
+    return $overall_exit
 }
 
 # =============================================================================

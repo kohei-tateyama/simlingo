@@ -158,6 +158,8 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
+        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/Content/Carla/Maps:ro \
+        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/CarlaUE4/Content/Carla/Maps:ro \
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
@@ -382,7 +384,7 @@ PY
         info "Leaderboard exited with code $exit_code — attempting to display saved results.json.gz (if any)"
         FOUND_RESULTS=0
         for f in $(find "${SAVE_PATH}" -maxdepth 6 -type f -name "results.json.gz" 2>/dev/null); do
-            info "Found results file: $f"
+            # info "Found results file: $f"
             FOUND_RESULTS=1
         done
         if [ $FOUND_RESULTS -eq 0 ]; then

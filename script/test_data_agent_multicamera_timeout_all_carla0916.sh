@@ -158,6 +158,8 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
+        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/Content/Carla/Maps:ro \
+        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/CarlaUE4/Content/Carla/Maps:ro \
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 

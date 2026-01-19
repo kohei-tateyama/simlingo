@@ -135,7 +135,11 @@ class DataAgentMulticamera(AutoPilot):
         except:
             scenario_clean = 'Scenario'
         rep = os.environ.get('REPETITION', '0')
-        self.route_id_export = f"Route{scenario_clean}_{route_index}_rep{rep}"
+        forced_route = os.environ.get('FORCE_ROUTE_ID', '')
+        if forced_route:
+            self.route_id_export = f"Route{scenario_clean}_{forced_route}_rep{rep}"
+        else:
+            self.route_id_export = f"Route{scenario_clean}_{route_index}_rep{rep}"
         
         # Store original route_index before calling super()
         self._original_route_index = route_index
@@ -153,16 +157,40 @@ class DataAgentMulticamera(AutoPilot):
 
             town = os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
+            forced_route = os.environ.get('FORCE_ROUTE_ID', '')
 
             weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")
-            # Build consolidated path: training_3_scenarios/routes_devtest/<weather>/<Town>_Rep{rep}_{route_id}
+            # Build Town folder including route id using forced_route when present.
+            # For non-forced runs, prefer the generated route_id if it already contains
+            # a timestamp-like token; otherwise use the numeric route_index.
+            timestamp = datetime.now().strftime('%m_%d_%H_%M_%S')
+            # If route_id looks like "<num>_route0_<ts>", extract numeric id if needed
+            route_token = None
+            try:
+                if isinstance(route_id, str) and '_route' in route_id:
+                    # keep the full route_id's numeric part after '_route' if present
+                    parts = route_id.split('_route')
+                    if len(parts) >= 2 and parts[1]:
+                        # parts[1] may contain <num>_<ts> -> take the leading numeric id
+                        route_token = parts[1].split('_')[0]
+                else:
+                    route_token = str(route_index)
+            except Exception:
+                route_token = str(route_index)
+
+            if forced_route:
+                town_folder = f"{town}_Rep{rep}_route{forced_route}_{timestamp}"
+            else:
+                # Use route_token to include the route id in the Town folder name
+                town_folder = f"{town}_Rep{rep}_route{route_token}_{timestamp}"
+
+            # Build consolidated path: <SAVE_SUBDIR or default>/weather/<town_folder>
             if save_subdir:
-                # honor provided subdir (can include nested folders separated by /)
-                self.save_path = base_path / Path(save_subdir) / weather_config / f"{town}_Rep{rep}_{route_id}"
+                self.save_path = base_path / Path(save_subdir) / weather_config / town_folder
             else:
                 consolidated_root = base_path / 'training_3_scenarios' / 'routes_devtest' / weather_config
                 consolidated_root.mkdir(parents=True, exist_ok=True)
-                self.save_path = consolidated_root / f"{town}_Rep{rep}_{route_id}"
+                self.save_path = consolidated_root / town_folder
 
             # If SAVE_PATH was set and there are existing top-level run folders (Town*_Rep*),
             # move them into the consolidated weather folder to avoid polluting the SAVE_PATH root.
@@ -186,6 +214,14 @@ class DataAgentMulticamera(AutoPilot):
             
             if self.datagen:
                 (self.save_path / "measurements").mkdir(exist_ok=True)
+
+            # Write a sentinel so runners can deterministically find this run folder
+            try:
+                last_run_file = base_path / '.last_run'
+                with open(last_run_file, 'w') as fh:
+                    fh.write(str(self.save_path))
+            except Exception:
+                pass
 
             # If the parent autopilot created a ScenarioLogger, update its save_path
             if hasattr(self, 'lon_logger') and self.lon_logger is not None:
@@ -270,8 +306,16 @@ class DataAgentMulticamera(AutoPilot):
                 (self.save_path / 'semantics').mkdir(exist_ok=True)
                 (self.save_path / 'depth').mkdir(exist_ok=True)
                 (self.save_path / 'bev_semantics').mkdir(exist_ok=True)
-            
+
             print(f"[INFO][DATA_AGENT_MULTICAMERA] Created output directories in: {self.save_path}")
+            # write sentinel so runners can find this exact run directory
+            try:
+                base_path = Path(os.environ.get('SAVE_PATH', '.'))
+                last_run_file = base_path / '.last_run'
+                with open(last_run_file, 'w') as fh:
+                    fh.write(str(self.save_path))
+            except Exception:
+                pass
 
         self.tmp_visu = int(os.environ.get('TMP_VISU', 0))
 
