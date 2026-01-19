@@ -40,8 +40,8 @@ export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive22
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
 
-# Use flat save layout: put Town_Rep... folder directly under SAVE_PATH
-export SAVE_FLAT=1
+# Use consolidated save layout (include scenario/route_config/weather)
+export SAVE_FLAT=0
 
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -107,7 +107,11 @@ on_signal() {
     INTERRUPTED=1
     echo ""
     warn "Signal received (SIGINT/SIGTERM) - stopping CARLA and returning to main..."
+    # Stop container and also attempt to kill leaderboard process so Ctrl+C reliably stops collection
     stop_carla 2>/dev/null || true
+    pkill -TERM -f "leaderboard_evaluator.py" 2>/dev/null || true
+    sleep 1
+    pkill -9 -f "leaderboard_evaluator.py" 2>/dev/null || true
 }
 
 cleanup_on_exit() {
@@ -317,13 +321,15 @@ PY
 
     # Set SAVE_SUBDIR based on ROUTES_SUBSET and SAVE_FLAT
     if [ -n "${ROUTES_SUBSET:-}" ] && [ "${ROUTES_SUBSET}" != "0" ]; then
+        # SAVE_SUBDIR should NOT include the per-route id; keep route ids out of the
+        # folder path so the agent can place the route id into the Town folder name.
         ROUTES_SUB_CLEAN=$(echo "${ROUTES_SUBSET}" | tr -d '[:space:]' | tr ',' '_')
         if [ "${SAVE_FLAT:-0}" = "1" ]; then
             export SAVE_SUBDIR="${ROUTES_SUB_CLEAN}"
         else
-            export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}/${ROUTES_SUB_CLEAN}"
+            export SAVE_SUBDIR="${SCENARIO_NAME}/${ROUTE_CONFIG}"
         fi
-        info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR}"
+        info "Setting SAVE_SUBDIR to: ${SAVE_SUBDIR} (route ids excluded)"
     fi
 
     total_routes=${#ROUTE_IDS[@]}
@@ -338,6 +344,7 @@ PY
 
         # Trim route_id whitespace (defensive) and compose args for this route
         route_id=$(echo "${route_id}" | xargs)
+        export FORCE_ROUTE_ID="${route_id}"
         ARGS=("${BASE_ARGS[@]}" "--routes-subset=${route_id}")
 
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
@@ -414,11 +421,17 @@ patch_multicamera_images() {
 
     info "Searching for datasets under: ${SAVE_PATH}"
 
-    DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
-        if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
-            echo "$dir"
-        fi
-    done | sort -r | head -1)
+    # Prefer .last_run sentinel written by the agent during the run
+    if [ -f "${SAVE_PATH}/.last_run" ]; then
+        DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
+        info "Found .last_run sentinel: ${DATASET_PATH}"
+    else
+        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
+            if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+                echo "$dir"
+            fi
+        done | sort -r | head -1)
+    fi
 
     if [ -z "$DATASET_PATH" ]; then
         info "Trying fallback pattern..."
