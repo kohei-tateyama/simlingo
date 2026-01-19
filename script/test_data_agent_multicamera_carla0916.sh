@@ -24,7 +24,6 @@ export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="1"
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
-# export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
 
 ## RHT
 # export ROUTE_CONFIG="routes_devtest_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
@@ -158,8 +157,7 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/Content/Carla/Maps:ro \
-        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/CarlaUE4/Content/Carla/Maps:ro \
+        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
@@ -449,16 +447,47 @@ patch_multicamera_images() {
 
     info "Searching for datasets under: ${SAVE_PATH}"
 
-    # Prefer .last_run sentinel written by the agent during the run
-    if [ -f "${SAVE_PATH}/.last_run" ]; then
-        DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
-        info "Found .last_run sentinel: ${DATASET_PATH}"
-    else
-        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "Town*_Rep*" 2>/dev/null | while read dir; do
+    # If FORCE_ROUTE_ID is set, search recursively for folders that include the token
+    if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID} (recursive search)"
+        DATASET_PATH=""
+        while IFS= read -r dir; do
             if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
-                echo "$dir"
+                DATASET_PATH="$dir"
+                break
             fi
-        done | sort -r | head -1)
+        done < <(find "${SAVE_PATH}" -type d -name "*route${FORCE_ROUTE_ID}*" 2>/dev/null | sort -r)
+
+        if [ -z "${DATASET_PATH}" ]; then
+            while IFS= read -r dir; do
+                if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+                    DATASET_PATH="$dir"
+                    break
+                fi
+            done < <(find "${SAVE_PATH}" -type d -path "*${FORCE_ROUTE_ID}*" 2>/dev/null | sort -r)
+        fi
+
+        if [ -n "${DATASET_PATH}" ]; then
+            info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        else
+            info "No dataset found containing route id ${FORCE_ROUTE_ID}"
+        fi
+    fi
+
+    # Prefer .last_run sentinel written by the agent during the run (fallback)
+    if [ -z "${DATASET_PATH:-}" ] && [ -f "${SAVE_PATH}/.last_run" ]; then
+        last_run_path=$(cat "${SAVE_PATH}/.last_run")
+        if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+            if echo "${last_run_path}" | grep -q "route${FORCE_ROUTE_ID}_"; then
+                DATASET_PATH="${last_run_path}"
+                info "Found .last_run sentinel matching route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+            else
+                info ".last_run sentinel does not match FORCE_ROUTE_ID=${FORCE_ROUTE_ID}; ignoring: ${last_run_path}"
+            fi
+        else
+            DATASET_PATH="${last_run_path}"
+            info "Found .last_run sentinel: ${DATASET_PATH}"
+        fi
     fi
 
     if [ -z "$DATASET_PATH" ]; then

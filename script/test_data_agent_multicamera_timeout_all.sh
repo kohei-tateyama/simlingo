@@ -33,7 +33,6 @@ export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (we can use this, carla format for lua)
 
 ## export ROUTES_SUBSET="1711, 24206" ## We can set this to run all the routes one by one
-
 ## Running all the routes in the ROUTES massive data collection =========================
 # Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
 if [ -f "${WORK_DIR}/script/common.sh" ]; then

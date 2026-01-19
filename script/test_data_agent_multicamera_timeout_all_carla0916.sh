@@ -24,7 +24,6 @@ export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="1" # MINIMUM IS 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
-## export ROUTES_SUBSET="24206, 25378"  # "0,1,2,3,4,5,6,7,8,9" 
 
 ## RHT
 # export ROUTE_CONFIG="routes_devtest" # "routes_training", "bench2drive220", routes_validation", "routes_devtest"
@@ -33,23 +32,21 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
-## LHT available = {'Town01','Town01_Opt','Town02','Town02_Opt','Town03','Town03_Opt','Town04','Town04_Opt','Town05','Town05_Opt','Town10HD','Town10HD_Opt'}
 export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation_LHT.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
 
-# export ROUTES_SUBSET="24206, 25378"  # "0,1,2,3,4,5,6,7,8,9" 
-
-## Running all the routes in the ROUTES massive data collection =========================
-# Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
+export ROUTES_SUBSET="1773" # "24206, 25378" 
+# ## Running all the routes in the ROUTES massive data collection =========================
+# # Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
-    # shellcheck source=/dev/null
+#     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
-    build_routes_subset # export ROUTES_SUBSET
+#     build_routes_subset # export ROUTES_SUBSET
 fi
-## Running all the routes in the ROUTES massive data collection =========================
+# ## Running all the routes in the ROUTES massive data collection =========================
 
 # Use consolidated save layout (include scenario/route_config/weather)
 export SAVE_FLAT=0
@@ -58,7 +55,7 @@ export SAVE_FLAT=0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
 
 # CARLA port (can be overridden by environment before running the script)
@@ -158,8 +155,7 @@ start_carla() {
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/Content/Carla/Maps:ro \
-        -v /workspace/carla0916/CarlaUE4/Content/Carla/Maps:/workspace/CarlaUE4/CarlaUE4/Content/Carla/Maps:ro \
+        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
@@ -373,14 +369,86 @@ PY
         export FORCE_ROUTE_ID="${route_id}"
         ARGS=("${BASE_ARGS[@]}" "--routes-subset=${route_id}")
 
-        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
-        if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-            python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
-        else
-            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${ARGS[@]}"
+        # Pre-load the correct town in CARLA to avoid timeout during route start
+        if [ -n "${route_town}" ]; then
+            info "Pre-loading ${route_town} in CARLA..."
+            python - <<PY
+import carla
+import sys
+import os
+import time
+try:
+    port = int(os.environ.get('PORT_CARLA', '2000'))
+    client = carla.Client('localhost', port)
+    client.set_timeout(10.0)
+    
+    world = client.get_world()
+    current_map = world.get_map().name.split('/')[-1]
+    target_map_short = '${route_town}'
+    
+    if current_map != target_map_short:
+        print(f'Switching from {current_map} to {target_map_short}...')
+        
+        # Get the actual full path from CARLA's available maps
+        available_maps = client.get_available_maps()
+        target_map_full = None
+        
+        for map_path in available_maps:
+            map_name = map_path.split('/')[-1]
+            if map_name == target_map_short:
+                target_map_full = map_path
+                break
+        
+        if not target_map_full:
+            print(f'ERROR: Could not find {target_map_short} in available maps', file=sys.stderr)
+            print(f'Available maps with paths:', file=sys.stderr)
+            for m in available_maps:
+                print(f'  {m}', file=sys.stderr)
+            sys.exit(1)
+        
+        print(f'Using map path: {target_map_full}')
+        
+        # Use a longer timeout for map loading (Town12 is large)
+        client.set_timeout(180.0)
+        start = time.time()
+        world = client.load_world(target_map_full)
+        elapsed = time.time() - start
+        print(f'[INFO] ✓ Loaded {target_map_short} in {elapsed:.1f}s')
+        # Reset to normal timeout
+        client.set_timeout(10.0)
+    else:
+        print(f'[INFO] ✓ Already on {target_map_short}')
+except Exception as e:
+    print(f'ERROR: Failed to load ${route_town}: {e}', file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PY
+            if [ $? -ne 0 ]; then
+                err "Failed to pre-load ${route_town}"
+                continue
+            fi
         fi
 
-        exit_code=$?
+        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
+
+        # Create per-route logging dir
+        mkdir -p "${WORK_DIR}/leaderboard_logs"
+        env | sort > "${WORK_DIR}/leaderboard_logs/env_route_${route_id}.txt"
+
+        # Run leaderboard and capture stdout/stderr to per-route log for inspection
+        LB_LOG="${WORK_DIR}/leaderboard_logs/route_${route_id}.log"
+        if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
+            python leaderboard/leaderboard_evaluator.py "${ARGS[@]}" >"${LB_LOG}" 2>&1 &
+            LB_PID=$!
+            wait $LB_PID
+            exit_code=$?
+        else
+            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${ARGS[@]}" >"${LB_LOG}" 2>&1
+            exit_code=$?
+        fi
+
+        info "Leaderboard log for route ${route_id}: ${LB_LOG}"
 
         sep
         if [ $exit_code -eq 0 ]; then
@@ -448,22 +516,51 @@ patch_multicamera_images() {
 
     info "Searching for datasets under: ${SAVE_PATH}"
 
-    # If FORCE_ROUTE_ID is set, prefer a dataset path containing that token
+    # If FORCE_ROUTE_ID is set, search recursively for folders that include the token
     if [ -n "${FORCE_ROUTE_ID:-}" ]; then
-        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID}"
-        DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*route${FORCE_ROUTE_ID}_*" -print -quit 2>/dev/null)
+        info "Looking for dataset containing route id: ${FORCE_ROUTE_ID} (recursive search)"
+        # Find candidate directories whose name contains the route token
+        DATASET_PATH=""
+        while IFS= read -r dir; do
+            # verify required subfolders
+            if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+                DATASET_PATH="$dir"
+                break
+            fi
+        done < <(find "${SAVE_PATH}" -type d -name "*route${FORCE_ROUTE_ID}*" 2>/dev/null | sort -r)
+
+        # If none found by explicit 'route{ID}' token, broaden search to any path containing the ID
         if [ -z "${DATASET_PATH}" ]; then
-            DATASET_PATH=$(find ${SAVE_PATH} -maxdepth 6 -type d -name "*${FORCE_ROUTE_ID}*" -print -quit 2>/dev/null)
+            while IFS= read -r dir; do
+                if [ -d "$dir/rgb" ] && [ -d "$dir/measurements" ]; then
+                    DATASET_PATH="$dir"
+                    break
+                fi
+            done < <(find "${SAVE_PATH}" -type d -path "*${FORCE_ROUTE_ID}*" 2>/dev/null | sort -r)
         fi
+
         if [ -n "${DATASET_PATH}" ]; then
             info "Found dataset for route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+        else
+            info "No dataset found containing route id ${FORCE_ROUTE_ID}"
         fi
     fi
 
     # Prefer .last_run sentinel written by the agent during the run (fallback)
     if [ -z "${DATASET_PATH:-}" ] && [ -f "${SAVE_PATH}/.last_run" ]; then
-        DATASET_PATH=$(cat "${SAVE_PATH}/.last_run")
-        info "Found .last_run sentinel: ${DATASET_PATH}"
+        last_run_path=$(cat "${SAVE_PATH}/.last_run")
+        # If FORCE_ROUTE_ID is set, ensure the .last_run path corresponds to that route
+        if [ -n "${FORCE_ROUTE_ID:-}" ]; then
+            if echo "${last_run_path}" | grep -q "route${FORCE_ROUTE_ID}_"; then
+                DATASET_PATH="${last_run_path}"
+                info "Found .last_run sentinel matching route ${FORCE_ROUTE_ID}: ${DATASET_PATH}"
+            else
+                info ".last_run sentinel does not match FORCE_ROUTE_ID=${FORCE_ROUTE_ID}; ignoring: ${last_run_path}"
+            fi
+        else
+            DATASET_PATH="${last_run_path}"
+            info "Found .last_run sentinel: ${DATASET_PATH}"
+        fi
     fi
 
     # If still empty, fall back to most recent Town*_Rep* with rgb/measurements
