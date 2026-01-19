@@ -406,7 +406,7 @@ try:
                 print(f'  {m}', file=sys.stderr)
             sys.exit(1)
         
-        print(f'Using map path: {target_map_full}')
+        # print(f'Using map path: {target_map_full}')
         
         # Use a longer timeout for map loading (Town12 is large)
         client.set_timeout(180.0)

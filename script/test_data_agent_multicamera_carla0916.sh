@@ -39,13 +39,13 @@ export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive22
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
 
-## export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
+export ROUTES_SUBSET="24206" #"61711"  # "0,1,2,3,4,5,6,7,8,9"
 ## Running all the routes in the ROUTES massive data collection =========================
 # Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
-    build_routes_subset # export ROUTES_SUBSET
+    # build_routes_subset # export ROUTES_SUBSET
 fi
 ## Running all the routes in the ROUTES massive data collection =========================
 
@@ -370,6 +370,58 @@ PY
                     if [ -n "${route_town}" ]; then
                         export FORCE_TOWN="${route_town}"
                         info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${single_id}"
+                        # Pre-load the correct town in CARLA to avoid timeout during route start
+                        info "Pre-loading ${route_town} in CARLA..."
+                        python - <<PY
+import carla
+import sys
+import os
+import time
+try:
+    port = int(os.environ.get('PORT_CARLA', '2000'))
+    client = carla.Client('localhost', port)
+    client.set_timeout(10.0)
+    
+    world = client.get_world()
+    current_map = world.get_map().name.split('/')[-1]
+    target_map_short = '${route_town}'
+    
+    if current_map != target_map_short:
+        print(f'Switching from {current_map} to {target_map_short}...')
+        
+        # Get the actual full path from CARLA's available maps
+        available_maps = client.get_available_maps()
+        target_map_full = None
+        
+        for map_path in available_maps:
+            map_name = map_path.split('/')[-1]
+            if map_name == target_map_short:
+                target_map_full = map_path
+                break
+        
+        if not target_map_full:
+            print(f'ERROR: Could not find {target_map_short} in available maps', file=sys.stderr)
+            print(f'Available maps with paths:', file=sys.stderr)
+            for m in available_maps:
+                print(f'  {m}', file=sys.stderr)
+            sys.exit(1)
+        
+        # Use a longer timeout for map loading (Town12 is large)
+        client.set_timeout(180.0)
+        start = time.time()
+        world = client.load_world(target_map_full)
+        elapsed = time.time() - start
+        print(f'[INFO] ✓ Loaded {target_map_short} in {elapsed:.1f}s')
+        # Reset to normal timeout
+        client.set_timeout(10.0)
+    else:
+        print(f'[INFO] ✓ Already on {target_map_short}')
+except Exception as e:
+    print(f'ERROR: Failed to load ${route_town}: {e}', file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PY
                     fi
                 fi
             else
