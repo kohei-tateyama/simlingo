@@ -7,6 +7,8 @@ import sys
 import subprocess
 import shlex
 
+PRINT_NUM = 100
+
 def wait_for_carla(host='127.0.0.1', port=2000, timeout=120, interval=2.0):
     """Wait for CARLA server to be ready and return a connected client.
     Raises RuntimeError if not available within timeout seconds.
@@ -88,10 +90,16 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                     print(f"[WARNING] Map '{route_town}' not found among available maps or local content; skipping preload")
                     continue
 
-                # Load the world (with extended timeout)
+                # Load the world (with extended timeout) and refresh map
                 client.set_timeout(180.0)
                 start = time.time()
                 world = client.load_world(target_map_full)
+                # Immediately refresh world and carla_map after loading
+                try:
+                    world = client.get_world()
+                    carla_map = world.get_map()
+                except Exception:
+                    pass
                 elapsed = time.time() - start
                 print(f"[INFO] ✓ Preloaded {route_town} via {target_map_full} in {elapsed:.1f}s")
                 client.set_timeout(30.0)
@@ -148,16 +156,35 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
             return None
 
         try:
+            # If current world already matches, skip reload
+            try:
+                cur_world = client.get_world()
+                cur_map = cur_world.get_map()
+                if cur_map and cur_map.name and route_town.lower() in cur_map.name.lower():
+                    print(f"[INFO] Town {route_town} already loaded; skipping load")
+                    return cur_map
+            except Exception:
+                pass
+
             client.set_timeout(180.0)
             start = time.time()
             world = client.load_world(target_map_full)
+            # Immediately refresh world and carla_map after loading
+            try:
+                world = client.get_world()
+                carla_map_local = world.get_map()
+            except Exception:
+                carla_map_local = None
             elapsed = time.time() - start
             print(f"[INFO] ✓ Loaded {route_town} via {target_map_full} in {elapsed:.1f}s")
             client.set_timeout(30.0)
-            return world.get_map()
+            return carla_map_local
         except Exception as e:
             print(f"[WARNING] Failed to load map {target_map_full}: {e}")
             return None
+
+    # Track diagnostics: counts of lateral shifts per town and overall
+    diagnostics = { 'per_town': {}, 'total': {'moved_left': 0, 'moved_right': 0, 'unchanged': 0} }
 
     # Process each known town: load town once, then convert all its routes
     for town in sorted(routes_by_town.keys()):
@@ -166,6 +193,8 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
         if carla_map is None:
             print(f"[WARNING] Skipping routes for town {town} because map could not be loaded")
             continue
+
+        diagnostics['per_town'][town] = {'moved_left': 0, 'moved_right': 0, 'unchanged': 0}
 
         for route in routes_by_town[town]:
             positions = route.findall('.//position')
@@ -182,10 +211,12 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                     print(f"[WARNING] Skipping waypoint without numeric coordinates: {ET.tostring(waypoint, encoding='unicode')}")
                     continue
 
-                # Find the nearest waypoint on the map
+                # Find the nearest waypoint on the map using robust projection
                 loc = carla.Location(x, y, z)
                 try:
-                    current_wp = carla_map.get_waypoint(loc)
+                    current_wp = carla_map.get_waypoint(loc, project_to_road=True, lane_type=carla.LaneType.Any)
+                    if current_wp is None:
+                        raise RuntimeError('get_waypoint returned None')
                 except Exception as e:
                     print(f"[WARNING] Could not get waypoint for loc ({x},{y},{z}): {e}")
                     continue
@@ -198,7 +229,7 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                     except Exception:
                         lht_wp = None
 
-                # If CARLA can't provide a left-lane waypoint, compute a lateral offset as a fallback
+                # If CARLA can't provide a left-lane waypoint, compute lateral coordinates directly
                 if lht_wp is None:
                     try:
                         yaw_deg = current_wp.transform.rotation.yaw
@@ -209,38 +240,74 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                         new_x = current_wp.transform.location.x + left_x * lane_offset
                         new_y = current_wp.transform.location.y + left_y * lane_offset
                         new_z = current_wp.transform.location.z
-                        class _Tmp:
+                        # We'll not create a dummy waypoint; instead use these coords and preserve yaw
+                        # Build a simple namespace-like object for rotation access
+                        class _CoordOnly:
                             class transform:
                                 location = carla.Location(new_x, new_y, new_z)
                                 rotation = current_wp.transform.rotation
-                        lht_wp = _Tmp()
+                        lht_wp = _CoordOnly()
                     except Exception as e:
                         print(f"[WARNING] No left-lane waypoint found and lateral fallback failed for ({x:.3f},{y:.3f}): {e} - leaving original coords")
                         continue
 
-                # Update the XML with the new "Left-Lane" coordinates
+                # Update the XML with the new "Left-Lane" coordinates and record the lateral shift
                 try:
                     lx = getattr(lht_wp.transform.location, 'x')
                     ly = getattr(lht_wp.transform.location, 'y')
                     lz = getattr(lht_wp.transform.location, 'z')
+                    # Compute lateral displacement in the map plane (signed by cross product)
+                    # We'll compute a simple signed lateral shift by projecting the delta onto left vector
+                    dx = lx - current_wp.transform.location.x
+                    dy = ly - current_wp.transform.location.y
+                    yaw_deg = current_wp.transform.rotation.yaw
+                    yaw_rad = math.radians(yaw_deg)
+                    left_x = -math.sin(yaw_rad)
+                    left_y = math.cos(yaw_rad)
+                    lateral = dx * left_x + dy * left_y
+
                     waypoint.set('x', str(round(lx, 3)))
                     waypoint.set('y', str(round(ly, 3)))
                     waypoint.set('z', str(round(lz, 3)))
+
+                    if lateral < -0.001:
+                        diagnostics['per_town'][town]['moved_right'] += 1
+                        diagnostics['total']['moved_right'] += 1
+                    elif lateral > 0.001:
+                        diagnostics['per_town'][town]['moved_left'] += 1
+                        diagnostics['total']['moved_left'] += 1
+                    else:
+                        diagnostics['per_town'][town]['unchanged'] += 1
+                        diagnostics['total']['unchanged'] += 1
                 except Exception:
                     waypoint.set('x', str(round(current_wp.transform.location.x, 3)))
                     waypoint.set('y', str(round(current_wp.transform.location.y, 3)))
                     waypoint.set('z', str(round(current_wp.transform.location.z, 3)))
+                    diagnostics['per_town'][town]['unchanged'] += 1
+                    diagnostics['total']['unchanged'] += 1
 
-                # Update Yaw if present in target waypoint
+                # Update Yaw using the target left-lane waypoint rotation when available
                 try:
-                    yaw_val = round(current_wp.transform.rotation.yaw, 3)
+                    if hasattr(lht_wp.transform, 'rotation'):
+                        yaw_val = round(lht_wp.transform.rotation.yaw, 3)
+                    else:
+                        yaw_val = round(current_wp.transform.rotation.yaw, 3)
                     waypoint.set('yaw', str(yaw_val))
+                    # Log if yaw changed significantly (helps debug handedness)
+                    try:
+                        orig_yaw = round(current_wp.transform.rotation.yaw, 3)
+                        dyaw = abs(((yaw_val - orig_yaw + 180) % 360) - 180)
+                        # if dyaw > 1.0:
+                        #     print(f"[DEBUG] Yaw changed for waypoint: orig={orig_yaw}, new={yaw_val}, diff={dyaw}")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
     # Lastly, process routes that did not declare a town (attempt with current carla_map)
     if routes_without_town:
         print(f"[INFO] Processing {len(routes_without_town)} route(s) without an explicit town (using current world)")
+        diagnostics['per_town'].setdefault('__no_town__', {'moved_left': 0, 'moved_right': 0, 'unchanged': 0})
         for route in routes_without_town:
             positions = route.findall('.//position')
             if not positions:
@@ -257,7 +324,9 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
 
                 loc = carla.Location(x, y, z)
                 try:
-                    current_wp = carla_map.get_waypoint(loc)
+                    current_wp = carla_map.get_waypoint(loc, project_to_road=True, lane_type=carla.LaneType.Any)
+                    if current_wp is None:
+                        raise RuntimeError('get_waypoint returned None')
                 except Exception as e:
                     print(f"[WARNING] Could not get waypoint for loc ({x},{y},{z}): {e}")
                     continue
@@ -279,36 +348,74 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                         new_x = current_wp.transform.location.x + left_x * lane_offset
                         new_y = current_wp.transform.location.y + left_y * lane_offset
                         new_z = current_wp.transform.location.z
-                        class _Tmp:
+                        class _CoordOnly:
                             class transform:
                                 location = carla.Location(new_x, new_y, new_z)
                                 rotation = current_wp.transform.rotation
-                        lht_wp = _Tmp()
+                        lht_wp = _CoordOnly()
                     except Exception as e:
                         print(f"[WARNING] No left-lane waypoint found and lateral fallback failed for ({x:.3f},{y:.3f}): {e} - leaving original coords")
                         continue
+
 
                 try:
                     lx = getattr(lht_wp.transform.location, 'x')
                     ly = getattr(lht_wp.transform.location, 'y')
                     lz = getattr(lht_wp.transform.location, 'z')
+                    dx = lx - current_wp.transform.location.x
+                    dy = ly - current_wp.transform.location.y
+                    yaw_deg = current_wp.transform.rotation.yaw
+                    yaw_rad = math.radians(yaw_deg)
+                    left_x = -math.sin(yaw_rad)
+                    left_y = math.cos(yaw_rad)
+                    lateral = dx * left_x + dy * left_y
+
                     waypoint.set('x', str(round(lx, 3)))
                     waypoint.set('y', str(round(ly, 3)))
                     waypoint.set('z', str(round(lz, 3)))
+
+                    if lateral < -0.001:
+                        diagnostics['per_town']['__no_town__']['moved_right'] += 1
+                        diagnostics['total']['moved_right'] += 1
+                    elif lateral > 0.001:
+                        diagnostics['per_town']['__no_town__']['moved_left'] += 1
+                        diagnostics['total']['moved_left'] += 1
+                    else:
+                        diagnostics['per_town']['__no_town__']['unchanged'] += 1
+                        diagnostics['total']['unchanged'] += 1
                 except Exception:
                     waypoint.set('x', str(round(current_wp.transform.location.x, 3)))
                     waypoint.set('y', str(round(current_wp.transform.location.y, 3)))
                     waypoint.set('z', str(round(current_wp.transform.location.z, 3)))
+                    diagnostics['per_town']['__no_town__']['unchanged'] += 1
+                    diagnostics['total']['unchanged'] += 1
 
                 try:
-                    yaw_val = round(current_wp.transform.rotation.yaw, 3)
+                    if hasattr(lht_wp.transform, 'rotation'):
+                        yaw_val = round(lht_wp.transform.rotation.yaw, 3)
+                    else:
+                        yaw_val = round(current_wp.transform.rotation.yaw, 3)
                     waypoint.set('yaw', str(yaw_val))
+                    try:
+                        orig_yaw = round(current_wp.transform.rotation.yaw, 3)
+                        dyaw = abs(((yaw_val - orig_yaw + 180) % 360) - 180)
+                        if dyaw > 1.0:
+                            print(f"[DEBUG] Yaw changed for waypoint (no-town block): orig={orig_yaw}, new={yaw_val}, diff={dyaw}")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
     # 3. Save the new LHT-ready XML (write declaration and UTF-8)
     tree.write(output_path, encoding='utf-8', xml_declaration=True)
     print(f"[INFO] Saved to LHT in {output_path}")
+
+    # Print diagnostic summary
+    print("[INFO] Conversion diagnostics summary:")
+    for t, stats in diagnostics['per_town'].items():
+        print(f"  - {t}: left={stats['moved_left']}, right={stats['moved_right']}, unchanged={stats['unchanged']}")
+    tot = diagnostics['total']
+    print(f"  Total: left={tot['moved_left']}, right={tot['moved_right']}, unchanged={tot['unchanged']}")
 
 if __name__ == "__main__":
     name_folder = "/workspace/simlingo/leaderboard/data/" 
@@ -317,7 +424,6 @@ if __name__ == "__main__":
     new = "_LHT" 
     
     # If CARLA is not reachable, do not attempt to auto-start Docker here.
-    # Instead, print a clear docker run command the user can run manually and exit.
     DOCKER_EXAMPLE = (
         "docker run --rm -d --name carla_0_9_16_for_convert -p 2000:2000 -p 2001:2001 "
         "-p 2002:2002 -p 8000:8000 carlasim/carla:0.9.16 ./CarlaUE4.sh -opengl"
@@ -347,7 +453,6 @@ if __name__ == "__main__":
             "--env", "NVIDIA_VISIBLE_DEVICES=all",
             "--env", "NVIDIA_DRIVER_CAPABILITIES=all",
             "-v", "/workspace/simlingo/carla_logs:/workspace/CarlaUE4/Saved/Logs",
-            # Mount local Carla content so imported maps (e.g., Town12) are visible inside container
             "-v", "/workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro",
             image,
             "bash", "-c", "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
@@ -421,8 +526,10 @@ if __name__ == "__main__":
         for i in name_files:
             in_path = name_folder + i + format
             out_path = name_folder + i + '_2' + new + format
+            print('=' * PRINT_NUM)
             print(f"[INFO] Converting {in_path} -> {out_path}")
             shift_route_to_lht(in_path, out_path)
+            print('=' * PRINT_NUM)
     finally:
         if started:
             print("[INFO] Stopping carla-server container...")

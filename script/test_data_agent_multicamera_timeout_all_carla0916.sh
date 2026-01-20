@@ -34,13 +34,16 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 
 ## LHT
 # export ROUTE_CONFIG="routes_training_LHT"
+export ROUTE_CONFIG="routes_training_2_LHT"
 # export ROUTE_CONFIG="routes_validation_LHT"
 # export ROUTE_CONFIG="routes_devtest_LHT"
-export ROUTE_CONFIG="routes_devtest_2_LHT"
+# export ROUTE_CONFIG="routes_devtest_2_LHT"
 # export ROUTE_CONFIG="bench2drive220_LHT" 
+# export ROUTE_CONFIG="bench2drive220_2_LHT" 
+
 export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
 
-export ROUTES_SUBSET="0" # "1773" # "24206, 25378" 
+export ROUTES_SUBSET="1" # "1773" # "24206, 25378" 
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
@@ -141,7 +144,6 @@ start_carla() {
         warn "Custom CARLA image 'carla-bench2drive:0.9.16' not found locally. Falling back to carlasim/carla:0.9.16"
     fi
 
-    sep
     info "Starting CARLA 0.9.16 HEADLESS on port ${PORT_CARLA}"
     sep
 
@@ -272,8 +274,6 @@ PY
             info "Using manual ROUTES_SUBSET: ${ROUTES_SUBSET}"
         fi
     fi
-    
-    sep
 }
 
 

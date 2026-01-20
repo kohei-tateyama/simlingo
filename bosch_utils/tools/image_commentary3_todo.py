@@ -67,13 +67,6 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py recording
 
 [Type of file to investigate]: patched2_big.jpg  patched2.jpg  patched2_nuscenes.jpg
 
-python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
-    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2.jpg -v \
-    
-    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_big.jpg -v
-    
-    /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_nuscenes.jpg -v
-
 [USED] ~ 15% GPU
 python bosch_utils/tools/image_commentary3_todo.py \
   "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
@@ -84,9 +77,9 @@ python bosch_utils/tools/image_commentary3_todo.py \
   "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
   --recursive --n-gpu-layers 32 --threads 12 --ctx-size 8192 -v
 
-[] ~ () % GPU
+[USED] ~ 45 % GPU
 python bosch_utils/tools/image_commentary3_todo.py \
-  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route2668_01_20_06_01_46/rgb" \
   --recursive --n-gpu-layers 100 --threads 16 --ctx-size 8192 --predict 512 -v
 
 """
@@ -111,11 +104,35 @@ try:
 except Exception:
     HAS_PIL = False
 
+# Load augmented templates (if present) to expand commentary templates
+AUG_COMMENTARY_MAP = {}
+BASE_ACTION_PARAPHRASES = {}
+def _load_augmented_templates():
+    global AUG_COMMENTARY_MAP, BASE_ACTION_PARAPHRASES
+    if AUG_COMMENTARY_MAP or BASE_ACTION_PARAPHRASES:
+        return
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        aug_dir = repo_root / 'data' / 'augmented_templates'
+        aug_file = aug_dir / 'commentary_augmented.json'
+        base_file = aug_dir / 'commentary.json'
+        if aug_file.exists():
+            with open(aug_file, 'rt', encoding='utf-8') as f:
+                AUG_COMMENTARY_MAP = json.load(f)
+        if base_file.exists():
+            with open(base_file, 'rt', encoding='utf-8') as f:
+                BASE_ACTION_PARAPHRASES = json.load(f)
+    except Exception:
+        AUG_COMMENTARY_MAP = {}
+        BASE_ACTION_PARAPHRASES = {}
+
+# Preload once
+_load_augmented_templates()
+
 # Default paths (can be overridden via CLI args or environment variables)
 DEFAULT_LLAMA_BIN = "/workspace/vla_data_generation/llama.cpp/build/bin/llama-cli"
 DEFAULT_MODEL = "/workspace/vla_data_generation/Qwen3VL-32B-Instruct-Q4_K_M.gguf"
 DEFAULT_MMPROJ = "/workspace/vla_data_generation/mmproj-Qwen3VL-32B-Instruct-F16.gguf"
-
 
 class LlamaVisionInference:
     """Wrapper for llama.cpp multimodal inference using llama-server (HTTP API)"""
@@ -1039,10 +1056,64 @@ def process_image(image_path: str,
     # Extract driving context from CARLA data to enhance LLM prompt
     logging.debug("Extracting driving context from CARLA data...")
     driving_context = extract_driving_context(measurements, boxes_data)
-    
+
+    # Extract cause_object and scenario from CARLA data so we can build placeholders
+    cause_object, cause_object_string, cause_object_visible, scenario_name = \
+        extract_cause_object_from_measurements_and_boxes(measurements, boxes_data)
+
+    # Build placeholder dict and concise template BEFORE calling the LLM
+    placeholder = {}
+    if cause_object_string:
+        placeholder['<OBJECT>'] = cause_object_string
+
+    # Try to obtain a reliable distance from boxes data when available
+    distance_val = None
+    if boxes_data:
+        if cause_object and isinstance(cause_object, dict) and cause_object.get('distance') is not None:
+            distance_val = round(float(cause_object.get('distance')), 1)
+        else:
+            dists = [b.get('distance') for b in boxes_data if isinstance(b.get('distance', None), (int, float))]
+            if dists:
+                distance_val = round(float(min(dists)), 1)
+
+    if distance_val is not None:
+        placeholder['<DISTANCE>'] = f"{distance_val} meters"
+
+    # Create a concise template rather than echoing the full commentary
+    template_parts = []
+    if '<OBJECT>' in placeholder:
+        if '<DISTANCE>' in placeholder:
+            template_parts.append('The <OBJECT> is <DISTANCE> ahead')
+        else:
+            template_parts.append('The <OBJECT> is ahead')
+    else:
+        template_parts.append('No prominent object detected')
+
+    template_parts.append('Action: <ACTION>')
+    commentary_template = '. '.join(template_parts)
+
+    # Build a concise template list (use augmented templates if available) BEFORE calling the LLM
+    commentary_templates = [commentary_template]
+    try:
+        available_ph = set(placeholder.keys())
+        if available_ph:
+            for base_tmpl, variants in AUG_COMMENTARY_MAP.items():
+                phs = set(re.findall(r'<[A-Z_]+>', base_tmpl))
+                if phs.issubset(available_ph | set(['<ACTION>'])):
+                    for v in variants:
+                        if v not in commentary_templates:
+                            commentary_templates.append(v)
+    except Exception as e:
+        logging.debug(f"Augmentation expansion (pre-LLM) failed: {e}")
+
+    # Add templates and placeholders into driving_context so the LLM prompt can use them
+    driving_context_for_llm = dict(driving_context)
+    driving_context_for_llm['placeholders'] = placeholder
+    driving_context_for_llm['commentary_templates'] = commentary_templates
+
     # Generate commentary with llama.cpp (LLM-generated natural language)
-    logging.info("Generating commentary with llama.cpp...")
-    commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path), context=driving_context)
+    logging.info("Generating commentary with llama.cpp (guided by templates)...")
+    commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path), context=driving_context_for_llm)
     
     # Parse the LLM output to extract commentary and action
     commentary_text = commentary_raw
@@ -1120,11 +1191,49 @@ def process_image(image_path: str,
         if '<OBJECT>' in commentary_template and '<OBJECT>' not in commentary_text:
             commentary_template = commentary_template.replace('The <OBJECT> is <DISTANCE> ahead', 'Prominent object detected: <OBJECT>')
     
-    # Build final structured output (compatible with simlingo training format)
+        # After receiving LLM output, expand templates with action paraphrases (if action extracted)
+        try:
+            if action_text and BASE_ACTION_PARAPHRASES:
+                ak = None
+                t = action_text.lower()
+                if 'acceler' in t or 'speed up' in t:
+                    ak = 'accelerate'
+                elif 'slow' in t or 'decel' in t or 'brake' in t:
+                    ak = 'decelerate'
+                elif 'stop' in t:
+                    ak = 'stop_now'
+                elif 'maintain' in t or 'hold' in t or 'keep' in t:
+                    ak = 'maintain_speed'
+                elif 'remain' in t or 'stay' in t:
+                    ak = 'remain_stopped'
+                else:
+                    for key, vals in BASE_ACTION_PARAPHRASES.items():
+                        for cand in vals:
+                            if cand.lower() in t:
+                                ak = key
+                                break
+                        if ak:
+                            break
+
+                if ak and ak in BASE_ACTION_PARAPHRASES:
+                    paras = BASE_ACTION_PARAPHRASES[ak]
+                    new_templates = []
+                    for tmpl in list(commentary_templates):
+                        if '<ACTION>' in tmpl:
+                            for p in paras:
+                                cand = tmpl.replace('<ACTION>', p)
+                                if cand not in commentary_templates and cand not in new_templates:
+                                    new_templates.append(cand)
+                    commentary_templates.extend(new_templates)
+        except Exception as e:
+            logging.debug(f"Augmentation expansion (post-LLM) failed: {e}")
+
+        # Build final structured output (compatible with simlingo training format)
     structured_data = {
         'image': str(img_path),
         'commentary': commentary_text,
-        'commentary_template': commentary_template,
+            'commentary_template': commentary_template,
+            'commentary_templates': commentary_templates,
         'cause_object_visible_in_image': cause_object_visible,
         'cause_object': cause_object if cause_object else {},
         'cause_object_string': cause_object_string,
