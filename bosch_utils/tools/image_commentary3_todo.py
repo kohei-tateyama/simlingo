@@ -1092,27 +1092,12 @@ def process_image(image_path: str,
     template_parts.append('Action: <ACTION>')
     commentary_template = '. '.join(template_parts)
 
-    # Build a concise template list (use augmented templates if available) BEFORE calling the LLM
-    commentary_templates = [commentary_template]
-    try:
-        available_ph = set(placeholder.keys())
-        if available_ph:
-            for base_tmpl, variants in AUG_COMMENTARY_MAP.items():
-                phs = set(re.findall(r'<[A-Z_]+>', base_tmpl))
-                if phs.issubset(available_ph | set(['<ACTION>'])):
-                    for v in variants:
-                        if v not in commentary_templates:
-                            commentary_templates.append(v)
-    except Exception as e:
-        logging.debug(f"Augmentation expansion (pre-LLM) failed: {e}")
-
-    # Add templates and placeholders into driving_context so the LLM prompt can use them
+    # Add only minimal placeholders into driving_context for the LLM prompt
     driving_context_for_llm = dict(driving_context)
     driving_context_for_llm['placeholders'] = placeholder
-    driving_context_for_llm['commentary_templates'] = commentary_templates
 
     # Generate commentary with llama.cpp (LLM-generated natural language)
-    logging.info("Generating commentary with llama.cpp (guided by templates)...")
+    logging.info("Generating commentary with llama.cpp (using placeholders only)")
     commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path), context=driving_context_for_llm)
     
     # Parse the LLM output to extract commentary and action
@@ -1215,16 +1200,7 @@ def process_image(image_path: str,
                         if ak:
                             break
 
-                if ak and ak in BASE_ACTION_PARAPHRASES:
-                    paras = BASE_ACTION_PARAPHRASES[ak]
-                    new_templates = []
-                    for tmpl in list(commentary_templates):
-                        if '<ACTION>' in tmpl:
-                            for p in paras:
-                                cand = tmpl.replace('<ACTION>', p)
-                                if cand not in commentary_templates and cand not in new_templates:
-                                    new_templates.append(cand)
-                    commentary_templates.extend(new_templates)
+                # Do not expand paraphrases into saved outputs; keep prompt-side paraphrases disabled
         except Exception as e:
             logging.debug(f"Augmentation expansion (post-LLM) failed: {e}")
 
@@ -1233,7 +1209,8 @@ def process_image(image_path: str,
         'image': str(img_path),
         'commentary': commentary_text,
             'commentary_template': commentary_template,
-            'commentary_templates': commentary_templates,
+            # Keep saved templates minimal (only the concise placeholder template)
+            'commentary_templates': [commentary_template],
         'cause_object_visible_in_image': cause_object_visible,
         'cause_object': cause_object if cause_object else {},
         'cause_object_string': cause_object_string,
