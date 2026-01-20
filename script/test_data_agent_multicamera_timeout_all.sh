@@ -3,6 +3,10 @@
 # Test script for data_agent_multicamera.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 
+# =============================================================================
+# Getting data from a RHT using leaderboard
+# =============================================================================
+
 set -u
 
 # =============================================================================
@@ -25,16 +29,21 @@ export REPETITION="1" # mimimum
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100" # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
 
-export ROUTE_CONFIG="bench2drive220" # bench2drive220, routes_training, routes_validation (routes_town12_only, routes_devtest, routes_validation, routes_all)
+# export ROUTE_CONFIG="routes_training" 
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
+
+# export ROUTE_CONFIG="routes_validation" # (routes_town12_only, routes_devtest, routes_validation, routes_all)
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
+
+# export ROUTE_CONFIG="routes_devtest" 
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
+
+export ROUTE_CONFIG="bench2drive220"
 export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (we can use this, carla format for lua)
+# export ROUTES="/workspace/simlingo/leaderboard/data/town_maps_t7/Town05.t7" # (we can use this, carla format for lua, RHT)
 
 ## export ROUTES_SUBSET="1711, 24206" ## We can set this to run all the routes one by one
 ## Running all the routes in the ROUTES massive data collection =========================
-# Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
@@ -55,8 +64,6 @@ conda activate simlingo
 export PORT_CARLA=${PORT_CARLA:-2001}
 # Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
-
-# Color and logging helpers provided by script/common.sh (sourced earlier)
 
 # =============================================================================
 # CLEANUP FUNCTION

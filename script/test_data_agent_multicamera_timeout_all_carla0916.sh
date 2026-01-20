@@ -32,32 +32,32 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 # # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
 
-export ROUTE_CONFIG="bench2drive220_LHT" # "routes_training_LHT", "bench2drive220_LHT", routes_validation_LHT", "routes_devtest_LHT"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_training_LHT.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation_LHT.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest_LHT.xml"
-export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220_LHT.xml"
+## LHT
+# export ROUTE_CONFIG="routes_training_LHT"
+# export ROUTE_CONFIG="routes_validation_LHT"
+# export ROUTE_CONFIG="routes_devtest_LHT"
+export ROUTE_CONFIG="routes_devtest_2_LHT"
+# export ROUTE_CONFIG="bench2drive220_LHT" 
+export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
 
-# export ROUTES_SUBSET="1773" # "24206, 25378" 
-# ## Running all the routes in the ROUTES massive data collection =========================
-# # Source common helpers and derive ROUTES_SUBSET from ROUTES if not set
+export ROUTES_SUBSET="0" # "1773" # "24206, 25378" 
+## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
     info "Remember to remove the leaderboard timeout"
-    build_routes_subset # export ROUTES_SUBSET
+    # build_routes_subset # export ROUTES_SUBSET
 fi
-# ## Running all the routes in the ROUTES massive data collection =========================
+## Running all the routes in the ROUTES massive data collection =========================
 
 # Use consolidated save layout (include scenario/route_config/weather)
 export SAVE_FLAT=0
-
 # Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-1000}"
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
 
 # CARLA port (can be overridden by environment before running the script)
 export PORT_CARLA=${PORT_CARLA:-2000}
@@ -276,6 +276,91 @@ PY
     sep
 }
 
+
+# Ensure a target map is loaded in CARLA, retrying and restarting the container if necessary
+ensure_map_loaded() {
+    local target_map_short="$1"
+    local max_retries=${MAP_LOAD_RETRIES:-3}
+    local backoff=${MAP_LOAD_BACKOFF:-5}
+    local attempt=0
+
+    if [ -z "${target_map_short}" ]; then
+        return 0
+    fi
+
+    while [ $attempt -lt $max_retries ]; do
+        attempt=$((attempt + 1))
+        info "[map-load] Attempt ${attempt}/${max_retries} to pre-load ${target_map_short}"
+
+        python - <<PY
+import carla,sys,os,time,xml.etree.ElementTree as ET
+try:
+    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
+    client = carla.Client('localhost', port)
+    client.set_timeout(10.0)
+    available_maps = [m for m in client.get_available_maps()]
+    target_full = None
+    for mp in available_maps:
+        if mp.split('/')[-1] == '${target_map_short}':
+            target_full = mp
+            break
+
+    if not target_full:
+        # try case-insensitive match or substring
+        for mp in available_maps:
+            name = mp.split('/')[-1]
+            if '${target_map_short}'.lower() in name.lower():
+                target_full = mp
+                break
+
+    if not target_full:
+        # fallback to local content folder heuristic
+        local_maps_root = '/workspace/carla0916/CarlaUE4/Content/Carla/Maps'
+        local_candidate = os.path.join(local_maps_root, '${target_map_short}')
+        if os.path.exists(local_candidate):
+            target_full = f'/Game/Carla/Maps/${target_map_short}'
+
+    if not target_full:
+        print(f'ERROR_NO_MAP', end='')
+        sys.exit(2)
+
+    # attempt to load
+    client.set_timeout(180.0)
+    start = time.time()
+    world = client.load_world(target_full)
+    elapsed = time.time() - start
+    print(f'[INFO]: OK_LOADED: {target_full} : {elapsed:.1f}\n', end='')
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR:{e}', end='')
+    sys.exit(1)
+PY
+        rc=$?
+        if [ $rc -eq 0 ]; then
+            info "[map-load] ✓ Loaded ${target_map_short}"
+            return 0
+        fi
+
+        # If the python returned code 2 -> map not found; no point in restarting container
+        if [ $rc -eq 2 ]; then
+            warn "[map-load] Map ${target_map_short} not present in CARLA available maps or local content"
+            return 1
+        fi
+
+        # Otherwise, try to recover by restarting the CARLA container
+        warn "[map-load] Failed to load ${target_map_short} (attempt ${attempt}). Restarting CARLA container and retrying..."
+        sep
+        docker logs --tail 200 carla-server 2>/dev/null || true
+        stop_carla || true
+        start_carla || true
+        info "[map-load] Waiting ${backoff}s before retry..."
+        sleep ${backoff}
+    done
+
+    err "[map-load] Exhausted ${max_retries} attempts to load ${target_map_short}"
+    return 1
+}
+
 # =============================================================================
 # RUN LEADERBOARD EVALUATION (uses same leaderboard but with 0.9.16 CARLA)
 # =============================================================================
@@ -373,59 +458,7 @@ PY
         # Pre-load the correct town in CARLA to avoid timeout during route start
         if [ -n "${route_town}" ]; then
             info "Pre-loading ${route_town} in CARLA..."
-            python - <<PY
-import carla
-import sys
-import os
-import time
-try:
-    port = int(os.environ.get('PORT_CARLA', os.environ.get('PORT', '2000')))
-    client = carla.Client('localhost', port)
-    client.set_timeout(10.0)
-    
-    world = client.get_world()
-    current_map = world.get_map().name.split('/')[-1]
-    target_map_short = '${route_town}'
-    
-    if current_map != target_map_short:
-        # print(f'Switching from {current_map} to {target_map_short}...')
-        
-        # Get the actual full path from CARLA's available maps
-        available_maps = client.get_available_maps()
-        target_map_full = None
-        
-        for map_path in available_maps:
-            map_name = map_path.split('/')[-1]
-            if map_name == target_map_short:
-                target_map_full = map_path
-                break
-        
-        if not target_map_full:
-            print(f'ERROR: Could not find {target_map_short} in available maps', file=sys.stderr)
-            print(f'Available maps with paths:', file=sys.stderr)
-            for m in available_maps:
-                print(f'  {m}', file=sys.stderr)
-            sys.exit(1)
-        
-        # print(f'Using map path: {target_map_full}')
-        
-        # Use a longer timeout for map loading (Town12 is large)
-        client.set_timeout(180.0)
-        start = time.time()
-        world = client.load_world(target_map_full)
-        elapsed = time.time() - start
-        print(f'[INFO] ✓ Loaded {target_map_short} in {elapsed:.1f}s')
-        # Reset to normal timeout
-        client.set_timeout(10.0)
-    else:
-        print(f'[INFO] ✓ Already on {target_map_short}')
-except Exception as e:
-    print(f'ERROR: Failed to load ${route_town}: {e}', file=sys.stderr)
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-PY
-            if [ $? -ne 0 ]; then
+            if ! ensure_map_loaded "${route_town}"; then
                 err "Failed to pre-load ${route_town}"
                 continue
             fi
@@ -605,6 +638,7 @@ patch_multicamera_images() {
     sep
     info "Applying three-quarter layout (creates patched2*.jpg)..."
     python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter
+    # python bosch_utils/tools/batch_patch_multicamera2.py "$DATASET_PATH" --layout three_quarter --output-name 1
     local patch2_exit=$?
 
     if [ $patch1_exit -eq 0 ] && [ $patch2_exit -eq 0 ]; then

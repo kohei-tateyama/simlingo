@@ -1,6 +1,8 @@
 import carla
 import xml.etree.ElementTree as ET
 import time
+import math
+import os
 import sys
 import subprocess
 import shlex
@@ -41,54 +43,268 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
     print(f"[INFO] Connecting to CARLA at 0.9.16 {host}:{port}...")
     print(f"[INFO] Reading from RHT in {xml_path}...")
 
-    # The routes files usually contain <waypoints><position ... /></waypoints>
-    # Accept both 'position' and 'waypoint' element names for compatibility.
-    for route in root.findall('.//route'):
-        # find all position-like elements under this route
-        positions = route.findall('.//position')
-        if not positions:
-            positions = route.findall('.//waypoint')
+    # Collect unique towns referenced by the routes file and preload them once
+    towns_to_preload = set()
+    for r in root.findall('.//route'):
+        town_name = r.get('town') or r.get('map')
+        if town_name:
+            towns_to_preload.add(town_name)
 
-        for waypoint in positions:
-            # Get old RHT coordinates
-            try:
-                x = float(waypoint.get('x'))
-                y = float(waypoint.get('y'))
-                z = float(waypoint.get('z'))
-            except Exception:
-                print(f"[WARNING] Skipping waypoint without numeric coordinates: {ET.tostring(waypoint, encoding='unicode')}")
-                continue
+    if towns_to_preload:
+        print(f"[INFO] Preloading {len(towns_to_preload)} unique towns referenced by the routes file: {sorted(towns_to_preload)}")
+        available_maps = []
+        try:
+            available_maps = client.get_available_maps()
+        except Exception:
+            available_maps = []
 
-            # Find the nearest waypoint on the map
-            loc = carla.Location(x, y, z)
+        for route_town in sorted(towns_to_preload):
             try:
-                current_wp = carla_map.get_waypoint(loc)
+                # find matching full map path
+                target_map_full = None
+                for mp in available_maps:
+                    if mp.split('/')[-1] == route_town:
+                        target_map_full = mp
+                        break
+
+                if not target_map_full:
+                    # try case-insensitive or substring match
+                    for mp in available_maps:
+                        name = mp.split('/')[-1]
+                        if route_town.lower() in name.lower():
+                            target_map_full = mp
+                            break
+
+                # fallback to local content folder
+                if not target_map_full:
+                    local_maps_root = '/workspace/carla0916/CarlaUE4/Content/Carla/Maps'
+                    local_candidate = f"{local_maps_root}/{route_town}"
+                    if os.path.exists(local_candidate):
+                        candidate_path = f"/Game/Carla/Maps/{route_town}"
+                        print(f"[INFO] Found local map folder at {local_candidate}; will try {candidate_path} as load target")
+                        target_map_full = candidate_path
+
+                if not target_map_full:
+                    print(f"[WARNING] Map '{route_town}' not found among available maps or local content; skipping preload")
+                    continue
+
+                # Load the world (with extended timeout)
+                client.set_timeout(180.0)
+                start = time.time()
+                world = client.load_world(target_map_full)
+                elapsed = time.time() - start
+                print(f"[INFO] ✓ Preloaded {route_town} via {target_map_full} in {elapsed:.1f}s")
+                client.set_timeout(30.0)
             except Exception as e:
-                print(f"[WARNING] Could not get waypoint for loc ({x},{y},{z}): {e}")
-                continue
+                print(f"[WARNING] Failed to preload {route_town}: {e}")
 
-            # Prefer CARLA API method if available
-            lht_wp = None
-            if hasattr(current_wp, 'get_left_lane'):
+        # Refresh carla_map to current world
+        try:
+            carla_map = client.get_world().get_map()
+        except Exception:
+            pass
+
+    # The routes files usually contain <waypoints><position ... /></waypoints>
+    # We'll group routes by town so we can load each town once and convert all of its routes
+    routes_by_town = {}
+    routes_without_town = []
+    for route in root.findall('.//route'):
+        town = route.get('town') or route.get('map')
+        if town:
+            routes_by_town.setdefault(town, []).append(route)
+        else:
+            routes_without_town.append(route)
+
+    # Helper to resolve and load a town once
+    def _resolve_and_load_town(route_town):
+        available_maps = []
+        try:
+            available_maps = client.get_available_maps()
+        except Exception:
+            available_maps = []
+
+        target_map_full = None
+        for mp in available_maps:
+            if mp.split('/')[-1] == route_town:
+                target_map_full = mp
+                break
+        if not target_map_full:
+            for mp in available_maps:
+                name = mp.split('/')[-1]
+                if route_town.lower() in name.lower():
+                    target_map_full = mp
+                    break
+
+        if not target_map_full:
+            local_maps_root = '/workspace/carla0916/CarlaUE4/Content/Carla/Maps'
+            local_candidate = f"{local_maps_root}/{route_town}"
+            if os.path.exists(local_candidate):
+                candidate_path = f"/Game/Carla/Maps/{route_town}"
+                print(f"[INFO] Found local map folder at {local_candidate}; will try {candidate_path} as load target")
+                target_map_full = candidate_path
+
+        if not target_map_full:
+            print(f"[WARNING] Map '{route_town}' not found among available maps or local content; skipping this town")
+            return None
+
+        try:
+            client.set_timeout(180.0)
+            start = time.time()
+            world = client.load_world(target_map_full)
+            elapsed = time.time() - start
+            print(f"[INFO] ✓ Loaded {route_town} via {target_map_full} in {elapsed:.1f}s")
+            client.set_timeout(30.0)
+            return world.get_map()
+        except Exception as e:
+            print(f"[WARNING] Failed to load map {target_map_full}: {e}")
+            return None
+
+    # Process each known town: load town once, then convert all its routes
+    for town in sorted(routes_by_town.keys()):
+        print(f"[INFO] Processing {len(routes_by_town[town])} route(s) for town {town}")
+        carla_map = _resolve_and_load_town(town)
+        if carla_map is None:
+            print(f"[WARNING] Skipping routes for town {town} because map could not be loaded")
+            continue
+
+        for route in routes_by_town[town]:
+            positions = route.findall('.//position')
+            if not positions:
+                positions = route.findall('.//waypoint')
+
+            for waypoint in positions:
+                # Get old RHT coordinates
                 try:
-                    lht_wp = current_wp.get_left_lane()
+                    x = float(waypoint.get('x'))
+                    y = float(waypoint.get('y'))
+                    z = float(waypoint.get('z'))
                 except Exception:
-                    lht_wp = None
+                    print(f"[WARNING] Skipping waypoint without numeric coordinates: {ET.tostring(waypoint, encoding='unicode')}")
+                    continue
 
-            if lht_wp is None:
-                print(f"[WARNING] No left-lane waypoint found for ({x:.3f},{y:.3f}) - leaving original coords")
-                continue
+                # Find the nearest waypoint on the map
+                loc = carla.Location(x, y, z)
+                try:
+                    current_wp = carla_map.get_waypoint(loc)
+                except Exception as e:
+                    print(f"[WARNING] Could not get waypoint for loc ({x},{y},{z}): {e}")
+                    continue
 
-            # Update the XML with the new "Left-Lane" coordinates
-            waypoint.set('x', str(round(lht_wp.transform.location.x, 3)))
-            waypoint.set('y', str(round(lht_wp.transform.location.y, 3)))
-            waypoint.set('z', str(round(lht_wp.transform.location.z, 3)))
-            # Update Yaw if present in target waypoint
-            try:
-                yaw_val = round(lht_wp.transform.rotation.yaw, 3)
-                waypoint.set('yaw', str(yaw_val))
-            except Exception:
-                pass
+                # Prefer CARLA API method if available
+                lht_wp = None
+                if hasattr(current_wp, 'get_left_lane'):
+                    try:
+                        lht_wp = current_wp.get_left_lane()
+                    except Exception:
+                        lht_wp = None
+
+                # If CARLA can't provide a left-lane waypoint, compute a lateral offset as a fallback
+                if lht_wp is None:
+                    try:
+                        yaw_deg = current_wp.transform.rotation.yaw
+                        yaw_rad = math.radians(yaw_deg)
+                        left_x = -math.sin(yaw_rad)
+                        left_y = math.cos(yaw_rad)
+                        lane_offset = 3.5  # conservative lane half-width in meters
+                        new_x = current_wp.transform.location.x + left_x * lane_offset
+                        new_y = current_wp.transform.location.y + left_y * lane_offset
+                        new_z = current_wp.transform.location.z
+                        class _Tmp:
+                            class transform:
+                                location = carla.Location(new_x, new_y, new_z)
+                                rotation = current_wp.transform.rotation
+                        lht_wp = _Tmp()
+                    except Exception as e:
+                        print(f"[WARNING] No left-lane waypoint found and lateral fallback failed for ({x:.3f},{y:.3f}): {e} - leaving original coords")
+                        continue
+
+                # Update the XML with the new "Left-Lane" coordinates
+                try:
+                    lx = getattr(lht_wp.transform.location, 'x')
+                    ly = getattr(lht_wp.transform.location, 'y')
+                    lz = getattr(lht_wp.transform.location, 'z')
+                    waypoint.set('x', str(round(lx, 3)))
+                    waypoint.set('y', str(round(ly, 3)))
+                    waypoint.set('z', str(round(lz, 3)))
+                except Exception:
+                    waypoint.set('x', str(round(current_wp.transform.location.x, 3)))
+                    waypoint.set('y', str(round(current_wp.transform.location.y, 3)))
+                    waypoint.set('z', str(round(current_wp.transform.location.z, 3)))
+
+                # Update Yaw if present in target waypoint
+                try:
+                    yaw_val = round(current_wp.transform.rotation.yaw, 3)
+                    waypoint.set('yaw', str(yaw_val))
+                except Exception:
+                    pass
+
+    # Lastly, process routes that did not declare a town (attempt with current carla_map)
+    if routes_without_town:
+        print(f"[INFO] Processing {len(routes_without_town)} route(s) without an explicit town (using current world)")
+        for route in routes_without_town:
+            positions = route.findall('.//position')
+            if not positions:
+                positions = route.findall('.//waypoint')
+
+            for waypoint in positions:
+                try:
+                    x = float(waypoint.get('x'))
+                    y = float(waypoint.get('y'))
+                    z = float(waypoint.get('z'))
+                except Exception:
+                    print(f"[WARNING] Skipping waypoint without numeric coordinates: {ET.tostring(waypoint, encoding='unicode')}")
+                    continue
+
+                loc = carla.Location(x, y, z)
+                try:
+                    current_wp = carla_map.get_waypoint(loc)
+                except Exception as e:
+                    print(f"[WARNING] Could not get waypoint for loc ({x},{y},{z}): {e}")
+                    continue
+
+                lht_wp = None
+                if hasattr(current_wp, 'get_left_lane'):
+                    try:
+                        lht_wp = current_wp.get_left_lane()
+                    except Exception:
+                        lht_wp = None
+
+                if lht_wp is None:
+                    try:
+                        yaw_deg = current_wp.transform.rotation.yaw
+                        yaw_rad = math.radians(yaw_deg)
+                        left_x = -math.sin(yaw_rad)
+                        left_y = math.cos(yaw_rad)
+                        lane_offset = 3.5
+                        new_x = current_wp.transform.location.x + left_x * lane_offset
+                        new_y = current_wp.transform.location.y + left_y * lane_offset
+                        new_z = current_wp.transform.location.z
+                        class _Tmp:
+                            class transform:
+                                location = carla.Location(new_x, new_y, new_z)
+                                rotation = current_wp.transform.rotation
+                        lht_wp = _Tmp()
+                    except Exception as e:
+                        print(f"[WARNING] No left-lane waypoint found and lateral fallback failed for ({x:.3f},{y:.3f}): {e} - leaving original coords")
+                        continue
+
+                try:
+                    lx = getattr(lht_wp.transform.location, 'x')
+                    ly = getattr(lht_wp.transform.location, 'y')
+                    lz = getattr(lht_wp.transform.location, 'z')
+                    waypoint.set('x', str(round(lx, 3)))
+                    waypoint.set('y', str(round(ly, 3)))
+                    waypoint.set('z', str(round(lz, 3)))
+                except Exception:
+                    waypoint.set('x', str(round(current_wp.transform.location.x, 3)))
+                    waypoint.set('y', str(round(current_wp.transform.location.y, 3)))
+                    waypoint.set('z', str(round(current_wp.transform.location.z, 3)))
+
+                try:
+                    yaw_val = round(current_wp.transform.rotation.yaw, 3)
+                    waypoint.set('yaw', str(yaw_val))
+                except Exception:
+                    pass
 
     # 3. Save the new LHT-ready XML (write declaration and UTF-8)
     tree.write(output_path, encoding='utf-8', xml_declaration=True)
@@ -131,6 +347,8 @@ if __name__ == "__main__":
             "--env", "NVIDIA_VISIBLE_DEVICES=all",
             "--env", "NVIDIA_DRIVER_CAPABILITIES=all",
             "-v", "/workspace/simlingo/carla_logs:/workspace/CarlaUE4/Saved/Logs",
+            # Mount local Carla content so imported maps (e.g., Town12) are visible inside container
+            "-v", "/workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro",
             image,
             "bash", "-c", "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=2000 -carla-rpc-port=2000 -log"
         ]
@@ -202,7 +420,7 @@ if __name__ == "__main__":
     try:
         for i in name_files:
             in_path = name_folder + i + format
-            out_path = name_folder + i + new + format
+            out_path = name_folder + i + '_2' + new + format
             print(f"[INFO] Converting {in_path} -> {out_path}")
             shift_route_to_lht(in_path, out_path)
     finally:

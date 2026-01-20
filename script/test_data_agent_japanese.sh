@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# =============================================================================
+# Deprecated from test_data_agent_japanese_timeout_all.sh 
+# =============================================================================
+
 # Test script for data_agent_japanese.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 

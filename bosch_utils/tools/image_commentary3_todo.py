@@ -74,15 +74,20 @@ python /workspace/simlingo/bosch_utils/tools/image_commentary3_todo.py \
     
     /media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo/training_3_scenarios/routes_devtest/test_clear_noon/Town03_Rep0_0_route0_01_09_18_33_37/rgb/0000/patched2_nuscenes.jpg -v
 
-[USED]
+[USED] ~ 15% GPU
 python bosch_utils/tools/image_commentary3_todo.py \
   "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
   --recursive -v
   
-  
+[USED] ~ 25% GPU
 python bosch_utils/tools/image_commentary3_todo.py \
   "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
   --recursive --n-gpu-layers 32 --threads 12 --ctx-size 8192 -v
+
+[] ~ () % GPU
+python bosch_utils/tools/image_commentary3_todo.py \
+  "/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_/training_3_scenarios/bench2drive220_LHT/random_weather_seed_42_balanced_100/Town12_Rep1_route1773_01_19_16_09_59/rgb" \
+  --recursive --n-gpu-layers 100 --threads 16 --ctx-size 8192 --predict 512 -v
 
 """
 
@@ -123,7 +128,8 @@ class LlamaVisionInference:
                  ctx_size: int = 4096, # 8192
                  n_gpu_layers: int = 16, # 32
                  predict_tokens: int = 512,
-                 server_port: int = 8081):
+                 server_port: int = 8081,
+                 restart_server: bool = False):
         
         self.llama_bin = llama_bin
         self.model_path = model_path
@@ -135,6 +141,7 @@ class LlamaVisionInference:
         self.server_port = server_port
         self.server_url = f"http://127.0.0.1:{server_port}"
         self.server_process = None
+        self.restart_server = restart_server
         
         # Use llama-server instead of llama-cli
         server_bin = Path(llama_bin).parent / "llama-server"
@@ -286,13 +293,58 @@ Be specific about object colors, positions, and distances. Use the provided driv
         """Start llama-server in background if not already running"""
         import urllib.request
         import signal
-        
         # Check if server already running
         try:
             req = urllib.request.Request(f"{self.server_url}/health", method='GET')
             urllib.request.urlopen(req, timeout=2)
             logging.info(f"Server already running at {self.server_url}")
-            return
+
+            if self.restart_server:
+                logging.info("Restart requested: attempting to stop existing server...")
+                # Try to find process listening on the server port and terminate it
+                try:
+                    # Use lsof to find PID(s)
+                    out = subprocess.check_output(['lsof', '-t', f'-i:{self.server_port}'], stderr=subprocess.DEVNULL)
+                    pids = [int(x) for x in out.decode('utf-8').split() if x.strip()]
+                except Exception:
+                    pids = []
+
+                # Fallback: try ss parsing
+                if not pids:
+                    try:
+                        out = subprocess.check_output(['ss', '-ltnp'], stderr=subprocess.DEVNULL).decode('utf-8')
+                        for line in out.splitlines():
+                            if f":{self.server_port} " in line or f":{self.server_port}\n" in line:
+                                m = re.search(r'pid=(\d+),', line)
+                                if m:
+                                    pids.append(int(m.group(1)))
+                    except Exception:
+                        pass
+
+                # Kill found pids
+                for pid in set(pids):
+                    try:
+                        logging.info(f"Terminating pid {pid} listening on port {self.server_port}")
+                        os.kill(pid, signal.SIGTERM)
+                    except Exception:
+                        try:
+                            subprocess.run(['kill', '-9', str(pid)])
+                        except Exception:
+                            logging.debug(f"Failed to kill pid {pid}")
+
+                # Wait until server health endpoint is gone
+                for i in range(20):
+                    try:
+                        time.sleep(0.5)
+                        req = urllib.request.Request(f"{self.server_url}/health", method='GET')
+                        urllib.request.urlopen(req, timeout=1)
+                    except:
+                        logging.info("Existing server stopped")
+                        break
+                else:
+                    logging.warning("Existing server did not stop within timeout; continuing to start new server")
+            else:
+                return
         except:
             pass
         
@@ -473,6 +525,212 @@ def load_measurements_for_frame(image_path: str) -> Dict:
     except Exception as e:
         logging.warning(f"Failed to load measurements data: {e}")
         return {}
+
+
+def _list_dataset_dirs_for_debug(image_path: str, max_list: int = 8) -> Dict[str, List[str]]:
+    """
+    Helper to inspect nearby dataset folders (boxes, measurements) for debugging.
+    Returns dict with small listings (first `max_list` entries) for quick checks.
+    """
+    try:
+        img_path = Path(image_path)
+        rgb_parent = img_path.parent if img_path.parent.name == 'rgb' else img_path.parent.parent
+        dataset_root = rgb_parent.parent
+
+        boxes_dir = dataset_root / 'boxes'
+        measurements_dir = dataset_root / 'measurements'
+
+        result = {'boxes': [], 'measurements': []}
+
+        if boxes_dir.exists() and boxes_dir.is_dir():
+            result['boxes'] = [p.name for p in sorted(boxes_dir.iterdir())[:max_list]]
+        if measurements_dir.exists() and measurements_dir.is_dir():
+            result['measurements'] = [p.name for p in sorted(measurements_dir.iterdir())[:max_list]]
+
+        return result
+    except Exception as e:
+        logging.debug(f"_list_dataset_dirs_for_debug failed: {e}")
+        return {'boxes': [], 'measurements': []}
+
+
+def _load_measurements_by_frame(dataset_root: Path, frame_num_str: str) -> Dict:
+    """Load measurements file directly given dataset root and frame string (e.g., '0010')."""
+    try:
+        measurements_dir = dataset_root / 'measurements'
+        meas_file = measurements_dir / f"{frame_num_str}.json.gz"
+        if not meas_file.exists():
+            logging.debug(f"Measurements file not found for frame {frame_num_str}: {meas_file}")
+            return {}
+        with gzip.open(meas_file, 'rt', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.debug(f"_load_measurements_by_frame failed: {e}")
+        return {}
+
+
+def _extract_steering_and_time_from_measurements(meas: Dict) -> Tuple[Optional[float], Optional[float]]:
+    """Try to extract a steering angle (radians) and timestamp (seconds) from measurements dict.
+
+    Returns (steering_rad, timestamp_seconds) or (None, None) if unavailable.
+    Accepts normalized steer (-1..1) and converts to wheel radians using prior project scale.
+    """
+    if not meas:
+        return None, None
+
+    # Candidate steering keys (try in order)
+    steer_keys = ['steer', 'steering', 'steering_wheel_angle', 'steer_wheel_angle', 'steer_angle']
+    steer_val = None
+    for k in steer_keys:
+        if k in meas and meas[k] is not None:
+            steer_val = meas[k]
+            break
+
+    if steer_val is None:
+        return None, None
+
+    try:
+        s = float(steer_val)
+    except Exception:
+        return None, None
+
+    # If value looks like normalized steer (-1..1), convert to wheel radians
+    # Use conversion: steer_wheel_rad = steer_norm * 0.36848336 (project constant)
+    if -1.1 <= s <= 1.1:
+        steering_rad = s * 0.36848336
+    else:
+        # Otherwise assume it's already in radians or degrees
+        if abs(s) > 3.5:
+            # probably degrees
+            steering_rad = float(s) * (np.pi / 180.0)
+        else:
+            steering_rad = float(s)
+
+    # Timestamp extraction: try common keys
+    time_keys = ['timestamp', 'time', 'frame_time', 'sim_time']
+    t = None
+    for k in time_keys:
+        if k in meas and meas[k] is not None:
+            try:
+                t = float(meas[k])
+                break
+            except Exception:
+                continue
+
+    return steering_rad, t
+
+
+def compute_angular_acceleration(theta_prev, t_prev, theta_mid, t_mid, theta_next, t_next):
+    """Compute angular acceleration (rad/s^2) from three steering angle/time samples."""
+    dt1 = t_mid - t_prev
+    dt2 = t_next - t_mid
+    if dt1 <= 0 or dt2 <= 0:
+        raise ValueError("Non-positive frame time delta")
+    w0 = (theta_mid - theta_prev) / dt1
+    w1 = (theta_next - theta_mid) / dt2
+    dt_avg = 0.5 * (dt1 + dt2)
+    alpha = (w1 - w0) / dt_avg
+    return alpha
+
+
+# Qualitative bins (center, tolerance)
+QUAL_BINS = {
+    "sharp_left": (-0.8, 0.4),   # widened per user request
+    "left": (-0.30, 0.15),
+    "slight_left": (-0.12, 0.08),
+    "straight": (0.00, 0.06),
+    "slight_right": (0.12, 0.08),
+    "right": (0.30, 0.15),
+    "sharp_right": (0.60, 0.20),
+}
+
+
+def map_text_to_qualitative_label(text: str) -> Optional[str]:
+    if not text:
+        return None
+    t = text.lower()
+    # check in order of specificity
+    if 'sharp left' in t or 'hard left' in t:
+        return 'sharp_left'
+    if 'sharp right' in t or 'hard right' in t:
+        return 'sharp_right'
+    if 'slight left' in t or 'slightly left' in t or 'gentle left' in t:
+        return 'slight_left'
+    if 'slight right' in t or 'slightly right' in t or 'gentle right' in t:
+        return 'slight_right'
+    if 'left' in t and 'slight' not in t and 'sharp' not in t:
+        return 'left'
+    if 'right' in t and 'slight' not in t and 'sharp' not in t:
+        return 'right'
+    if 'straight' in t or 'go straight' in t or 'keep straight' in t:
+        return 'straight'
+    return None
+
+
+def verify_qualitative_label_for_image(image_path: str, label: str) -> Optional[Dict]:
+    """Attempt to verify a qualitative label using the three-frame measurements window.
+
+    Returns a dict with fields: alpha, center, tol, matches, and source_frames, or None if verification not possible.
+    """
+    try:
+        img_path = Path(image_path)
+        # Determine dataset root and frame number
+        if img_path.parent.name == 'rgb':
+            frame_num_str = img_path.stem
+            rgb_parent = img_path.parent
+        else:
+            frame_num_str = img_path.parent.name
+            rgb_parent = img_path.parent.parent
+
+        dataset_root = rgb_parent.parent
+
+        # Parse frame number preserving zero-padding
+        try:
+            width = len(frame_num_str)
+            frame_idx = int(frame_num_str)
+        except Exception:
+            logging.debug("Non-numeric frame id; cannot verify qualitative label")
+            return None
+
+        prev_idx = frame_idx - 1
+        next_idx = frame_idx + 1
+        prev_str = str(prev_idx).zfill(width)
+        next_str = str(next_idx).zfill(width)
+
+        meas_prev = _load_measurements_by_frame(dataset_root, prev_str)
+        meas_mid = _load_measurements_by_frame(dataset_root, frame_num_str)
+        meas_next = _load_measurements_by_frame(dataset_root, next_str)
+
+        if not meas_prev or not meas_mid or not meas_next:
+            logging.debug("Missing measurements for three-frame window; skipping verification")
+            return None
+
+        theta_prev, t_prev = _extract_steering_and_time_from_measurements(meas_prev)
+        theta_mid, t_mid = _extract_steering_and_time_from_measurements(meas_mid)
+        theta_next, t_next = _extract_steering_and_time_from_measurements(meas_next)
+
+        if None in (theta_prev, theta_mid, theta_next) or None in (t_prev, t_mid, t_next):
+            logging.debug("Insufficient steering/time data to compute angular acceleration")
+            return None
+
+        alpha = compute_angular_acceleration(theta_prev, t_prev, theta_mid, t_mid, theta_next, t_next)
+
+        if label not in QUAL_BINS:
+            logging.debug(f"Label {label} not in QUAL_BINS")
+            return None
+
+        center, tol = QUAL_BINS[label]
+        matches = (center - tol) <= alpha <= (center + tol)
+
+        return {
+            'alpha': alpha,
+            'center': center,
+            'tol': tol,
+            'matches': bool(matches),
+            'frames': {'prev': prev_str, 'mid': frame_num_str, 'next': next_str}
+        }
+    except Exception as e:
+        logging.debug(f"verify_qualitative_label_for_image failed: {e}")
+        return None
 
 
 def load_boxes_for_frame(image_path: str) -> List[Dict]:
@@ -798,27 +1056,69 @@ def process_image(image_path: str,
         commentary_text = commentary_raw.split("Commentary:", 1)[1].strip()
     
     # Extract cause_object and scenario from CARLA data (following carla_commentary_generator.py logic)
+    # Log a small listing of dataset boxes/measurements for debugging and verification
+    listing = _list_dataset_dirs_for_debug(str(img_path))
+    logging.debug(f"Nearby dataset folders (sample): boxes={listing.get('boxes')} measurements={listing.get('measurements')}")
+
     cause_object, cause_object_string, cause_object_visible, scenario_name = \
         extract_cause_object_from_measurements_and_boxes(measurements, boxes_data)
     
-    # Build placeholder dict and template
+    # Build placeholder dict and concise template
     placeholder = {}
-    commentary_template = commentary_text
-    
-    if cause_object_string and cause_object_string in commentary_text:
+    # prefer using boxes-derived cause object and distances for templates to avoid LLM hallucination
+    if cause_object_string:
         placeholder['<OBJECT>'] = cause_object_string
-        commentary_template = commentary_text.replace(cause_object_string, '<OBJECT>')
+
+    # Try to obtain a reliable distance from boxes data when available
+    distance_val = None
+    if boxes_data:
+        # If cause_object was found in boxes, use its reported distance
+        if cause_object and isinstance(cause_object, dict) and cause_object.get('distance') is not None:
+            distance_val = round(float(cause_object.get('distance')), 1)
+        else:
+            # fallback: take closest vehicle distance
+            dists = [b.get('distance') for b in boxes_data if isinstance(b.get('distance', None), (int, float))]
+            if dists:
+                distance_val = round(float(min(dists)), 1)
+
+    if distance_val is not None:
+        placeholder['<DISTANCE>'] = f"{distance_val} meters"
+
+    # Create a concise template rather than echoing the full commentary
+    # Template focuses on the main observation and action placeholders
+    template_parts = []
+    if '<OBJECT>' in placeholder:
+        if '<DISTANCE>' in placeholder:
+            template_parts.append('The <OBJECT> is <DISTANCE> ahead')
+        else:
+            template_parts.append('The <OBJECT> is ahead')
+    else:
+        # No reliable object detected in boxes: generic scene statement
+        template_parts.append('No prominent object detected')
+
+    template_parts.append('Action: <ACTION>')
+    commentary_template = '. '.join(template_parts)
     
-    # Extract distance placeholders (e.g., "in 15.3 meters" -> "in <DISTANCE>")
-    distance_patterns = [
-        r'in -?\d+\.\d+ meters',
-        r'at -?\d+\.\d+ meters',
-    ]
-    for pattern in distance_patterns:
-        match = re.search(pattern, commentary_text)
-        if match:
-            placeholder['<DISTANCE>'] = match.group(0)
-            commentary_template = re.sub(pattern, lambda m: m.group(0).split()[0] + ' <DISTANCE>', commentary_template)
+    # If the LLM mentions a distance but we already have a boxes-derived <DISTANCE>, prefer boxes value
+    if '<DISTANCE>' not in placeholder:
+        distance_patterns = [
+            r'in -?\d+\.\d+ meters',
+            r'at -?\d+\.\d+ meters',
+        ]
+        for pattern in distance_patterns:
+            match = re.search(pattern, commentary_text)
+            if match:
+                placeholder['<DISTANCE>'] = match.group(0)
+                break
+
+    # Ensure the template and commentary differ: replace concrete mentions in template with placeholders
+    if cause_object_string and cause_object_string in commentary_text:
+        # comment: template already uses <OBJECT>
+        pass
+    else:
+        # If template contains <OBJECT> but LLM didn't mention it, keep template generic
+        if '<OBJECT>' in commentary_template and '<OBJECT>' not in commentary_text:
+            commentary_template = commentary_template.replace('The <OBJECT> is <DISTANCE> ahead', 'Prominent object detected: <OBJECT>')
     
     # Build final structured output (compatible with simlingo training format)
     structured_data = {
@@ -906,6 +1206,7 @@ def process_image(image_path: str,
     return structured_data, str(out_path)
 
 
+
 def process_directory(dir_path: str,
                       llama_inference: LlamaVisionInference,
                       recursive: bool = False,
@@ -988,6 +1289,8 @@ Examples:
     parser.add_argument('--output-dir', '-o', help='Custom output directory for commentary files')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--verify-qualitative', action='store_true', help='Attempt to verify qualitative Action labels using three-frame steering history')
+    parser.add_argument('--restart-server', action='store_true', help='If a llama-server is already running on the port, terminate and restart it with the requested flags')
 
     args = parser.parse_args(argv[1:])
 
@@ -1008,6 +1311,7 @@ Examples:
             ctx_size=args.ctx_size,
             n_gpu_layers=args.n_gpu_layers,
             predict_tokens=args.predict,
+            restart_server=args.restart_server,
         )
     except FileNotFoundError as e:
         logging.error(f"Setup failed: {e}")
@@ -1019,11 +1323,29 @@ Examples:
 
     if input_path.is_file():
         # Process single image
-        _, out_path = process_image(
+        structured, out_path = process_image(
             str(input_path), 
             llama_inference,
             output_dir=args.output_dir
         )
+
+        # If verification requested, map Action text to qualitative label and verify
+        if args.verify_qualitative:
+            action_text_local = structured.get('action', '')
+            qlabel = map_text_to_qualitative_label(action_text_local)
+            if qlabel:
+                ver = verify_qualitative_label_for_image(str(input_path), qlabel)
+                structured['qualitative_verification'] = {'requested_label': qlabel, 'verification': ver}
+            else:
+                structured['qualitative_verification'] = {'requested_label': None, 'verification': None}
+
+            # Try to re-write the output file with verification appended
+            try:
+                with gzip.open(out_path, 'wt', encoding='utf-8') as f:
+                    json.dump(structured, f, indent=2, ensure_ascii=False)
+            except Exception:
+                logging.debug("Could not re-write structured output with verification results")
+
         logging.info(f"✓ Successfully processed: {out_path}")
         return 0
 
@@ -1070,7 +1392,25 @@ Examples:
         results = []
         for img_path in images_to_process:
             try:
-                _, out_path = process_image(str(img_path), llama_inference, output_dir=args.output_dir)
+                structured, out_path = process_image(str(img_path), llama_inference, output_dir=args.output_dir)
+
+                # If verification requested, map Action text to qualitative label and verify
+                if args.verify_qualitative:
+                    action_text_local = structured.get('action', '')
+                    qlabel = map_text_to_qualitative_label(action_text_local)
+                    if qlabel:
+                        ver = verify_qualitative_label_for_image(str(img_path), qlabel)
+                        structured['qualitative_verification'] = {'requested_label': qlabel, 'verification': ver}
+                    else:
+                        structured['qualitative_verification'] = {'requested_label': None, 'verification': None}
+
+                    # Overwrite saved structured JSON with appended verification if needed
+                    try:
+                        with gzip.open(out_path, 'wt', encoding='utf-8') as f:
+                            json.dump(structured, f, indent=2, ensure_ascii=False)
+                    except Exception:
+                        logging.debug("Could not re-write structured output with verification results")
+
                 results.append((str(img_path), out_path, None))
             except Exception as e:
                 logging.error(f"Failed to process {img_path}: {e}")

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# =============================================================================
+# This is an hardocded version that I has been replaced from carla 0.9.16 
+# =============================================================================
+
 # Test script for data_agent_japanese.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 
@@ -16,7 +20,6 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 
 
 # Data collection settings
-# export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_japanese.py
 export TEAM_CONFIG="data_collection"
@@ -27,7 +30,6 @@ export REPETITION="1" # "0"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export ROUTE_CONFIG="routes_devtest"        # (routes_town12_only, routes_devtest, routes_validation, routes_all)
 export WEATHER_CONFIG="test_clear_noon"     # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
-# export ROUTES_SUBSET="5,6,7,8"  # "0,1,2,3,4,5,6,7,8,9" 
 export FLIP_INFRASTRUCTURE="1"
 export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"

@@ -12,6 +12,7 @@ The folder contains an subone, namely `/tools/`, that contains keys task for col
 - `tools/open_gz.py`: Helpers for reading and summarizing json.gz file used from simlingo collected from the CARLA-based collector. 
 - `tools/compare_structure.py`: Utilities to compare the structure of our data collection and the one from similingo.
 - `tools/imgs_features.py`: Lists the imgs features exposing the difference between the imgs we recorded and the one from simlingo. 
+- `/tools/convert_simlingo_xml_to_lht.py`: Converts the RHT into LHT. Origianlly wrote for the leaderborder folder but it can be easily adapted.
 - `tools/patch_multicamera.py`: Patched on a canvas rthe 6 images.
 - `tools/augment_rgb_dataset.py`: [UNUSED] Function to augument the images from `rgb` creating the `rgb_augmented` folder. This function uses classic methods for changing the colors on the img. 
 - `tool/gaussian_spatter_todo.py`: [UNUSED] Impleents a wannabe guassian splatter method but the imgs are way too rare at the moment. Thsi just compact the 6 imgs onto the cavas similarly as the `tools/patch_multicamera.py`.
@@ -45,6 +46,7 @@ The folder contains an subone, namely `/tools/`, that contains keys task for col
 - `script/how_to_run_headless2_script.sh` run the simlingo agent headless. 
 - `script/run_carla_mp_viz_pilot_script.sh` [UNUSED] similar to `script/run_carla_mp_pilot_script.sh` but spawn the city and the car.
 
+**This has been written before carla 0.9.16 thsat is the soa at the moment**
 [Example]: 
 ```bash
 bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 40 --route urban --autopilot-long --spawn-index 10 --weather ClearNoon

@@ -442,7 +442,9 @@ done
     - One-liner for opening multiple `.jpg` from the `rgb/` folder
     `for ((i=0;i<=119;i+=10)); do a=$(printf "%04d" "$i"); b=$(printf "%04d" "$((i+10))"); code "$a/F.jpg" && code "$b/F.jpg"; done`
 
-    `tot=1000; step=$(( tot / 10 )); [ $step -lt 1 ] && step=1; for ((i=0;i<=tot;i+=step)); do a=$(printf "%04d" "$i"); j=$(( i+step )); if [ $j -gt $tot ]; then j=$tot; fi; b=$(printf "%04d" "$j"); code "${a}/patched2.jpg" && code "${b}/patched2.jpg"; done`
+    ```bash
+    tot=1000; step=$(( tot / 10 )); [ $step -lt 1 ] && step=1; for ((i=0;i<=tot;i+=step)); do a=$(printf "%04d" "$i"); j=$(( i+step )); if [ $j -gt $tot ]; then j=$tot; fi; b=$(printf "%04d" "$j"); code "${a}/patched2.jpg" && code "${b}/patched2.jpg"; done
+    ```
 
     - One-liner to count the elements inside any folder 
     `find . -mindepth 1 -maxdepth 1 | wc -l`
