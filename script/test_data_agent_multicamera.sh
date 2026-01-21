@@ -3,6 +3,10 @@
 # Test script for data_agent_multicamera.py - based on data_agent.py - with leaderboard evaluation
 # Based on script/run_carla_mp_pilot_script.sh
 
+# =============================================================================
+# Deprecated
+# =============================================================================
+
 set -u
 
 # =============================================================================
@@ -23,11 +27,10 @@ export TEAM_CONFIG="data_collection"
 export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_right_drive
 # export SAVE_PATH=/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="0" # "3"
+export REPETITION="1" # "3"
 export SCENARIO_NAME="training_3_scenarios" # (test_town12, validation_1_scenario, training_3_scenarios, training_full)
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100" # (random_weather_seed_3_balanced_100, clear_noon, clear_sunset, rainy_night, balanced_weather_variations)
-
-export ROUTES_SUBSET="0" # "0,1,2,3,4,5,6,7,8,9" # (remove --routes)--> not sure what does this mean 
+export ROUTES_SUBSET="0"  
 
 export ROUTE_CONFIG="bench2drive220" # bench2drive220, routes_training, routes_validation (routes_town12_only, routes_devtest, routes_validation, routes_all)
 # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"

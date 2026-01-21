@@ -1,6 +1,6 @@
 # Base recording output directory (keeps existing behavior)
-# RECORDING_OUTPUT_DIR: /workspace/simlingo/recording_japan_xml
-RECORDING_OUTPUT_DIR: /media/external_ssd # this is the Kohei ssd we canb use 4 TB
+RECORDING_OUTPUT_DIR: /workspace/simlingo/recording_japan_xml
+# RECORDING_OUTPUT_DIR: /media/external_ssd # this is the Kohei ssd we canb use 4 TB
 NEW_SIMLINGO_MATCH: /workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo
 DEFAULT_RUN_DIR: /workspace/simlingo/recording_japan_xml/database/simlingo_v3_2026_01_01/auto_long_multicam_jp/training_Town13_scenario/routes_highway_duration_20_training/SoftRainNight_weather/ego_43
 # Default comparison folders (used by comparison tools)

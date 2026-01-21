@@ -1204,13 +1204,38 @@ def process_image(image_path: str,
         except Exception as e:
             logging.debug(f"Augmentation expansion (post-LLM) failed: {e}")
 
-        # Build final structured output (compatible with simlingo training format)
-    structured_data = {
+    # structured_data = {
+    #     'image': str(img_path),
+    #     'commentary': commentary_text,
+    #     'commentary_template': commentary_template,
+    #     'cause_object_visible_in_image': cause_object_visible,
+    #     'cause_object': cause_object if cause_object else {},
+    #     'cause_object_string': cause_object_string,
+    #     'scenario_name': scenario_name if scenario_name else 'Unknown',
+    #     'placeholder': placeholder,
+    #     'provenance': {
+    #         'generator': 'image_commentary3_todo.py',
+    #         'llama_model': llama_metadata.get('model'),
+    #         'n_gpu_layers': llama_metadata.get('n_gpu_layers'),
+    #         'generated_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    #         'measurements_available': bool(measurements),
+    #         'boxes_count': len(boxes_data),
+    #     }
+    # }
+    # # Add action if extracted
+    # if action_text:
+    #     structured_data['action'] = action_text
+        
+        structured_data = {
         'image': str(img_path),
         'commentary': commentary_text,
-            'commentary_template': commentary_template,
-            # Keep saved templates minimal (only the concise placeholder template)
-            'commentary_templates': [commentary_template],
+        'commentary_template': commentary_template,
+    }
+
+    if action_text:
+        structured_data['action'] = action_text
+
+    structured_data.update({
         'cause_object_visible_in_image': cause_object_visible,
         'cause_object': cause_object if cause_object else {},
         'cause_object_string': cause_object_string,
@@ -1224,11 +1249,7 @@ def process_image(image_path: str,
             'measurements_available': bool(measurements),
             'boxes_count': len(boxes_data),
         }
-    }
-    
-    # Add action if extracted
-    if action_text:
-        structured_data['action'] = action_text
+    })
     
     # Determine output path
     if output_dir:

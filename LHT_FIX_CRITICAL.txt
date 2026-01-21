@@ -1,0 +1,49 @@
+==============================================================================
+CRITICAL FIX: Left-Hand Traffic Not Working
+==============================================================================
+
+PROBLEM:
+--------
+Even with metadata in XML and route parser updates, LHT still didn't work.
+The leaderboard logs showed "> Configuring LEFT-HAND traffic" but vehicles
+were still driving on the right side.
+
+ROOT CAUSE:
+-----------
+**WRONG:** `self.traffic_manager.global_lane_offset = -3.5` (attribute assignment)
+**CORRECT:** `self.traffic_manager.global_lane_offset(-3.5)` (method call)
+
+The Traffic Manager's `global_lane_offset` is a METHOD, not an attribute!
+
+FIXED IN:
+---------
+✓ leaderboard/leaderboard/leaderboard_evaluator.py (line ~276)
+✓ leaderboard/leaderboard/leaderboard_evaluator_local.py (line ~291)
+
+Changed from:
+  self.traffic_manager.global_lane_offset = lane_offset
+
+To:
+  self.traffic_manager.global_lane_offset(float(lane_offset))
+
+NOW IT WILL WORK:
+-----------------
+1. Run your test script (no need to regenerate XML):
+   bash script/test_data_agent_multicamera_timeout_all_carla0916.sh
+
+2. You should see in the leaderboard log:
+   "> Configuring LEFT-HAND traffic (lane_offset=-3.5)"
+
+3. ALL vehicles (ego + NPC) will now drive on the LEFT side!
+
+VERIFICATION:
+-------------
+Check logs for the message:
+  grep "LEFT-HAND" leaderboard_logs/route_*.log
+
+Then observe in-game:
+  - Ego vehicle drives on LEFT
+  - NPC vehicles drive on LEFT
+  - Traffic follows UK/Japan rules
+
+==============================================================================

@@ -274,10 +274,10 @@ class LeaderboardEvaluator(object):
                 lane_offset = getattr(config, 'lane_offset', -3.5)
                 print(f"\033[1m> Configuring LEFT-HAND traffic (lane_offset={lane_offset})\033[0m")
                 self.traffic_manager.set_global_distance_to_leading_vehicle(2.5)
-                self.traffic_manager.global_lane_offset = lane_offset
+                self.traffic_manager.global_lane_offset(float(lane_offset))
             elif hasattr(config, 'lane_offset') and config.lane_offset != 0.0:
                 print(f"\033[1m> Configuring custom lane offset: {config.lane_offset}\033[0m")
-                self.traffic_manager.global_lane_offset = config.lane_offset
+                self.traffic_manager.global_lane_offset(float(config.lane_offset))
             else:
                 # Reset to default RHT (right-hand traffic)
                 self.traffic_manager.global_lane_offset = 0.0
