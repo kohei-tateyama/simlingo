@@ -54,6 +54,13 @@ class RouteParser(object):
 
         route_configs = []
         tree = ET.parse(route_filename)
+        ## Added
+        root = tree.getroot()
+        
+        # Parse LHT metadata from root element (if present)
+        global_traffic_rules = root.get('traffic_rules', 'right_hand')  # default to RHT
+        global_lane_offset = float(root.get('lane_offset', '0.0'))
+        ## Added
         for route in tree.iter("route"):
 
             route_id = route.attrib['id']
@@ -64,6 +71,11 @@ class RouteParser(object):
             route_config.town = route.attrib['town']
             route_config.name = "RouteScenario_{}".format(route_id)
             route_config.weather = RouteParser.parse_weather(route)
+            ## Added
+            # Set traffic rules and lane offset from global config or route-specific override
+            route_config.traffic_rules = route.attrib.get('traffic_rules', global_traffic_rules)
+            route_config.lane_offset = float(route.attrib.get('lane_offset', str(global_lane_offset)))
+            ## Added
 
             # The list of carla.Location that serve as keypoints on this route
             positions = []

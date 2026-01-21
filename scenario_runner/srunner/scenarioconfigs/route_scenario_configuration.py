@@ -50,3 +50,7 @@ class RouteScenarioConfiguration(ScenarioConfiguration):
         super(RouteScenarioConfiguration, self).__init__()
         self.keypoints = None
         self.scenario_configs = []
+        ## Added
+        self.traffic_rules = 'right_hand'  # Default to right-hand traffic
+        self.lane_offset = 0.0  # Default lane offset (0 for RHT)
+        ## Added

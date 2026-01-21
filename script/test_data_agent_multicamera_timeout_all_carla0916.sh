@@ -34,16 +34,16 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 
 ## LHT
 # export ROUTE_CONFIG="routes_training_LHT"
-export ROUTE_CONFIG="routes_training_2_LHT"
+# export ROUTE_CONFIG="routes_training_2_LHT"
 # export ROUTE_CONFIG="routes_validation_LHT"
 # export ROUTE_CONFIG="routes_devtest_LHT"
 # export ROUTE_CONFIG="routes_devtest_2_LHT"
 # export ROUTE_CONFIG="bench2drive220_LHT" 
-# export ROUTE_CONFIG="bench2drive220_2_LHT" 
+export ROUTE_CONFIG="bench2drive220_2_LHT" 
 
 export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
 
-export ROUTES_SUBSET="1" # "1773" # "24206, 25378" 
+export ROUTES_SUBSET="24206" # "1773" # "24206, 25378" 
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
@@ -630,9 +630,9 @@ patch_multicamera_images() {
 
     cd /workspace/simlingo || return 1
 
-    sep
-    info "Applying geometric layout (creates patched.jpg)..."
-    python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
+    # sep
+    # info "Applying geometric layout (creates patched.jpg)..."
+    # python bosch_utils/tools/batch_patch_multicamera.py "$DATASET_PATH" --layout geometric
     local patch1_exit=$?
 
     sep

@@ -1,3 +1,29 @@
+"""
+Convert CARLA route XML files from Right-Hand Traffic (RHT) to Left-Hand Traffic (LHT).
+
+This script performs a comprehensive conversion:
+1. Waypoint Conversion: Shifts all route waypoints from right lanes to left lanes
+2. Scenario Conversion: Moves scenario trigger points to LHT positions
+3. Metadata Addition: Adds traffic_rules='left_hand' and lane_offset='-3.5' to XML root
+
+The metadata is read by the leaderboard/scenario_runner to configure CARLA's Traffic Manager:
+- traffic_manager.global_lane_offset = -3.5 (shifts all NPC traffic to left lanes)
+- Ensures both ego vehicle and NPC vehicles follow left-hand traffic rules
+
+Usage:
+    python convert_simlingo_xml_to_lht.py
+    
+    The script will:
+    - Start a CARLA server if not already running
+    - Convert all XML files in leaderboard/data/ (routes_training, routes_validation, etc.)
+    - Output files with '_2_LHT' suffix
+    
+Requirements:
+    - CARLA 0.9.16 server running or Docker available
+    - Python CARLA API installed
+    - Network access to CARLA server (default: localhost:2000)
+"""
+
 import carla
 import xml.etree.ElementTree as ET
 import time
@@ -31,6 +57,22 @@ def wait_for_carla(host='127.0.0.1', port=2000, timeout=120, interval=2.0):
 
 
 def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_timeout=120):
+    """
+    Convert RHT (Right-Hand Traffic) routes to LHT (Left-Hand Traffic).
+    
+    This function:
+    1. Connects to CARLA server and loads the necessary maps
+    2. Shifts all waypoints to the left lane (LHT position)
+    3. Updates scenario trigger points to LHT positions
+    4. Adds LHT metadata to the XML root for runtime configuration
+    
+    Args:
+        xml_path: Path to input RHT routes XML file
+        output_path: Path to output LHT routes XML file
+        host: CARLA server host
+        port: CARLA server port
+        wait_timeout: Timeout for CARLA server connection
+    """
     # 1. Connect to CARLA 0.9.16 (wait for it to be ready)
     client = wait_for_carla(host=host, port=port, timeout=wait_timeout)
     client.set_timeout(30.0)
@@ -41,9 +83,9 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
-    print("[INFO] Converting routes Left-Hand Traffic... Once per file...")
-    print(f"[INFO] Connecting to CARLA at 0.9.16 {host}:{port}...")
-    print(f"[INFO] Reading from RHT in {xml_path}...")
+    print("[INFO] Converting routes from Right-Hand Traffic to Left-Hand Traffic...")
+    print(f"[INFO] Connecting to CARLA 0.9.16 at {host}:{port}...")
+    print(f"[INFO] Reading from RHT routes in {xml_path}...")
 
     # Collect unique towns referenced by the routes file and preload them once
     towns_to_preload = set()
@@ -197,6 +239,7 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
         diagnostics['per_town'][town] = {'moved_left': 0, 'moved_right': 0, 'unchanged': 0}
 
         for route in routes_by_town[town]:
+            # Convert waypoints
             positions = route.findall('.//position')
             if not positions:
                 positions = route.findall('.//waypoint')
@@ -303,6 +346,65 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                         pass
                 except Exception:
                     pass
+            
+            # Also convert scenario trigger points to LHT
+            scenarios = route.findall('.//scenario')
+            for scenario in scenarios:
+                trigger_points = scenario.findall('.//trigger_point')
+                for trigger in trigger_points:
+                    try:
+                        x = float(trigger.get('x'))
+                        y = float(trigger.get('y'))
+                        z = float(trigger.get('z'))
+                    except Exception:
+                        continue
+                    
+                    loc = carla.Location(x, y, z)
+                    try:
+                        current_wp = carla_map.get_waypoint(loc, project_to_road=True, lane_type=carla.LaneType.Any)
+                        if current_wp is None:
+                            continue
+                    except Exception:
+                        continue
+                    
+                    lht_wp = None
+                    if hasattr(current_wp, 'get_left_lane'):
+                        try:
+                            lht_wp = current_wp.get_left_lane()
+                        except Exception:
+                            lht_wp = None
+                    
+                    if lht_wp is None:
+                        try:
+                            yaw_deg = current_wp.transform.rotation.yaw
+                            yaw_rad = math.radians(yaw_deg)
+                            left_x = -math.sin(yaw_rad)
+                            left_y = math.cos(yaw_rad)
+                            lane_offset = 3.5
+                            new_x = current_wp.transform.location.x + left_x * lane_offset
+                            new_y = current_wp.transform.location.y + left_y * lane_offset
+                            new_z = current_wp.transform.location.z
+                            class _CoordOnly:
+                                class transform:
+                                    location = carla.Location(new_x, new_y, new_z)
+                                    rotation = current_wp.transform.rotation
+                            lht_wp = _CoordOnly()
+                        except Exception:
+                            continue
+                    
+                    try:
+                        lx = getattr(lht_wp.transform.location, 'x')
+                        ly = getattr(lht_wp.transform.location, 'y')
+                        lz = getattr(lht_wp.transform.location, 'z')
+                        trigger.set('x', str(round(lx, 3)))
+                        trigger.set('y', str(round(ly, 3)))
+                        trigger.set('z', str(round(lz, 3)))
+                        
+                        if hasattr(lht_wp.transform, 'rotation'):
+                            yaw_val = round(lht_wp.transform.rotation.yaw, 3)
+                            trigger.set('yaw', str(yaw_val))
+                    except Exception:
+                        pass
 
     # Lastly, process routes that did not declare a town (attempt with current carla_map)
     if routes_without_town:
@@ -406,7 +508,11 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
                 except Exception:
                     pass
 
-    # 3. Save the new LHT-ready XML (write declaration and UTF-8)
+    # 3. Add left-hand traffic metadata to root element to signal LHT mode
+    root.set('traffic_rules', 'left_hand')
+    root.set('lane_offset', '-3.5')  # Negative offset for left-hand traffic
+    
+    # 4. Save the new LHT-ready XML (write declaration and UTF-8)
     tree.write(output_path, encoding='utf-8', xml_declaration=True)
     print(f"[INFO] Saved to LHT in {output_path}")
 
@@ -416,6 +522,7 @@ def shift_route_to_lht(xml_path, output_path, host='127.0.0.1', port=2000, wait_
         print(f"  - {t}: left={stats['moved_left']}, right={stats['moved_right']}, unchanged={stats['unchanged']}")
     tot = diagnostics['total']
     print(f"  Total: left={tot['moved_left']}, right={tot['moved_right']}, unchanged={tot['unchanged']}")
+    print(f"[INFO] Added LHT metadata: traffic_rules='left_hand', lane_offset='-3.5'")
 
 if __name__ == "__main__":
     name_folder = "/workspace/simlingo/leaderboard/data/" 
