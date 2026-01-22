@@ -74,8 +74,17 @@ def get_traffic_light_waypoints(traffic_light, carla_map):
     distance_to_light = base_loc.distance(wpx.transform.location)
     eu_wps.append(wpx)
     next_distance_to_light = distance_to_light + 1.0
-    while not wpx.is_intersection:
-      next_wp = wpx.next(0.5)[0]
+    max_iterations = 200  # Prevent infinite loops on LHT maps
+    iteration_count = 0
+    while not wpx.is_intersection and iteration_count < max_iterations:
+      try:
+        next_wp_list = wpx.next(0.5)
+        if not next_wp_list or len(next_wp_list) == 0:
+          break
+        next_wp = next_wp_list[0]
+      except (IndexError, RuntimeError):
+        break
+      
       next_distance_to_light = base_loc.distance(next_wp.transform.location)
       if next_wp and not next_wp.is_intersection \
           and next_distance_to_light <= distance_to_light:
@@ -84,6 +93,7 @@ def get_traffic_light_waypoints(traffic_light, carla_map):
         wpx = next_wp
       else:
         break
+      iteration_count += 1
 
     if not next_distance_to_light <= distance_to_light and len(eu_wps) >= 4:
       wps.append(eu_wps[-4])

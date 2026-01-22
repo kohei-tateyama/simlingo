@@ -9,10 +9,12 @@ import shutil
 import sys
 import xml.etree.ElementTree as ET
 
-# Adjust maps dir if CARLA is installed elsewhere in the container
-MAPS_DIR = "/workspace/CarlaUE4/Content/Carla/Maps"
+# For host execution (not inside container)
+MAPS_DIR = "/workspace/carla0916/CarlaUE4/Content/Carla/Maps"
 TOWNS = [
-    "Town01","Town02","Town03","Town04","Town05","Town06","Town07","Town10HD","Town12","Town13",
+    "Town01","Town01_Opt","Town02","Town02_Opt","Town03","Town03_Opt",
+    "Town04","Town04_Opt","Town05","Town05_Opt","Town06","Town06_Opt",
+    "Town07","Town07_Opt","Town10HD","Town10HD_Opt","Town12","Town13","Town15",
 ]
 
 def find_element_any_ns(parent, tag):
@@ -74,10 +76,16 @@ def process_xodr(path):
 def main():
     any_changed = False
     for town in TOWNS:
-        xodr = os.path.join(MAPS_DIR, town, "OpenDrive", f"{town}.xodr")
+        # CARLA 0.9.16 has two locations for .xodr files:
+        # - Maps/OpenDrive/{town}.xodr (Town01-07, Town10HD)
+        # - Maps/{town}/OpenDrive/{town}.xodr (Town12, Town13, Town15)
+        xodr = os.path.join(MAPS_DIR, "OpenDrive", f"{town}.xodr")
         if not os.path.isfile(xodr):
-            print(f"[WARN] {xodr} not found, skipping")
-            continue
+            # Try per-town subfolder
+            xodr = os.path.join(MAPS_DIR, town, "OpenDrive", f"{town}.xodr")
+            if not os.path.isfile(xodr):
+                print(f"[WARN] {town}.xodr not found in either location, skipping")
+                continue
         try:
             process_xodr(xodr)
             any_changed = True

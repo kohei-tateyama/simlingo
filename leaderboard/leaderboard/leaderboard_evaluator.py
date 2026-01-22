@@ -280,7 +280,7 @@ class LeaderboardEvaluator(object):
                 self.traffic_manager.global_lane_offset(float(config.lane_offset))
             else:
                 # Reset to default RHT (right-hand traffic)
-                self.traffic_manager.global_lane_offset = 0.0
+                self.traffic_manager.global_lane_offset(0.0)
             ## Added
             self.route_scenario = RouteScenario(world=self.world, config=config, debug_mode=args.debug)
             self.statistics_manager.set_scenario(self.route_scenario)

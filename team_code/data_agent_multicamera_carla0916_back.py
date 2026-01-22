@@ -19,7 +19,6 @@ import signal
 from pathlib import Path
 from datetime import datetime
 import shutil
-import multiprocessing
 
 import cv2
 import carla
@@ -37,7 +36,6 @@ import matplotlib.lines as mlines
 from shapely.geometry import Polygon
 
 from autopilot import AutoPilot
-from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 import team_code.transfuser_utils as t_u
 
 from birds_eye_view.chauffeurnet import ObsManager
@@ -350,81 +348,14 @@ class DataAgentMulticamera(AutoPilot):
 
     def _init(self, hd_map):
         """
-        Initialize agent with LHT-safe path that attempts route setup with error handling.
+        Initialize agent - call parent then add observation managers.
         """
-        # CRITICAL: Set vehicle and world first to avoid AttributeError in other methods
-        # These should already be available from CarlaDataProvider
-        if not hasattr(self, '_vehicle') or self._vehicle is None:
-            self._vehicle = CarlaDataProvider.get_hero_actor()
-        if not hasattr(self, '_world') or self._world is None:
-            self._world = self._vehicle.get_world()
-        
-        # Detect if LHT map
-        map_name = self._world.get_map().name.split('/')[-1]
-        is_lht = 'lht' in map_name.lower() or 'town12' in map_name.lower()
-        
-        if is_lht:
-            print(f"[WARN] LHT map detected ({map_name}). Using error-tolerant initialization.")
-            
-            # Sparse waypoints for debugging
-            print(f"[DEBUG] Sparse Waypoints: {len(self._global_plan)}")
-            print(f"[DEBUG] Dense Waypoints: {len(self.org_dense_route_world_coord)}")
-            
-            # Try to initialize route planner with error handling
-            from team_code.privileged_route_planner import PrivilegedRoutePlanner
-            self._waypoint_planner = PrivilegedRoutePlanner(self.config)
-            
-            # Attempt route setup but continue even if it partially fails
-            try:
-                print("[INFO] Attempting route setup (may have warnings on LHT map)...")
-                # Check if vehicle starts from parking
-                distance_to_road = self.org_dense_route_world_coord[0][0].location.distance(self._vehicle.get_location())
-                starts_with_parking_exit = distance_to_road > 2
-                
-                self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
-                                                   starts_with_parking_exit, self._vehicle.get_location())
-                self._waypoint_planner.save()
-                print(f"[INFO] Route planner setup completed (some waypoints may have been skipped)")
-            except Exception as e:
-                print(f"[WARN] Route planner setup had errors: {e}")
-                print("[WARN] Agent will use basic navigation only")
-            
-            # Set up controllers
-            from team_code.longitudinal_controller import LongitudinalLinearRegressionController
-            self._longitudinal_controller = LongitudinalLinearRegressionController(self.config)
-            
-            from nav_planner import RoutePlanner
-            self._command_planner = RoutePlanner(self.config.route_planner_min_distance, self.config.route_planner_max_distance)
-            self._command_planner.set_route(self._global_plan_world_coord)
-            
-            # Disable BEV and stop sign features
-            self.stop_sign_criteria = None
-            self.ss_bev_manager = None
-            self.list_traffic_lights = []
-            
-            # Set up logger
-            if self.save_path is not None and hasattr(self, 'lon_logger'):
-                self.lon_logger.ego_vehicle = self._vehicle
-                self.lon_logger.world = self._world
-            
-            # Clean up any bugged vehicles
-            all_actors = self._world.get_actors()
-            for actor in all_actors:
-                if "vehicle" in actor.type_id:
-                    extent = actor.bounding_box.extent
-                    if extent.x < 0.001 or extent.y < 0.001 or extent.z < 0.001:
-                        actor.destroy()
-            
-            self.initialized = True
-            print(f"[INFO] LHT initialization complete. Agent ready to drive and collect data.")
-            return
-        
-        # For RHT maps, use the standard full initialization
-        print(f"[INFO] RHT map detected ({map_name}). Using full initialization.")
         super()._init(hd_map)
         
-        # BEV manager can still fail, so wrap it
+        # BEV manager can fail on some configurations, so wrap it
         try:
+            from birds_eye_view.chauffeurnet import ObsManager
+            from birds_eye_view.run_stop_sign import RunStopSign
             self.stop_sign_criteria = RunStopSign(self._world, self.config.ss_dist_to_stop_for_stop_sign)
             self.ss_bev_manager = ObsManager(self.camera_width, self.camera_height, self._world, hd_map, self.config)
             print("[INFO] BEV manager initialized successfully.")
@@ -432,6 +363,7 @@ class DataAgentMulticamera(AutoPilot):
             print(f"[WARN] BEV manager initialization failed: {e}. Disabling BEV features.")
             self.stop_sign_criteria = None
             self.ss_bev_manager = None
+
 
     def sensors(self):
         """
@@ -595,12 +527,14 @@ class DataAgentMulticamera(AutoPilot):
             self.stop_sign_criteria.tick(self._vehicle)
 
         if self.SAVE_TF_LABELS:
-            # Get BEV observations (skip if manager failed to initialize on LHT maps)
+            # Get BEV observations (skip if manager failed to initialize)
             if self.ss_bev_manager is not None:
                 bev_semantics = self.ss_bev_manager.get_observation(self.close_traffic_lights)
             else:
                 bev_semantics = {'rendered': None}
                 
+            if self.tmp_visu and 'F' in rgb_images:
+                self.visualuize(bev_semantics['rendered'], rgb_images['F'])
             if self.tmp_visu and 'F' in rgb_images:
                 self.visualuize(bev_semantics['rendered'], rgb_images['F'])
 
@@ -668,6 +602,32 @@ class DataAgentMulticamera(AutoPilot):
 
     @torch.inference_mode()
     def run_step(self, input_data, timestamp, sensors=None, plant=False):
+        """Main run loop called by leaderboard at each tick."""
+        self.step_tmp += 1
+
+        # Convert LiDAR into ego coordinate frame
+        input_data['lidar'] = t_u.lidar_to_ego_coordinate(self.config, input_data['lidar'])
+
+        # Parent class runs control logic
+        control = super().run_step(input_data, timestamp, plant=plant)
+
+        # Collect sensor data for this frame
+        tick_data = self.tick(input_data)
+
+        # Save data at specified frequency
+        if self.step % self.config.data_save_freq == 0:
+            if self.save_path is not None and self.datagen:
+                self.save_sensors(tick_data)
+                # Record frame data for records.json.gz
+                self._record_frame_data(tick_data)
+
+        self.last_lidar = input_data['lidar']
+        self.last_ego_transform = self._vehicle.get_transform()
+
+        if plant:
+            return {**tick_data, **control}
+        else:
+            return control
         """Main run loop called by leaderboard at each tick."""
         self.step_tmp += 1
 
@@ -1945,54 +1905,6 @@ class DataAgentMulticamera(AutoPilot):
         # Call parent destroy - this saves records.json.gz via lon_logger.dump_to_json()
         super().destroy(results)
 
-    def detect_traffic_infrastructure_issues(self, max_distance=50.0):
-        """
-        Scans for nearby traffic lights and checks for potential infrastructure issues,
-        such as back-facing signals common in LHT misconfigurations.
-
-        Returns:
-            dict: A dictionary containing the count of back-facing lights and a list of all nearby signals with their properties.
-        """
-        if not self._vehicle or not self.world_map:
-            return {'back_facing_lights': 0, 'signals': []}
-
-        ego_location = self._vehicle.get_location()
-        ego_transform = self._vehicle.get_transform()
-        ego_forward = ego_transform.get_forward_vector()
-
-        all_actors = self._world.get_actors()
-        traffic_lights = all_actors.filter('*traffic_light*')
-
-        nearby_signals = []
-        back_facing_count = 0
-
-        for light in traffic_lights:
-            light_transform = light.get_transform()
-            distance = ego_location.distance(light_transform.location)
-
-            if distance < max_distance:
-                light_forward = light_transform.get_forward_vector()
-                
-                # Check if the light is facing away from the ego vehicle
-                dot_product = ego_forward.x * light_forward.x + ego_forward.y * light_forward.y
-                is_back_facing = dot_product < -0.5  # Facing opposite direction
-
-                if is_back_facing:
-                    back_facing_count += 1
-
-                nearby_signals.append({
-                    'id': light.id,
-                    'distance': distance,
-                    'position': [light_transform.location.x, light_transform.location.y, light_transform.location.z],
-                    'is_back_facing': is_back_facing,
-                    'state': str(light.state)
-                })
-        
-        return {
-            'back_facing_lights': back_facing_count,
-            'signals': sorted(nearby_signals, key=lambda x: x['distance'])
-        }
-        
 
 # Entry point for leaderboard
 if __name__ == '__main__':

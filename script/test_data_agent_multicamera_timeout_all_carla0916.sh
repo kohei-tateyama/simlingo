@@ -17,38 +17,34 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/Pytho
 
 # Data collection settings
 export DATAGEN=1
-export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916.py
+# export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916.py
+export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916_back.py
 export TEAM_CONFIG="data_collection"
-export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
+# export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
+export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
 export TOWN="Town03"  # Will be overridden by route XML
 export REPETITION="1" # MINIMUM IS 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 
-## RHT
-# export ROUTE_CONFIG="routes_devtest" # "routes_training", "bench2drive220", routes_validation", "routes_devtest"
-# # export ROUTES="/workspace/simlingo/leaderboard/data/routes_training.xml"
-# # export ROUTES="/workspace/simlingo/leaderboard/data/routes_validation.xml"
-# # export ROUTES="/workspace/simlingo/leaderboard/data/routes_devtest.xml"
-# export ROUTES="/workspace/simlingo/leaderboard/data/bench2drive220.xml"
-
 ## LHT
 # export ROUTE_CONFIG="routes_training_LHT"
-# export ROUTE_CONFIG="routes_training_2_LHT"
+# export ROUTE_CONFIG="routes_training_2_LHT"   
 # export ROUTE_CONFIG="routes_validation_LHT"
 # export ROUTE_CONFIG="routes_devtest_LHT"
 # export ROUTE_CONFIG="routes_devtest_2_LHT"
+# export ROUTE_CONFIG="bench2drive220"           # RHT routes
 # export ROUTE_CONFIG="bench2drive220_LHT" 
-export ROUTE_CONFIG="bench2drive220_2_LHT" 
+export ROUTE_CONFIG="bench2drive220_2_LHT"      
 
 export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
 
-export ROUTES_SUBSET="1773" # "1773" # "24206, 25378" 
+export ROUTES_SUBSET="24206" #"1773" # "24206"
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
-    info "Remember to remove the leaderboard timeout"
+    # info "Remember to remove the leaderboard timeout"
     # build_routes_subset # export ROUTES_SUBSET
 fi
 ## Running all the routes in the ROUTES massive data collection =========================
@@ -59,15 +55,13 @@ export SAVE_FLAT=0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-100}"
-# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout  
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
+# LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout - allow full route collection
 
 # CARLA port (can be overridden by environment before running the script)
 export PORT_CARLA=${PORT_CARLA:-2000}
 # Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
-
-# Color and logging helpers provided by script/common.sh (sourced earlier)
 
 # =============================================================================
 # CLEANUP FUNCTION
@@ -166,8 +160,8 @@ import shutil
 import sys
 import xml.etree.ElementTree as ET
 
-# Adjust maps dir if CARLA is installed elsewhere in the container
-MAPS_DIR = "/workspace/CarlaUE4/Content/Carla/Maps"
+# For host execution (not inside container)
+MAPS_DIR = "/workspace/carla0916/CarlaUE4/Content/Carla/Maps"
 TOWNS = [
     "Town01","Town01_Opt","Town02","Town02_Opt","Town03","Town03_Opt",
     "Town04","Town04_Opt","Town05","Town05_Opt","Town06","Town06_Opt",
@@ -276,6 +270,10 @@ EOF_SH
 
     chmod +x "${TMP_CONFIG_DIR}/enable_lht.sh" "${TMP_CONFIG_DIR}/enable_lht.py" 2>/dev/null || true
 
+    # Run enable_lht.py on HOST to modify OpenDrive files BEFORE starting container
+    info "Modifying OpenDrive maps to LEFT-HAND traffic on host..."
+    python3 "${TMP_CONFIG_DIR}/enable_lht.py" || warn "Failed to modify OpenDrive files - LHT may not work correctly"
+
     docker run -d \
         --name carla-server \
         --runtime=nvidia \
@@ -286,10 +284,9 @@ EOF_SH
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content \
-        -v ${TMP_CONFIG_DIR}:/tmp/carla_config:ro \
+        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
         carla-bench2drive:0.9.16 \
-        bash -c "bash /tmp/carla_config/enable_lht.sh && cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
+        bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
     info "Waiting 80s for CARLA to start..."
     sleep 80
@@ -593,7 +590,7 @@ PY
             fi
         fi
 
-        info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
+        # info "Launching leaderboard for route ${route_id} with FORCE_TOWN=${FORCE_TOWN:-<none>} FORCE_ROUTE_ID=${FORCE_ROUTE_ID:-<none>} SAVE_SUBDIR=${SAVE_SUBDIR:-<none>}"
 
         # Create per-route logging dir
         mkdir -p "${WORK_DIR}/leaderboard_logs"
@@ -602,12 +599,12 @@ PY
         # Run leaderboard and capture stdout/stderr to per-route log for inspection
         LB_LOG="${WORK_DIR}/leaderboard_logs/route_${route_id}.log"
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-            python leaderboard/leaderboard_evaluator.py "${ARGS[@]}" >"${LB_LOG}" 2>&1 &
+            python -u leaderboard/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}" &
             LB_PID=$!
             wait $LB_PID
             exit_code=$?
         else
-            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python leaderboard/leaderboard_evaluator.py "${ARGS[@]}" >"${LB_LOG}" 2>&1
+            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python -u leaderboard/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}"
             exit_code=$?
         fi
 

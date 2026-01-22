@@ -237,17 +237,43 @@ class LlamaVisionInference:
             context: Optional driving context from CARLA measurements/boxes
         """
         base_prompt = """<|im_start|>user
-<|image|>
-You are an expert autonomous (left and right) driving system analyzing a stitched 6-camera surround-view layout: [Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center].
-"""
+    <|image|>
+    You are an expert autonomous (left and right) driving system analyzing a stitched 6-camera surround-view layout: [Front, Front-Left, Front-Right, Rear-Right, Rear-Left, Rear-Center].
+    """
         
-        # Add CARLA context if available
-        if context and context.get('speeds'):
-            speeds = context['speeds']
-            base_prompt += f"""
-Current Driving State:
-- Speed: {speeds.get('current', 0)} km/h (target: {speeds.get('target', 0)} km/h, limit: {speeds.get('limit', 30)} km/h)
+        # If structured context is provided, inject it as an explicit JSON snippet
+        # and instruct the LLM to reference those fields when composing its response.
+        if context:
+            try:
+                # We'll create a compact JSON snippet with the most useful fields
+                snippet = {
+                    'speed': context.get('speeds', {}).get('current'),
+                    'target_speed': context.get('speeds', {}).get('target'),
+                    'limit': context.get('speeds', {}).get('limit'),
+                    'lead_vehicle': context.get('objects', {}).get('lead_vehicle'),
+                    'hazards': []
+                }
+                # populate hazards list from context
+                hazards_map = context.get('hazards', {})
+                for k, v in hazards_map.items():
+                    if v:
+                        snippet['hazards'].append(k)
+
+                # If a three-frame measurements window is present, include it intact
+                if context.get('measurements_window'):
+                    snippet['measurements_window'] = context.get('measurements_window')
+
+                json_snippet = json.dumps(snippet, ensure_ascii=False)
+
+                base_prompt += f"""
+You are given the following driving context (JSON):
+{json_snippet}
+
+When answering, reference the fields in this JSON and avoid inventing new object properties. Use the JSON values as the authoritative source for speeds, lead vehicle, and hazards.
 """
+            except Exception:
+                # Fallback: do nothing if snippet construction fails
+                pass
             
             # Add maneuver info if available
             if context.get('maneuver'):
@@ -290,19 +316,26 @@ Current Driving State:
                     base_prompt += f"- Traffic light: {tl['state']} at {tl['distance']} meters\n"
             
             # Add speed reduction cause if different from hazards
+            speeds = context.get('speeds', {}) if context else {}
             if speeds.get('reduction_cause'):
                 cause = speeds['reduction_cause']
-                base_prompt += f"- Speed reduced due to: {cause['type']} at {cause['distance']} meters\n"
+                base_prompt += f"- Speed reduced due to: {cause.get('type', 'unknown')} at {cause.get('distance', 'unknown')} meters\n"
         
         base_prompt += """
-Analyze the 360-degree scene and generate a concise left and right hand driving commentary with clear reasoning and action. 
+    Analyze the 360-degree scene and generate a concise driving commentary with clear reasoning and a single action.
 
-Format your response as:
-Commentary: [Concise driving commentary mentioning key objects, their positions (front/rear/left/right), colors, and your driving decision reasoning]
-Action: [Single clear action command like "Accelerate to follow the lead vehicle" or "Brake for pedestrian"]
+    Before the prompt, we provided a structured JSON snippet — use it. Do NOT invent object attributes that aren't present in the JSON snippet. If a value is unknown, say "unknown" rather than inventing a number or color.
 
-Be specific about object colors, positions, and distances. Use the provided driving state information to make your commentary accurate and contextual. End your response immediately after the Action line with <|im_end|> token.<|im_end|>
-<|im_start|>assistant"""
+    Strict output format (IMPORTANT):
+    - Commentary: <one-sentence concise commentary that references the JSON fields above>
+    - Action: <one short command describing what the ego vehicle should do next>
+
+    Example output:
+    - Commentary: The black SUV is 21.5 meters ahead in the center lane; maintain distance because target speed is higher than current speed.
+    - Action: Accelerate to reach target speed while keeping safe following distance
+
+    End your response immediately after the Action line and do not add extra explanation. Close with the token <|im_end|> on the same line as the Action if possible.<|im_end|>
+    <|im_start|>assistant"""
         
         return base_prompt
     
@@ -1096,8 +1129,42 @@ def process_image(image_path: str,
     driving_context_for_llm = dict(driving_context)
     driving_context_for_llm['placeholders'] = placeholder
 
+    # Load three-frame measurements window (prev, mid, next) and attach to context
+    try:
+        img_path_obj = Path(image_path)
+        if img_path_obj.parent.name == 'rgb':
+            frame_num_str = img_path_obj.stem
+            rgb_parent = img_path_obj.parent
+        else:
+            frame_num_str = img_path_obj.parent.name
+            rgb_parent = img_path_obj.parent.parent
+
+        # Determine width of zero-padded frame id
+        try:
+            width = len(frame_num_str)
+            idx = int(frame_num_str)
+        except Exception:
+            width = len(frame_num_str)
+            idx = None
+
+        measurements_window = {}
+        if idx is not None:
+            prev_str = str(idx - 1).zfill(width)
+            next_str = str(idx + 1).zfill(width)
+            dataset_root = rgb_parent.parent
+            measurements_window = {
+                'prev': _load_measurements_by_frame(dataset_root, prev_str),
+                'mid': measurements,
+                'next': _load_measurements_by_frame(dataset_root, next_str)
+            }
+            # Attach window to context so LLM can reference short-term dynamics
+            driving_context_for_llm['measurements_window'] = measurements_window
+    except Exception:
+        # Non-fatal; continue without measurements window
+        pass
+
     # Generate commentary with llama.cpp (LLM-generated natural language)
-    logging.info("Generating commentary with llama.cpp (using placeholders only)")
+    logging.info("Generating commentary with llama.cpp (using placeholders and structured JSON context)")
     commentary_raw, llama_metadata = llama_inference.generate_commentary(str(img_path), context=driving_context_for_llm)
     
     # Parse the LLM output to extract commentary and action

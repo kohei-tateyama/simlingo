@@ -480,4 +480,13 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_WHEEL}:${CARLA_ROOT}/PythonAPI/carla"
 # export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl:${CARLA_ROOT}/PythonAPI/carla"
 echo "Switched to CARLA 0.9.16 environment"
 ```
+## Note
 
+1) Since the topology ahs changed, `simlingo/leaderboard/leaderboard/scenarios/route_scenario.py` we have disabled the following.
+
+```bash
+# DISABLED: RunningRedLightTest causes crashes on LHT maps due to waypoint topology issues
+# criteria.add_child(RunningRedLightTest(self.ego_vehicles[0]))
+```
+
+2) When running both `simlingo/script/test_data_agent_multicamera_timeout_all_carla0916.sh` and `simlingo/script/run_carla_mp_pilot_script_carla0916.sh`, the `.sh`s will create a folder to enable the LHT in carla 0.9.16, i.e., `tmp_carla_0916_config/` 
