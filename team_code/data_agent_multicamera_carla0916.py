@@ -199,17 +199,19 @@ class DataAgentMulticamera(AutoPilot):
             
             # --- 3. APPLY 0.9.16 LHT RULES ---
             # We use 'getattr' to be extra safe with the check
-            has_lht_func = hasattr(tm, 'set_global_lane_direction_if_lht')
-            
-            if has_lht_func:
-                # Mandatory 0.9.16 sequence for Left-Hand Traffic (Town12/Town13)
+            if hasattr(tm, 'set_global_lane_direction_if_lht'):
                 tm.set_global_lane_offset(-0.5)
                 tm.set_global_lane_direction_if_lht(True)
-                print("\033[92m[INFO][LHT] Traffic Manager configured for Left-Hand Traffic (Offset -0.5)\033[0m")
+                print("\033[92m[INFO][LHT] TM configured via set_global_lane_direction_if_lht\033[0m")
+
+            # If that's missing, use the standard 0.9.16 global_lane_offset
+            elif hasattr(tm, 'global_lane_offset'):
+                # In many 0.9.16 builds, setting a negative offset on an LHT map 
+                # automatically triggers the correct behavior
+                tm.global_lane_offset(-0.5)
+                print("\033[92m[INFO][LHT] TM configured via global_lane_offset (-0.5)\033[0m")
             else:
-                # DIAGNOSTIC: List what TM actually has
-                print("\033[91m[ERROR][LHT] API VERSION MISMATCH! Methods missing.\033[0m")
-                print(f"[DEBUG] Available TM Methods: {[m for m in dir(tm) if 'lane' in m]}")
+                print("\033[91m[ERROR][LHT] Could not find 0.9.16 LHT methods!\033[0m")
 
             # --- 4. MAP VERIFICATION ---
             carla_map = temp_world.get_map()

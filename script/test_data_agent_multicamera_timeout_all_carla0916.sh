@@ -16,8 +16,6 @@ export WORK_DIR="/workspace/simlingo"
 export CARLA_ROOT="/workspace/carla0916"
 export LEADERBOARD_ROOT="${WORK_DIR}/leaderboard21"
 export SCENARIO_RUNNER_ROOT="${WORK_DIR}/scenario_runner21"
-# export CARLA_API_BASE="${CARLA_ROOT}/PythonAPI/carla/dist/carla_0916_lib"
-# export CARLA_SRC="${CARLA_ROOT}/PythonAPI/carla"
 # export LD_LIBRARY_PATH="${CARLA_API_BASE}/carla.libs:${LD_LIBRARY_PATH:-}"
 # export PYTHONPATH="${CARLA_API_BASE}:${CARLA_SRC}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}"
 
