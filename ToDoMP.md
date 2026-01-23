@@ -449,6 +449,11 @@ done
     - One-liner to count the elements inside any folder 
     `find . -mindepth 1 -maxdepth 1 | wc -l`
 
+    - Killing `carla` and `leaderboard`
+    ```bash 
+    sudo pkill -9 -f leaderboard || true && sudo pkill -9 -f carla || true
+    ```
+
 
 # Starting Migration to 0.9.16
 ```bash

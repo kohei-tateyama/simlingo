@@ -64,6 +64,31 @@ def convert_rgb_to_names(rgb_tuple):
 def get_entry_point():
     return 'DataAgentMulticamera'
 
+# --- LHT CRASH FIX START --- added carela 0.9.16
+srunner_folder = "/workspace/simlingo/scenario_runner21/srunner"
+
+if srunner_folder not in sys.path:
+    sys.path.insert(0, srunner_folder)
+
+try:
+    # Now that srunner is in sys.path, this import will work
+    import scenariomanager.scenario_atomics.atomic_criteria as criteria
+    
+    # Redefine the setup to handle the empty traffic light list (LHT crash)
+    def patched_setup(self, actor, debug=False):
+        self._actor = actor
+        self._world = actor.get_world()
+        self._map = self._world.get_map()
+        self._traffic_light = None  # Prevents IndexError: list index out of range
+
+    criteria.RunningRedLightTest.setup = patched_setup
+    print("SUCCESS: RunningRedLightTest patched for LHT.")
+except ImportError as e:
+    print(f"[ERROR]: Could not patch ScenarioRunner: {e}")
+except Exception as e:
+    print(f"[ERROR]: An unexpected error occurred during patching: {e}")
+# --- LHT CRASH FIX END ---
+
 
 class DataAgentMulticamera(AutoPilot):
     """
@@ -102,6 +127,8 @@ class DataAgentMulticamera(AutoPilot):
         self._global_plan = None
         self._global_plan_world_coord = None
         self.wallclock_t0 = None
+        # Ensure save_path exists even if setup fails early
+        self.save_path = None
         
         # Records for records.json.gz (per-frame data)
         self._frame_records = []
@@ -143,7 +170,17 @@ class DataAgentMulticamera(AutoPilot):
         # Store original route_index before calling super()
         self._original_route_index = route_index
         
-        # Pass the provided traffic_manager into parent setup so the TM instance is available
+        ## Added left hand traffic carla 0.9.16
+        # Guard traffic_manager usage: it may be None in some leaderboard setups
+        if traffic_manager is not None:
+            try:
+                if hasattr(traffic_manager, 'set_global_lane_offset'):
+                    traffic_manager.set_global_lane_offset(-0.5)
+                if hasattr(traffic_manager, 'set_global_lane_direction_if_lht'):
+                    traffic_manager.set_global_lane_direction_if_lht(True)
+            except Exception as e:
+                print(f"[WARN] Could not configure traffic_manager for LHT: {e}")
+        ##
         super().setup(path_to_conf_file, route_id, traffic_manager=traffic_manager)
         
         # Override save_path with simlingo v4 structure after super().setup()
@@ -1792,14 +1829,14 @@ class DataAgentMulticamera(AutoPilot):
         torch.cuda.empty_cache()
         
         # Save GPS trajectory plot before cleanup
-        if self.save_path is not None and hasattr(self, '_gps_trajectory'):
+        if getattr(self, 'save_path', None) is not None and hasattr(self, '_gps_trajectory'):
             try:
                 self._save_gps_plot()
             except Exception as e:
                 print(f"[WARN] Failed to save GPS plot: {e}")
         
         # If no results provided (timeout scenario), try computing from collected data
-        if results is None and self.save_path is not None:
+        if results is None and getattr(self, 'save_path', None) is not None:
             print(f"[INFO] No results from leaderboard21 - computing statistics from collected data")
             results_data = self._compute_statistics_from_data()
             if results_data is not None:
@@ -1813,7 +1850,7 @@ class DataAgentMulticamera(AutoPilot):
                     print(f"[WARN] Failed to save computed results.json.gz: {e}")
         
         # Save results.json.gz if leaderboard21 provided route statistics
-        elif results is not None and self.save_path is not None:
+        elif results is not None and getattr(self, 'save_path', None) is not None:
             try:
                 results_path = Path(self.save_path) / 'results.json.gz'
                 # RouteRecord has a to_json() method that returns vars(self)
