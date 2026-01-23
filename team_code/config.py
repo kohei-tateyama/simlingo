@@ -60,6 +60,8 @@ class GlobalConfig:
     self.unclearing_distance_to_stop_sign = 10
     # Distance to the stop sign, when the previous stop sign is cleared
     self.clearing_distance_to_stop_sign = 3.0
+    # Distance threshold used by BEV-related stop sign logic (added to avoid missing attribute)
+    self.ss_dist_to_stop_for_stop_sign = 10.0
     # IDM minimum distance for stop signs
     self.idm_stop_sign_minimum_distance = 2.0
     # IDM desrired time headway for stop signs

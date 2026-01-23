@@ -1965,14 +1965,6 @@ class JapaneseStyleAutopilot16:
         # with the original simlingo format.
         info_timestamp = getattr(self, 'folderpath', '') or getattr(self, 'foldername', '')
 
-        # Short timestamp: prefer a concise foldername (basename of folderpath)
-        try:
-            if info_timestamp:
-                short_timestamp = os.path.basename(info_timestamp.rstrip('/'))
-            else:
-                short_timestamp = getattr(self, 'foldername', '')
-        except Exception:
-            short_timestamp = getattr(self, 'foldername', '')
 
         # Standardize route_id when possible. If specific scenario/rep ids are
         # available on the object use them, otherwise fall back to town_route format.

@@ -127,6 +127,10 @@ class AutonomousAgent(object):
         """
         Set the plan (route) for the agent
         """
-        ds_ids = downsample_route(global_plan_world_coord, 200)
+        # Use much finer downsampling for data collection to ensure proper route following
+        # For DATAGEN, use 5m intervals instead of 200m to maintain route fidelity
+        import os
+        sample_factor = 5.0 if int(os.environ.get('DATAGEN', 0)) == 1 else 200.0
+        ds_ids = downsample_route(global_plan_world_coord, sample_factor)
         self._global_plan_world_coord = [(global_plan_world_coord[x][0], global_plan_world_coord[x][1]) for x in ds_ids]
         self._global_plan = [global_plan_gps[x] for x in ds_ids]

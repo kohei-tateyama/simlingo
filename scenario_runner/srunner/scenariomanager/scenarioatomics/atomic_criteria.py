@@ -1525,9 +1525,9 @@ class RouteCompletionTest(Criterion):
 
     # Thresholds to return that a route has been completed
     DISTANCE_THRESHOLD = 10.0  # meters
-    # TODO: move to _local file
+    # Reduce threshold for data collection to allow full route completion
     if int(os.environ.get('DATAGEN', 0))==1:
-        PERCENTAGE_THRESHOLD = 85  # %
+        PERCENTAGE_THRESHOLD = 99  # % (was 85, increased to ensure full route driving)
     else:
         PERCENTAGE_THRESHOLD = 99
 
@@ -1791,8 +1791,15 @@ class RunningRedLightTest(Criterion):
         wps = []
         for wpx in ini_wps:
             while not wpx.is_intersection:
-                next_wp = wpx.next(0.5)[0]
-                if next_wp and not next_wp.is_intersection:
+                # Safely get next waypoints: wpx.next() may return an empty list
+                next_wps = wpx.next(0.5)
+                if not next_wps:
+                    # No further waypoints available, stop advancing
+                    break
+                next_wp = next_wps[0]
+                if next_wp is None:
+                    break
+                if not next_wp.is_intersection:
                     wpx = next_wp
                 else:
                     break

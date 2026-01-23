@@ -219,6 +219,8 @@ class ScenarioManager(object):
                 sys.stdout.flush()
 
             if self.scenario_tree.status != py_trees.common.Status.RUNNING:
+                print(f"\n[SCENARIO_MANAGER] Scenario tree stopped with status: {self.scenario_tree.status}")
+                print(f"[SCENARIO_MANAGER] Criteria tree status: {getattr(self.scenario_tree, 'criteria_tree', 'N/A')}")
                 self._running = False
 
             ego_trans = self.ego_vehicles[0].get_transform()

@@ -124,7 +124,6 @@ class DataAgentMulticamera(AutoPilot):
             route_index = getattr(self, '_route_counter', 0)
             import time
             timestamp = time.strftime("%m_%d_%H_%M_%S")
-            # Use a stable 'route{index}_{timestamp}' pattern to avoid duplicating index parts
             route_id = f"route{route_index}_{timestamp}"
         else:
             # If leaderboard provided a route identifier (often numeric id), keep it as-is
@@ -137,9 +136,6 @@ class DataAgentMulticamera(AutoPilot):
         except:
             scenario_clean = 'Scenario'
         rep = os.environ.get('REPETITION', '0')
-        # Prefer a forced route id provided by the runner scripts so folder
-        # naming can place the id inside the Town folder name (avoid duplicate
-        # route-id subdirectories). FALLBACK to route_index if not provided.
         forced_route = os.environ.get('FORCE_ROUTE_ID', '')
         if forced_route:
             self.route_id_export = f"Route{scenario_clean}_{forced_route}_rep{rep}"
@@ -293,9 +289,7 @@ class DataAgentMulticamera(AutoPilot):
         if self.save_path is not None:
             print("=" * 80)
             print("[INFO][DATA_AGENT_MULTICAMERAE] Output Configuration:")
-            print(f"[INFO] Save Path: {self.save_path}")
-            if 'training_3_scenarios' in str(self.save_path):
-                print("[INFO] Using consolidated default: training_3_scenarios/routes_devtest (override with SAVE_SUBDIR)")
+            print(f"[INFO] Save Path                : {self.save_path}")
             print(f"[INFO] Data Collection (DATAGEN): {self.datagen}")
             print(f"[INFO] Route Index              : {route_index}")
             print(f"[INFO] Scenario                 : {self.scenario_name}")
@@ -347,22 +341,45 @@ class DataAgentMulticamera(AutoPilot):
         self.camera_height = 512
 
     def _init(self, hd_map):
-        """
-        Initialize agent - call parent then add observation managers.
-        """
         super()._init(hd_map)
         
-        # BEV manager can fail on some configurations, so wrap it
-        try:
-            from birds_eye_view.chauffeurnet import ObsManager
-            from birds_eye_view.run_stop_sign import RunStopSign
-            self.stop_sign_criteria = RunStopSign(self._world, self.config.ss_dist_to_stop_for_stop_sign)
-            self.ss_bev_manager = ObsManager(self.camera_width, self.camera_height, self._world, hd_map, self.config)
-            print("[INFO] BEV manager initialized successfully.")
-        except Exception as e:
-            print(f"[WARN] BEV manager initialization failed: {e}. Disabling BEV features.")
-            self.stop_sign_criteria = None
-            self.ss_bev_manager = None
+        # Initialize observation managers and criteria
+        obs_config = {
+            'width_in_pixels': self.config.lidar_resolution_width,
+            'pixels_ev_to_bottom': self.config.lidar_resolution_height / 2.0,
+            'pixels_per_meter': self.config.pixels_per_meter_collection,
+            'history_idx': [-1],
+            'scale_bbox': True,
+            'scale_mask_col': 1.0,
+            'map_folder': 'maps_2ppm_cv'
+        }
+
+        self.stop_sign_criteria = RunStopSign(self._world)
+        self.ss_bev_manager = ObsManager(obs_config, self.config)
+        self.ss_bev_manager.attach_ego_vehicle(self._vehicle, criteria_stop=self.stop_sign_criteria)
+
+        from agents.navigation.local_planner import LocalPlanner
+        self._local_planner = LocalPlanner(self._vehicle, opt_dict={}, map_inst=self.world_map)
+
+    def _safe_next(self, wp, dist, timeout=0.25):
+        """Call CARLA waypoint.next(dist) in a worker thread and enforce a timeout.
+        Returns empty list on exception or timeout to avoid blocking the main loop.
+        """
+        if wp is None:
+            return []
+        res = []
+        def _call():
+            try:
+                nxt = wp.next(dist)
+                if nxt:
+                    res.extend(nxt)
+            except Exception:
+                return
+
+        th = threading.Thread(target=_call, daemon=True)
+        th.start()
+        th.join(timeout)
+        return res
 
 
     def sensors(self):
@@ -372,14 +389,13 @@ class DataAgentMulticamera(AutoPilot):
         Camera layout (top view):
                     LF ---- F ---- RF
                     |              |
-                  (ego vehicle)
+                      (ego vehicle)
                     |              |
                     LB ---- B ---- RB
         """
         result = super().sensors()
         
         # CRITICAL: Remove opendrive_map sensor since we're using Track.SENSORS
-        # (opendrive_map is only allowed in Track.MAP)
         result = [s for s in result if s.get('type') != 'sensor.opendrive_map']
 
         if self.save_path is not None and (self.datagen or self.tmp_visu):
@@ -523,18 +539,10 @@ class DataAgentMulticamera(AutoPilot):
         # Get enriched bounding boxes (vehicles, walkers, traffic lights, stop signs, landmarks, weather)
         bounding_boxes = self.get_bounding_boxes(lidar=lidar_360)
 
-        if self.stop_sign_criteria is not None:
-            self.stop_sign_criteria.tick(self._vehicle)
+        self.stop_sign_criteria.tick(self._vehicle)
 
         if self.SAVE_TF_LABELS:
-            # Get BEV observations (skip if manager failed to initialize)
-            if self.ss_bev_manager is not None:
-                bev_semantics = self.ss_bev_manager.get_observation(self.close_traffic_lights)
-            else:
-                bev_semantics = {'rendered': None}
-                
-            if self.tmp_visu and 'F' in rgb_images:
-                self.visualuize(bev_semantics['rendered'], rgb_images['F'])
+            bev_semantics = self.ss_bev_manager.get_observation(self.close_traffic_lights)
             if self.tmp_visu and 'F' in rgb_images:
                 self.visualuize(bev_semantics['rendered'], rgb_images['F'])
 
@@ -561,8 +569,7 @@ class DataAgentMulticamera(AutoPilot):
         so we skip scenario-specific obstacle management and use basic control.
         """
         # Return defaults: no speed reduction, no keep_driving, speed_reduced_by_obj as list
-        speed_reduced_by_obj = [target_speed, None, None, None]
-        return target_speed, False, speed_reduced_by_obj
+        return target_speed, False, [target_speed, None, None, None]
 
     def _get_forward_speed(self, transform=None, velocity=None):
         """
@@ -602,32 +609,6 @@ class DataAgentMulticamera(AutoPilot):
 
     @torch.inference_mode()
     def run_step(self, input_data, timestamp, sensors=None, plant=False):
-        """Main run loop called by leaderboard at each tick."""
-        self.step_tmp += 1
-
-        # Convert LiDAR into ego coordinate frame
-        input_data['lidar'] = t_u.lidar_to_ego_coordinate(self.config, input_data['lidar'])
-
-        # Parent class runs control logic
-        control = super().run_step(input_data, timestamp, plant=plant)
-
-        # Collect sensor data for this frame
-        tick_data = self.tick(input_data)
-
-        # Save data at specified frequency
-        if self.step % self.config.data_save_freq == 0:
-            if self.save_path is not None and self.datagen:
-                self.save_sensors(tick_data)
-                # Record frame data for records.json.gz
-                self._record_frame_data(tick_data)
-
-        self.last_lidar = input_data['lidar']
-        self.last_ego_transform = self._vehicle.get_transform()
-
-        if plant:
-            return {**tick_data, **control}
-        else:
-            return control
         """Main run loop called by leaderboard at each tick."""
         self.step_tmp += 1
 
@@ -1070,7 +1051,7 @@ class DataAgentMulticamera(AutoPilot):
                     # Get next road/junction info
                     next_wps = self._wps_next_until_lane_end(vehicle_wp)
                     try:
-                        next_lane_wps = next_wps[-1].next(1) if next_wps else []
+                        next_lane_wps = self._safe_next(next_wps[-1], 1) if next_wps else []
                         if len(next_lane_wps) == 0 and next_wps:
                             next_lane_wps = [next_wps[-1]]
                     except:
@@ -1307,7 +1288,7 @@ class DataAgentMulticamera(AutoPilot):
             distance_to_junction_ego = None
             test_wp = ego_wp
             for _ in range(200):
-                next_wps = test_wp.next(0.5)
+                next_wps = self._safe_next(test_wp, 0.5)
                 if not next_wps:
                     break
                 test_wp = next_wps[0]
@@ -1457,7 +1438,7 @@ class DataAgentMulticamera(AutoPilot):
             curr_wp = [wp]
             next_wps = []
             while road_id_cur == road_id_next and lane_id_cur == lane_id_next:
-                next_wp = curr_wp[0].next(1)
+                next_wp = self._safe_next(curr_wp[0], 1)
                 if len(next_wp) == 0:
                     break
                 curr_wp = next_wp

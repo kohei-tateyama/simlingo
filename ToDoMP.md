@@ -490,3 +490,7 @@ echo "Switched to CARLA 0.9.16 environment"
 ```
 
 2) When running both `simlingo/script/test_data_agent_multicamera_timeout_all_carla0916.sh` and `simlingo/script/run_carla_mp_pilot_script_carla0916.sh`, the `.sh`s will create a folder to enable the LHT in carla 0.9.16, i.e., `tmp_carla_0916_config/` 
+
+3) I have installed `leaderboard21` the offivial release of leaderboard for carla 0.9.16. 
+Some of the code which I will list here have a shared dependecies, which I will take care of once I have tested stuff. 
+`simlingo/team_code/autopilot.py`

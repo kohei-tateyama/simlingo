@@ -48,8 +48,13 @@ def _get_traffic_light_waypoints(traffic_light, carla_map):
     # stopline_vertices.append([loc_left, loc_right])
 
     while not wpx.is_intersection:
-      next_wp = wpx.next(0.5)[0]
-      if next_wp and not next_wp.is_intersection:
+      next_list = wpx.next(0.5)
+      if not next_list:
+        break
+      next_wp = next_list[0]
+      if next_wp is None:
+        break
+      if not next_wp.is_intersection:
         wpx = next_wp
       else:
         break
@@ -146,7 +151,8 @@ class TrafficLightHandler:
         wp_dir = wp.transform.get_forward_vector()
         dot_ve_wp = veh_dir.x * wp_dir.x + veh_dir.y * wp_dir.y + veh_dir.z * wp_dir.z
 
-        wp_1 = wp.previous(4.0)[0]
+        prev_list = wp.previous(4.0)
+        wp_1 = prev_list[0] if prev_list else wp
         same_road = (hit_wp.road_id == wp.road_id) and (hit_wp.lane_id == wp.lane_id)
         same_road_1 = (hit_wp.road_id == wp_1.road_id) and (hit_wp.lane_id == wp_1.lane_id)
 

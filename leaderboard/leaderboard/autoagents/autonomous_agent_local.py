@@ -129,6 +129,15 @@ class AutonomousAgent(object):
         """
         self.org_dense_route_gps = global_plan_gps
         self.org_dense_route_world_coord = global_plan_world_coord
-        ds_ids = downsample_route(global_plan_world_coord, 200)
-        self._global_plan_world_coord = [(global_plan_world_coord[x][0], global_plan_world_coord[x][1]) for x in ds_ids]
-        self._global_plan = [global_plan_gps[x] for x in ds_ids]
+        # Use NO downsampling for data collection - agent needs dense waypoints to drive properly
+        # Original 200m downsampling caused routes to have only 2-3 waypoints
+        import os
+        if int(os.environ.get('DATAGEN', 0)) == 1:
+            # For DATAGEN, use the full dense route without downsampling
+            self._global_plan_world_coord = global_plan_world_coord
+            self._global_plan = global_plan_gps
+        else:
+            # For evaluation/testing, use 200m downsampling
+            ds_ids = downsample_route(global_plan_world_coord, 200.0)
+            self._global_plan_world_coord = [(global_plan_world_coord[x][0], global_plan_world_coord[x][1]) for x in ds_ids]
+            self._global_plan = [global_plan_gps[x] for x in ds_ids]

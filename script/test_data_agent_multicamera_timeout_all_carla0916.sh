@@ -5,20 +5,29 @@
 
 set -u
 
+LEADERBOARD_VERSION="leaderboard21" # "leaderboard"
+# # =============================================================================
+# # ENVIRONMENT SETUP
+# # =============================================================================
+# export CARLA_ROOT=/workspace/carla0916
+# export WORK_DIR=/workspace/simlingo
+# export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
+# export LEADERBOARD_ROOT=${WORK_DIR}/${LEADERBOARD_VERSION}
+# export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
+
 # =============================================================================
-# ENVIRONMENT SETUP
+# ENVIRONMENT SETUP (CARLA 0.9.16 / Leaderboard 2.1)
 # =============================================================================
 export CARLA_ROOT=/workspace/carla0916
 export WORK_DIR=/workspace/simlingo
-export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
-export LEADERBOARD_ROOT=${WORK_DIR}/leaderboard
-export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
-
+export LEADERBOARD_ROOT=/workspace/simlingo/leaderboard21
+export SCENARIO_RUNNER_ROOT=/workspace/simlingo/scenario_runner21
+export PYTHONPATH="${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI"
 
 # Data collection settings
 export DATAGEN=1
-# export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916.py
-export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916_back.py
+export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916.py
+# export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916_back.py
 export TEAM_CONFIG="data_collection"
 # export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
@@ -33,34 +42,32 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 # export ROUTE_CONFIG="routes_validation_LHT"
 # export ROUTE_CONFIG="routes_devtest_LHT"
 # export ROUTE_CONFIG="routes_devtest_2_LHT"
-# export ROUTE_CONFIG="bench2drive220"           # RHT routes
+# export ROUTE_CONFIG="bench2drive220"         
 # export ROUTE_CONFIG="bench2drive220_LHT" 
-export ROUTE_CONFIG="bench2drive220_2_LHT"      
+# export ROUTE_CONFIG="bench2drive220_2_LHT"      
+# export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
+# export ROUTES_SUBSET="25896" #"1773" # "24206" "25896", # "25857"
 
-export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
+export ROUTE_CONFIG="routes_training"      
+export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
+export ROUTES_SUBSET="0" 
 
-export ROUTES_SUBSET="24206" #"1773" # "24206"
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
     . "${WORK_DIR}/script/common.sh"
-    # info "Remember to remove the leaderboard timeout"
     # build_routes_subset # export ROUTES_SUBSET
 fi
 ## Running all the routes in the ROUTES massive data collection =========================
 
-# Use consolidated save layout (include scenario/route_config/weather)
 export SAVE_FLAT=0
-# Activate conda environment
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
 LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout - allow full route collection
 
-# CARLA port (can be overridden by environment before running the script)
 export PORT_CARLA=${PORT_CARLA:-2000}
-# Traffic Manager port (can be overridden)
 export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 
 # =============================================================================
@@ -68,7 +75,7 @@ export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 # =============================================================================
 cleanup_carla() {
     sep
-    info "Cleaning up CARLA and leaderboard (0.9.16) (!!!)..."
+    info "Cleaning up CARLA and ${LEADERBOARD_VERSION} (0.9.16) (!!!)..."
     sep
 
     pkill -9 -f "leaderboard_evaluator.py" 2>/dev/null || true
@@ -143,143 +150,147 @@ start_carla() {
 
     docker rm -f carla-server 2>/dev/null || true
 
-    # Create left-hand traffic configuration scripts for 0.9.16
-    TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
-    mkdir -p "${TMP_CONFIG_DIR}"
+#################################################################################
 
-    if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.py" ]; then
-    cat > "${TMP_CONFIG_DIR}/enable_lht.py" << 'EOF_PY'
-#!/usr/bin/env python3
-"""
-Idempotently set OpenDrive roads to LHT and inject CARLA userData vectorLane tag.
+#     # Create left-hand traffic configuration scripts for 0.9.16
+#     TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
+#     mkdir -p "${TMP_CONFIG_DIR}"
 
-This script creates a backup <file>.backup_rht the first time it modifies a file.
-"""
-import os
-import shutil
-import sys
-import xml.etree.ElementTree as ET
+#     if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.py" ]; then
+#     cat > "${TMP_CONFIG_DIR}/enable_lht.py" << 'EOF_PY'
+# #!/usr/bin/env python3
+# """
+# Idempotently set OpenDrive roads to LHT and inject CARLA userData vectorLane tag.
 
-# For host execution (not inside container)
-MAPS_DIR = "/workspace/carla0916/CarlaUE4/Content/Carla/Maps"
-TOWNS = [
-    "Town01","Town01_Opt","Town02","Town02_Opt","Town03","Town03_Opt",
-    "Town04","Town04_Opt","Town05","Town05_Opt","Town06","Town06_Opt",
-    "Town07","Town07_Opt","Town10HD","Town10HD_Opt","Town12","Town13","Town15",
-]
+# This script creates a backup <file>.backup_rht the first time it modifies a file.
+# """
+# import os
+# import shutil
+# import sys
+# import xml.etree.ElementTree as ET
 
-def find_element_any_ns(parent, tag):
-    for child in parent:
-        if child.tag.endswith('}' + tag) or child.tag == tag:
-            return child
-    return None
+# # For host execution (not inside container)
+# MAPS_DIR = "/workspace/carla0916/CarlaUE4/Content/Carla/Maps"
+# TOWNS = [
+#     "Town01","Town01_Opt","Town02","Town02_Opt","Town03","Town03_Opt",
+#     "Town04","Town04_Opt","Town05","Town05_Opt","Town06","Town06_Opt",
+#     "Town07","Town07_Opt","Town10HD","Town10HD_Opt","Town12","Town13","Town15",
+# ]
 
-def has_vectorlane_in_header(header):
-    for ud in header:
-        for node in ud:
-            if node.tag.lower().endswith('vectorlane') and node.attrib.get('code','').endswith('carla:lane_direction'):
-                return True
-    return False
+# def find_element_any_ns(parent, tag):
+#     for child in parent:
+#         if child.tag.endswith('}' + tag) or child.tag == tag:
+#             return child
+#     return None
 
-def ensure_userdata_header(root):
-    header = find_element_any_ns(root, 'header')
-    if header is None:
-        return False
-    if has_vectorlane_in_header(header):
-        return False
-    userData = ET.Element('userData')
-    vectorLane = ET.Element('vectorLane', {'code': 'carla:lane_direction', 'value': 'left'})
-    userData.append(vectorLane)
-    header.append(userData)
-    return True
+# def has_vectorlane_in_header(header):
+#     for ud in header:
+#         for node in ud:
+#             if node.tag.lower().endswith('vectorlane') and node.attrib.get('code','').endswith('carla:lane_direction'):
+#                 return True
+#     return False
 
-def set_roads_rule_lht(root):
-    changed = 0
-    for elem in root.iter():
-        tag = elem.tag
-        if isinstance(tag, str) and (tag.endswith('}road') or tag == 'road'):
-            prev = elem.attrib.get('rule')
-            if prev != 'LHT':
-                elem.attrib['rule'] = 'LHT'
-                changed += 1
-    return changed
+# def ensure_userdata_header(root):
+#     header = find_element_any_ns(root, 'header')
+#     if header is None:
+#         return False
+#     if has_vectorlane_in_header(header):
+#         return False
+#     userData = ET.Element('userData')
+#     vectorLane = ET.Element('vectorLane', {'code': 'carla:lane_direction', 'value': 'left'})
+#     userData.append(vectorLane)
+#     header.append(userData)
+#     return True
 
-def process_xodr(path):
-    print("Processing:", path)
-    tree = ET.parse(path)
-    root = tree.getroot()
-    modified = False
+# def set_roads_rule_lht(root):
+#     changed = 0
+#     for elem in root.iter():
+#         tag = elem.tag
+#         if isinstance(tag, str) and (tag.endswith('}road') or tag == 'road'):
+#             prev = elem.attrib.get('rule')
+#             if prev != 'LHT':
+#                 elem.attrib['rule'] = 'LHT'
+#                 changed += 1
+#     return changed
 
-    modified |= ensure_userdata_header(root)
-    changed_roads = set_roads_rule_lht(root)
-    modified |= (changed_roads > 0)
+# def process_xodr(path):
+#     print("Processing:", path)
+#     tree = ET.parse(path)
+#     root = tree.getroot()
+#     modified = False
 
-    if modified:
-        bak = path + ".backup_rht"
-        if not os.path.exists(bak):
-            shutil.copy2(path, bak)
-            print("  backed up to", bak)
-        tree.write(path, encoding='utf-8', xml_declaration=True)
-        print(f"  modified (roads updated: {changed_roads})")
-    else:
-        print("  no changes needed")
+#     modified |= ensure_userdata_header(root)
+#     changed_roads = set_roads_rule_lht(root)
+#     modified |= (changed_roads > 0)
 
-def main():
-    any_changed = False
-    for town in TOWNS:
-        # CARLA 0.9.16 has two locations for .xodr files:
-        # - Maps/OpenDrive/{town}.xodr (Town01-07, Town10HD)
-        # - Maps/{town}/OpenDrive/{town}.xodr (Town12, Town13, Town15)
-        xodr = os.path.join(MAPS_DIR, "OpenDrive", f"{town}.xodr")
-        if not os.path.isfile(xodr):
-            # Try per-town subfolder
-            xodr = os.path.join(MAPS_DIR, town, "OpenDrive", f"{town}.xodr")
-            if not os.path.isfile(xodr):
-                print(f"[WARN] {town}.xodr not found in either location, skipping")
-                continue
-        try:
-            process_xodr(xodr)
-            any_changed = True
-        except Exception as e:
-            print(f"[ERROR] failed to process {xodr}: {e}", file=sys.stderr)
-    if any_changed:
-        print("Done. Restart CARLA to pick up modified maps.")
-    else:
-        print("No files changed.")
+#     if modified:
+#         bak = path + ".backup_rht"
+#         if not os.path.exists(bak):
+#             shutil.copy2(path, bak)
+#             print("  backed up to", bak)
+#         tree.write(path, encoding='utf-8', xml_declaration=True)
+#         print(f"  modified (roads updated: {changed_roads})")
+#     else:
+#         print("  no changes needed")
 
-if __name__ == '__main__':
-    main()
-EOF_PY
-    fi
+# def main():
+#     any_changed = False
+#     for town in TOWNS:
+#         # CARLA 0.9.16 has two locations for .xodr files:
+#         # - Maps/OpenDrive/{town}.xodr (Town01-07, Town10HD)
+#         # - Maps/{town}/OpenDrive/{town}.xodr (Town12, Town13, Town15)
+#         xodr = os.path.join(MAPS_DIR, "OpenDrive", f"{town}.xodr")
+#         if not os.path.isfile(xodr):
+#             # Try per-town subfolder
+#             xodr = os.path.join(MAPS_DIR, town, "OpenDrive", f"{town}.xodr")
+#             if not os.path.isfile(xodr):
+#                 print(f"[WARN] {town}.xodr not found in either location, skipping")
+#                 continue
+#         try:
+#             process_xodr(xodr)
+#             any_changed = True
+#         except Exception as e:
+#             print(f"[ERROR] failed to process {xodr}: {e}", file=sys.stderr)
+#     if any_changed:
+#         print("Done. Restart CARLA to pick up modified maps.")
+#     else:
+#         print("No files changed.")
 
-    if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.sh" ]; then
-    cat > "${TMP_CONFIG_DIR}/enable_lht.sh" << 'EOF_SH'
-#!/bin/bash
-# Wrapper executed inside the CARLA container to run the Python modifier.
-set -e
-if command -v python3 >/dev/null 2>&1; then
-    python3 /tmp/carla_config/enable_lht.py
-elif command -v python >/dev/null 2>&1; then
-    python /tmp/carla_config/enable_lht.py
-else
-    echo "[LHT-CONFIG] No python interpreter found inside container; skipping OpenDrive edits"
-    exit 0
-fi
-EOF_SH
-    fi
+# if __name__ == '__main__':
+#     main()
+# EOF_PY
+#     fi
 
-    chmod +x "${TMP_CONFIG_DIR}/enable_lht.sh" "${TMP_CONFIG_DIR}/enable_lht.py" 2>/dev/null || true
+#     if [ ! -f "${TMP_CONFIG_DIR}/enable_lht.sh" ]; then
+#     cat > "${TMP_CONFIG_DIR}/enable_lht.sh" << 'EOF_SH'
+# #!/bin/bash
+# # Wrapper executed inside the CARLA container to run the Python modifier.
+# set -e
+# if command -v python3 >/dev/null 2>&1; then
+#     python3 /tmp/carla_config/enable_lht.py
+# elif command -v python >/dev/null 2>&1; then
+#     python /tmp/carla_config/enable_lht.py
+# else
+#     echo "[LHT-CONFIG] No python interpreter found inside container; skipping OpenDrive edits"
+#     exit 0
+# fi
+# EOF_SH
+#     fi
 
-    # Run enable_lht.py on HOST to modify OpenDrive files BEFORE starting container
-    info "Modifying OpenDrive maps to LEFT-HAND traffic on host..."
-    python3 "${TMP_CONFIG_DIR}/enable_lht.py" || warn "Failed to modify OpenDrive files - LHT may not work correctly"
+#     chmod +x "${TMP_CONFIG_DIR}/enable_lht.sh" "${TMP_CONFIG_DIR}/enable_lht.py" 2>/dev/null || true
+
+#     # Run enable_lht.py on HOST to modify OpenDrive files BEFORE starting container
+#     info "Modifying OpenDrive maps to LEFT-HAND traffic on host..."
+#     python3 "${TMP_CONFIG_DIR}/enable_lht.py" || warn "Failed to modify OpenDrive files - LHT may not work correctly"
+
+##################################################################################
 
     docker run -d \
         --name carla-server \
         --runtime=nvidia \
         --gpus all \
         --net=host \
-        --shm-size=1g \
+        --shm-size=8g \
         --env=NVIDIA_VISIBLE_DEVICES=all \
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
@@ -288,8 +299,23 @@ EOF_SH
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
-    info "Waiting 80s for CARLA to start..."
-    sleep 80
+    # docker run -d \
+    #     --rm \
+    #     --name carla-server-$(date +%s) \
+    #     --runtime=nvidia \
+    #     --gpus all \
+    #     --net=host \
+    #     --shm-size=1g \
+    #     --env=NVIDIA_VISIBLE_DEVICES=all \
+    #     --env=NVIDIA_DRIVER_CAPABILITIES=compute,graphics,utility,display,video \
+    #     --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
+    #     -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
+    #     -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
+    #     carla-bench2drive:0.9.16 \
+    #     bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log -force-opengl"
+
+    info "Waiting 60s for CARLA to start..."
+    sleep 60
 
     if ! docker ps | grep -q carla-server; then
         echo ""
@@ -392,8 +418,8 @@ PY
 )
 
     if [ $? -eq 0 ] && [ -n "$AUTO_ROUTES_SUBSET" ]; then
-        # Override ROUTES_SUBSET if not manually set
-        if [ -z "${ROUTES_SUBSET:-}" ] || [ "${ROUTES_SUBSET}" = "0" ]; then
+        # Override ROUTES_SUBSET if not manually set (treat only empty/unset as 'not set')
+        if [ -z "${ROUTES_SUBSET:-}" ]; then
             export ROUTES_SUBSET="$AUTO_ROUTES_SUBSET"
             info "Auto-filtered ROUTES_SUBSET: ${ROUTES_SUBSET}"
         else
@@ -491,11 +517,10 @@ PY
 # RUN LEADERBOARD EVALUATION (uses same leaderboard but with 0.9.16 CARLA)
 # =============================================================================
 run_leaderboard() {
-    sep
-    info "Running data_agent_multicamera_carla0916.py via leaderboard against CARLA 0.9.16"
-    sep
 
-    cd /workspace/simlingo/leaderboard
+
+    # cd /workspace/simlingo/leaderboard
+    cd /workspace/simlingo/${LEADERBOARD_VERSION}
 
     info "Agent    : ${TEAM_AGENT}"
     info "Routes   : ${ROUTES}"
@@ -509,7 +534,11 @@ run_leaderboard() {
     fi
 
     # Validate ROUTES_SUBSET and parse into array
-    if [ -z "${ROUTES_SUBSET:-}" ] || [ "${ROUTES_SUBSET}" = "0" ]; then
+    # If ROUTES_SUBSET is unset or empty, build the default subset (all routes).
+    # NOTE: Previously the script treated the literal string "0" as a sentinel meaning
+    # "not set / all routes" which prevented selecting route id '0'. Treat only empty
+    # as the sentinel so users can request route id "0" explicitly.
+    if [ -z "${ROUTES_SUBSET:-}" ]; then
         # Build default subset from routes file (all ids)
         ROUTES_SUBSET=$(python - <<'PY'
 import xml.etree.ElementTree as ET, os, sys
@@ -599,12 +628,12 @@ PY
         # Run leaderboard and capture stdout/stderr to per-route log for inspection
         LB_LOG="${WORK_DIR}/leaderboard_logs/route_${route_id}.log"
         if [ "${LEADERBOARD_TIMEOUT:-0}" -eq 0 ]; then
-            python -u leaderboard/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}" &
+            python -u ${LEADERBOARD_VERSION}/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}" &
             LB_PID=$!
             wait $LB_PID
             exit_code=$?
         else
-            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python -u leaderboard/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}"
+            timeout -k 10 "${LEADERBOARD_TIMEOUT}" bash -c 'trap "kill 0" SIGTERM; exec "$@"' -- python -u ${LEADERBOARD_VERSION}/leaderboard_evaluator.py "${ARGS[@]}" 2>&1 | tee "${LB_LOG}"
             exit_code=$?
         fi
 
@@ -648,7 +677,7 @@ PY
                 warn "Image patching failed for route ${route_id}"
             fi
             # ensure we are back in leaderboard dir for next iteration
-            cd /workspace/simlingo/leaderboard
+            cd /workspace/simlingo/${LEADERBOARD_VERSION}
         else
             warn "Skipping patching for route ${route_id} (no data collected)"
         fi

@@ -2,7 +2,7 @@
 Data collection agent for right-hand traffic with 6-camera setup.
 
 Combines:
-- DataAgent's leaderboard integration and sensor pipeline
+- DataAgent's leaderboard21 integration and sensor pipeline
 - 6-camera multi-view recording (F, B, RF, LF, RB, LB)
 - Output structure: database/simlingo_v2_2025_01_10/data/simlingo/{scenario}/{route_config}/{route_id}/
 """
@@ -19,7 +19,6 @@ import signal
 from pathlib import Path
 from datetime import datetime
 import shutil
-import multiprocessing
 
 import cv2
 import carla
@@ -37,7 +36,6 @@ import matplotlib.lines as mlines
 from shapely.geometry import Polygon
 
 from autopilot import AutoPilot
-from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 import team_code.transfuser_utils as t_u
 
 from birds_eye_view.chauffeurnet import ObsManager
@@ -82,9 +80,9 @@ class DataAgentMulticamera(AutoPilot):
 
     def __init__(self, carla_host='localhost', carla_port=2000, debug=False):
         """
-        Initialize agent for leaderboard compatibility.
+        Initialize agent for leaderboard21 compatibility.
         
-        The leaderboard calls __init__(host, port, debug), but AutoPilot
+        The leaderboard21 calls __init__(host, port, debug), but AutoPilot
         uses setup(path_to_conf_file, route_index, traffic_manager).
         This __init__ stores the args but defers actual initialization to setup().
         """
@@ -96,11 +94,11 @@ class DataAgentMulticamera(AutoPilot):
             self._carla_port = carla_port
         self._debug = debug
         
-        # Initialize sensor_interface required by standard leaderboard
-        from leaderboard.envs.sensor_interface import SensorInterface
+        # Initialize sensor_interface required by standard leaderboard21
+        from leaderboard21.envs.sensor_interface import SensorInterface
         self.sensor_interface = SensorInterface()
         
-        # Initialize global plan attributes (required by leaderboard)
+        # Initialize global plan attributes (required by leaderboard21)
         self._global_plan = None
         self._global_plan_world_coord = None
         self.wallclock_t0 = None
@@ -112,7 +110,6 @@ class DataAgentMulticamera(AutoPilot):
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
     
-
     def setup(self, path_to_conf_file, route_index=None, traffic_manager=None):
         # Ensure scenario_name exists even if path_to_conf_file is None or unexpected
         try:
@@ -120,16 +117,14 @@ class DataAgentMulticamera(AutoPilot):
         except Exception:
             self.scenario_name = 'Scenario'
 
-        # Leaderboard doesn't provide route_index, so generate a readable route_id from timestamp
+        # leaderboard21 doesn't provide route_index, so generate one from timestamp
         if route_index is None:
             # Use route counter for consistent naming
             route_index = getattr(self, '_route_counter', 0)
             import time
             timestamp = time.strftime("%m_%d_%H_%M_%S")
-            # Use a stable 'route{index}_{timestamp}' pattern to avoid duplicating index parts
-            route_id = f"route{route_index}_{timestamp}"
+            route_id = f"{route_index}_route0_{timestamp}"
         else:
-            # If leaderboard provided a route identifier (often numeric id), keep it as-is
             route_id = route_index
         
         # Store route_id as instance variable for signal handler
@@ -139,9 +134,6 @@ class DataAgentMulticamera(AutoPilot):
         except:
             scenario_clean = 'Scenario'
         rep = os.environ.get('REPETITION', '0')
-        # Prefer a forced route id provided by the runner scripts so folder
-        # naming can place the id inside the Town folder name (avoid duplicate
-        # route-id subdirectories). FALLBACK to route_index if not provided.
         forced_route = os.environ.get('FORCE_ROUTE_ID', '')
         if forced_route:
             self.route_id_export = f"Route{scenario_clean}_{forced_route}_rep{rep}"
@@ -158,84 +150,58 @@ class DataAgentMulticamera(AutoPilot):
         if os.environ.get("SAVE_PATH", None) is not None:
             import pathlib
             base_path = pathlib.Path(os.environ["SAVE_PATH"])
-            # Default: put outputs under training_3_scenarios/routes_devtest to avoid
-            # If you want a custom path, set env var SAVE_SUBDIR (e.g. "training_3_scenarios/routes_devtest").
             save_subdir = os.environ.get('SAVE_SUBDIR', None)
 
-            # Prefer the actual CARLA map name when available (ensures saved folder matches the map used)
-            town = None
-            try:
-                # After super().setup() the agent should have a world or world_map available
-                if hasattr(self, '_world') and self._world is not None:
-                    mapname = self._world.get_map().name
-                elif hasattr(self, 'world_map') and self.world_map is not None:
-                    # world_map may be a Map object or string-like
-                    mapname = getattr(self.world_map, 'name', None) or str(self.world_map)
-                else:
-                    mapname = None
-
-                if mapname:
-                    # Normalize mapname like '/Game/Carla/Maps/Town03' -> 'Town03'
-                    town = mapname.split('/')[-1]
-                    # In some CARLA builds the name can be 'Town13/Town13' or similar
-                    if '/' in town:
-                        town = town.split('/')[-1]
-                    # Guard: if resulting town is empty, unset
-                    if town == '':
-                        town = None
-            except Exception:
-                town = None
-
-            # Fallback to environment variable if map detection failed. Prefer FORCE_TOWN
-            if not town:
-                town = os.environ.get('FORCE_TOWN', '') or os.environ.get("TOWN", "Town03")
+            # Allow runner to force the Town used for naming (important when route XML town differs)
+            town = os.environ.get('FORCE_TOWN', '') or os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
+            forced_route = os.environ.get('FORCE_ROUTE_ID', '')
 
             weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")
-            route_config_env = os.environ.get('ROUTE_CONFIG', 'routes_devtest')
-            # Build consolidated path: <SCENARIO_NAME>/<route_config>/<weather>/<Town>_Rep{rep}_{route_id}
-            # Optionally support a flat layout (no scenario/weather nesting) when SAVE_FLAT=1
-            save_flat = os.environ.get('SAVE_FLAT', '0') == '1'
 
-            # Use forced route id if provided by runner scripts
-            forced_route = os.environ.get('FORCE_ROUTE_ID', '')
             timestamp = datetime.now().strftime('%m_%d_%H_%M_%S')
+            # If route_id looks like "<num>_route0_<ts>", extract numeric id if needed
+            route_token = None
+            try:
+                if isinstance(route_id, str) and '_route' in route_id:
+                    # keep the full route_id's numeric part after '_route' if present
+                    parts = route_id.split('_route')
+                    if len(parts) >= 2 and parts[1]:
+                        # parts[1] may contain <num>_<ts> -> take the leading numeric id
+                        route_token = parts[1].split('_')[0]
+                else:
+                    route_token = str(route_index)
+            except Exception:
+                route_token = str(route_index)
+
             if forced_route:
                 town_folder = f"{town}_Rep{rep}_route{forced_route}_{timestamp}"
             else:
-                town_folder = f"{town}_Rep{rep}_0_route{route_index}_{timestamp}"
+                # Use route_token to include the route id in the Town folder name
+                town_folder = f"{town}_Rep{rep}_route{route_token}_{timestamp}"
 
-            if save_flat:
-                # Directly put Town_Rep... folder under the base SAVE_PATH
-                self.save_path = base_path / town_folder
+            # Build consolidated path: <SAVE_SUBDIR or default>/weather/<town_folder>
+            if save_subdir:
+                self.save_path = base_path / Path(save_subdir) / weather_config / town_folder
             else:
-                if save_subdir:
-                    # honor provided subdir (can include nested folders separated by /)
-                    self.save_path = base_path / Path(save_subdir) / weather_config / town_folder
-                else:
-                    # Use ROUTE_CONFIG environment variable to be coherent with runners
-                    consolidated_root = base_path / (os.environ.get('SCENARIO_NAME', 'training_3_scenarios')) / route_config_env / weather_config
-                    consolidated_root.mkdir(parents=True, exist_ok=True)
-                    self.save_path = consolidated_root / town_folder
+                consolidated_root = base_path / 'training_3_scenarios' / 'routes_devtest' / weather_config
+                consolidated_root.mkdir(parents=True, exist_ok=True)
+                self.save_path = consolidated_root / town_folder
 
-            # If SAVE_PATH was set and there are existing top-level run folders (Town*_Rep*),
-            # move them into the consolidated weather folder to avoid polluting the SAVE_PATH root.
-            # Skip this reorganization when using the flat layout.
             try:
-                if not save_flat:
-                    for child in sorted(base_path.iterdir()):
-                        if not child.is_dir():
-                            continue
-                        # skip known safe folders
-                        if child.name in ['training_3_scenarios', 'outputs', 'output']:
-                            continue
-                        # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
-                        if ('_Rep' in child.name) or child.name.startswith('Town'):
-                            try:
-                                shutil.move(str(child), str(consolidated_root))
-                                print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
-                            except Exception as e:
-                                print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
+                for child in sorted(base_path.iterdir()):
+                    if not child.is_dir():
+                        continue
+                    # skip known safe folders
+                    if child.name in ['training_3_scenarios', 'outputs', 'output']:
+                        continue
+                    # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
+                    if ('_Rep' in child.name) or child.name.startswith('Town'):
+                        try:
+                            shutil.move(str(child), str(consolidated_root))
+                            print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
+                        except Exception as e:
+                            print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
             except Exception:
                 pass
             self.save_path.mkdir(parents=True, exist_ok=True)
@@ -243,8 +209,7 @@ class DataAgentMulticamera(AutoPilot):
             if self.datagen:
                 (self.save_path / "measurements").mkdir(exist_ok=True)
 
-            # Write a sentinel with the actual save path so runners can find
-            # the current run directory deterministically for post-processing.
+            # Write a sentinel so runners can deterministically find this run folder
             try:
                 last_run_file = base_path / '.last_run'
                 with open(last_run_file, 'w') as fh:
@@ -267,8 +232,8 @@ class DataAgentMulticamera(AutoPilot):
                 except Exception as e:
                     print(f"[WARN] Could not update lon_logger.save_path: {e}")
         
-        # Override track setting - standard leaderboard requires SENSORS track
-        from leaderboard.autoagents.autonomous_agent import Track
+        # Override track setting - standard leaderboard21 requires SENSORS track
+        from leaderboard21.autoagents.autonomous_agent import Track
         self.track = Track.SENSORS
 
         self.SAVE_TF_LABELS = int(os.environ.get('SAVE_TF_LABELS', 0))
@@ -335,8 +300,16 @@ class DataAgentMulticamera(AutoPilot):
                 (self.save_path / 'semantics').mkdir(exist_ok=True)
                 (self.save_path / 'depth').mkdir(exist_ok=True)
                 (self.save_path / 'bev_semantics').mkdir(exist_ok=True)
-            
+
             print(f"[INFO][DATA_AGENT_MULTICAMERA] Created output directories in: {self.save_path}")
+            # write sentinel so runners can find this exact run directory
+            try:
+                base_path = Path(os.environ.get('SAVE_PATH', '.'))
+                last_run_file = base_path / '.last_run'
+                with open(last_run_file, 'w') as fh:
+                    fh.write(str(self.save_path))
+            except Exception:
+                pass
 
         self.tmp_visu = int(os.environ.get('TMP_VISU', 0))
 
@@ -349,89 +322,25 @@ class DataAgentMulticamera(AutoPilot):
         self.camera_height = 512
 
     def _init(self, hd_map):
-        """
-        Initialize agent with LHT-safe path that attempts route setup with error handling.
-        """
-        # CRITICAL: Set vehicle and world first to avoid AttributeError in other methods
-        # These should already be available from CarlaDataProvider
-        if not hasattr(self, '_vehicle') or self._vehicle is None:
-            self._vehicle = CarlaDataProvider.get_hero_actor()
-        if not hasattr(self, '_world') or self._world is None:
-            self._world = self._vehicle.get_world()
-        
-        # Detect if LHT map
-        map_name = self._world.get_map().name.split('/')[-1]
-        is_lht = 'lht' in map_name.lower() or 'town12' in map_name.lower()
-        
-        if is_lht:
-            print(f"[WARN] LHT map detected ({map_name}). Using error-tolerant initialization.")
-            
-            # Sparse waypoints for debugging
-            print(f"[DEBUG] Sparse Waypoints: {len(self._global_plan)}")
-            print(f"[DEBUG] Dense Waypoints: {len(self.org_dense_route_world_coord)}")
-            
-            # Try to initialize route planner with error handling
-            from team_code.privileged_route_planner import PrivilegedRoutePlanner
-            self._waypoint_planner = PrivilegedRoutePlanner(self.config)
-            
-            # Attempt route setup but continue even if it partially fails
-            try:
-                print("[INFO] Attempting route setup (may have warnings on LHT map)...")
-                # Check if vehicle starts from parking
-                distance_to_road = self.org_dense_route_world_coord[0][0].location.distance(self._vehicle.get_location())
-                starts_with_parking_exit = distance_to_road > 2
-                
-                self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
-                                                   starts_with_parking_exit, self._vehicle.get_location())
-                self._waypoint_planner.save()
-                print(f"[INFO] Route planner setup completed (some waypoints may have been skipped)")
-            except Exception as e:
-                print(f"[WARN] Route planner setup had errors: {e}")
-                print("[WARN] Agent will use basic navigation only")
-            
-            # Set up controllers
-            from team_code.longitudinal_controller import LongitudinalLinearRegressionController
-            self._longitudinal_controller = LongitudinalLinearRegressionController(self.config)
-            
-            from nav_planner import RoutePlanner
-            self._command_planner = RoutePlanner(self.config.route_planner_min_distance, self.config.route_planner_max_distance)
-            self._command_planner.set_route(self._global_plan_world_coord)
-            
-            # Disable BEV and stop sign features
-            self.stop_sign_criteria = None
-            self.ss_bev_manager = None
-            self.list_traffic_lights = []
-            
-            # Set up logger
-            if self.save_path is not None and hasattr(self, 'lon_logger'):
-                self.lon_logger.ego_vehicle = self._vehicle
-                self.lon_logger.world = self._world
-            
-            # Clean up any bugged vehicles
-            all_actors = self._world.get_actors()
-            for actor in all_actors:
-                if "vehicle" in actor.type_id:
-                    extent = actor.bounding_box.extent
-                    if extent.x < 0.001 or extent.y < 0.001 or extent.z < 0.001:
-                        actor.destroy()
-            
-            self.initialized = True
-            print(f"[INFO] LHT initialization complete. Agent ready to drive and collect data.")
-            return
-        
-        # For RHT maps, use the standard full initialization
-        print(f"[INFO] RHT map detected ({map_name}). Using full initialization.")
         super()._init(hd_map)
         
-        # BEV manager can still fail, so wrap it
-        try:
-            self.stop_sign_criteria = RunStopSign(self._world, self.config.ss_dist_to_stop_for_stop_sign)
-            self.ss_bev_manager = ObsManager(self.camera_width, self.camera_height, self._world, hd_map, self.config)
-            print("[INFO] BEV manager initialized successfully.")
-        except Exception as e:
-            print(f"[WARN] BEV manager initialization failed: {e}. Disabling BEV features.")
-            self.stop_sign_criteria = None
-            self.ss_bev_manager = None
+        # Initialize observation managers and criteria
+        obs_config = {
+            'width_in_pixels': self.config.lidar_resolution_width,
+            'pixels_ev_to_bottom': self.config.lidar_resolution_height / 2.0,
+            'pixels_per_meter': self.config.pixels_per_meter_collection,
+            'history_idx': [-1],
+            'scale_bbox': True,
+            'scale_mask_col': 1.0,
+            'map_folder': 'maps_2ppm_cv'
+        }
+
+        self.stop_sign_criteria = RunStopSign(self._world)
+        self.ss_bev_manager = ObsManager(obs_config, self.config)
+        self.ss_bev_manager.attach_ego_vehicle(self._vehicle, criteria_stop=self.stop_sign_criteria)
+
+        self._local_planner = LocalPlanner(self._vehicle, opt_dict={}, map_inst=self.world_map)
+
 
     def sensors(self):
         """
@@ -591,16 +500,10 @@ class DataAgentMulticamera(AutoPilot):
         # Get enriched bounding boxes (vehicles, walkers, traffic lights, stop signs, landmarks, weather)
         bounding_boxes = self.get_bounding_boxes(lidar=lidar_360)
 
-        if self.stop_sign_criteria is not None:
-            self.stop_sign_criteria.tick(self._vehicle)
+        self.stop_sign_criteria.tick(self._vehicle)
 
         if self.SAVE_TF_LABELS:
-            # Get BEV observations (skip if manager failed to initialize on LHT maps)
-            if self.ss_bev_manager is not None:
-                bev_semantics = self.ss_bev_manager.get_observation(self.close_traffic_lights)
-            else:
-                bev_semantics = {'rendered': None}
-                
+            bev_semantics = self.ss_bev_manager.get_observation(self.close_traffic_lights)
             if self.tmp_visu and 'F' in rgb_images:
                 self.visualuize(bev_semantics['rendered'], rgb_images['F'])
 
@@ -623,12 +526,11 @@ class DataAgentMulticamera(AutoPilot):
         """
         Override parent method to handle missing active_scenarios attribute.
         
-        Standard leaderboard doesn't have CarlaDataProvider.active_scenarios,
+        Standard leaderboard21 doesn't have CarlaDataProvider.active_scenarios,
         so we skip scenario-specific obstacle management and use basic control.
         """
-        # Return defaults: no speed reduction, no keep_driving, speed_reduced_by_obj as list
-        speed_reduced_by_obj = [target_speed, None, None, None]
-        return target_speed, False, speed_reduced_by_obj
+        # Return defaults: no speed reduction, no keep_driving, no obstacle info
+        return target_speed, False, [target_speed, None, None, None]
 
     def _get_forward_speed(self, transform=None, velocity=None):
         """
@@ -668,7 +570,7 @@ class DataAgentMulticamera(AutoPilot):
 
     @torch.inference_mode()
     def run_step(self, input_data, timestamp, sensors=None, plant=False):
-        """Main run loop called by leaderboard at each tick."""
+        """Main run loop called by leaderboard21 at each tick."""
         self.step_tmp += 1
 
         # Convert LiDAR into ego coordinate frame
@@ -750,22 +652,38 @@ class DataAgentMulticamera(AutoPilot):
         - boxes/{frame:04d}.json.gz
         - lidar/{frame:04d}.laz
         """
+        # Avoid saving before the vehicle is initialized (prevents crashes
+        # when leaderboard/evaluator calls run_step very early).
+        if not hasattr(self, '_vehicle') or self._vehicle is None:
+            print('[WARN][DATA_AGENT_MULTICAMERA] _vehicle not initialized — skipping save_sensors')
+            return
+
         frame = self.step // self.config.data_save_freq
 
         # Log first frame save to confirm output location
         if frame == 0:
-            print(f"[DATA_AGENT_MULTICAMERA] Starting to save data at frame {frame}")
-            print(f"  RGB output: {self.save_path / 'rgb' / f'{frame:04d}'}/")
-            print(f"  Total frames will be saved to: {self.save_path}")
+            print(f"[DATA_AGENT_MULTICAMERA] Starting to save {self.save_path / 'rgb' / f'{frame:04d}'}/")
 
         # Create per-frame RGB directory
         rgb_frame_dir = self.save_path / 'rgb' / f'{frame:04d}'
         rgb_frame_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save 6 camera images
-        for cam_name, img in tick_data.get('rgb_images', {}).items():
-            img_path = rgb_frame_dir / f'{cam_name}.jpg'
-            cv2.imwrite(str(img_path), img)
+
+        # Save 6 camera images (wrap each write to avoid crashing on bad frames)
+        for cam_name, img in dict(tick_data.get('rgb_images', {})).items():
+            try:
+                if img is None:
+                    print(f"[WARN][DATA_AGENT_MULTICAMERA] Missing image for camera {cam_name} frame {frame}")
+                    continue
+                # Some sensors may return non-array placeholders
+                if not hasattr(img, 'shape'):
+                    print(f"[WARN][DATA_AGENT_MULTICAMERA] Invalid image for camera {cam_name} frame {frame}")
+                    continue
+                img_path = rgb_frame_dir / f'{cam_name}.jpg'
+                ok = cv2.imwrite(str(img_path), img)
+                if not ok:
+                    print(f"[WARN][DATA_AGENT_MULTICAMERA] cv2.imwrite failed for {img_path}")
+            except Exception as e:
+                print(f"[WARN][DATA_AGENT_MULTICAMERA] Failed to write image {cam_name} frame {frame}: {e}")
         
         # Save optional TensorFlow labels
         if self.SAVE_TF_LABELS:
@@ -776,21 +694,28 @@ class DataAgentMulticamera(AutoPilot):
             if tick_data.get('bev_semantics') is not None:
                 cv2.imwrite(str(self.save_path / 'bev_semantics' / f'{frame:04d}.png'), tick_data['bev_semantics'])
 
-        # Save LiDAR with compression
-        header = laspy.LasHeader(point_format=self.config.point_format)
-        header.offsets = np.min(tick_data['lidar'], axis=0)
-        header.scales = np.array([
-            self.config.point_precision,
-            self.config.point_precision,
-            self.config.point_precision
-        ])
+        # Save LiDAR with compression if available
+        try:
+            lidar_data = tick_data.get('lidar')
+            if lidar_data is not None and getattr(lidar_data, 'shape', None) is not None and lidar_data.shape[0] > 0:
+                header = laspy.LasHeader(point_format=self.config.point_format)
+                header.offsets = np.min(lidar_data, axis=0)
+                header.scales = np.array([
+                    self.config.point_precision,
+                    self.config.point_precision,
+                    self.config.point_precision
+                ])
 
-        with laspy.open(self.save_path / 'lidar' / f'{frame:04d}.laz', mode='w', header=header) as writer:
-            point_record = laspy.ScaleAwarePointRecord.zeros(tick_data['lidar'].shape[0], header=header)
-            point_record.x = tick_data['lidar'][:, 0]
-            point_record.y = tick_data['lidar'][:, 1]
-            point_record.z = tick_data['lidar'][:, 2]
-            writer.write_points(point_record)
+                with laspy.open(self.save_path / 'lidar' / f'{frame:04d}.laz', mode='w', header=header) as writer:
+                    point_record = laspy.ScaleAwarePointRecord.zeros(lidar_data.shape[0], header=header)
+                    point_record.x = lidar_data[:, 0]
+                    point_record.y = lidar_data[:, 1]
+                    point_record.z = lidar_data[:, 2]
+                    writer.write_points(point_record)
+            else:
+                print(f"[WARN][DATA_AGENT_MULTICAMERA] No lidar data for frame {frame}, skipping lidar write")
+        except Exception as e:
+            print(f"[WARN][DATA_AGENT_MULTICAMERA] Failed to write lidar for frame {frame}: {e}")
 
         # Save bounding boxes
         with gzip.open(self.save_path / 'boxes' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
@@ -799,26 +724,14 @@ class DataAgentMulticamera(AutoPilot):
         # Get ego transform for signal metadata and GPS tracking
         transform = self._vehicle.get_transform()
         
-        # Save left-hand traffic signal metadata (NEW)
-        try:
-            signal_metadata = self.detect_traffic_infrastructure_issues(max_distance=50.0)
-            signal_data = {
-                'frame': frame,
-                'timestamp': datetime.now().isoformat(),
-                'ego_position': [float(transform.location.x), float(transform.location.y), float(transform.location.z)],
-                'ego_rotation': [float(transform.rotation.pitch), float(transform.rotation.yaw), float(transform.rotation.roll)],
-                'back_facing_count': signal_metadata['back_facing_lights'],
-                'signals': signal_metadata['signals']
-            }
-            with gzip.open(self.save_path / 'left_signal' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
-                json.dump(signal_data, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            pass  # Fail silently to avoid disrupting data collection
         
         # Save measurements (ego state + route info)
-        measurements = self._build_measurements()
-        with gzip.open(self.save_path / 'measurements' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
-            json.dump(measurements, f, indent=4, ensure_ascii=False)
+        try:
+            measurements = self._build_measurements()
+            with gzip.open(self.save_path / 'measurements' / f'{frame:04d}.json.gz', 'wt', encoding='utf-8') as f:
+                json.dump(measurements, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"[WARN][DATA_AGENT_MULTICAMERA] Failed to write measurements for frame {frame}: {e}")
         
         # Track GPS for trajectory plot (transform already retrieved above)
         self._gps_trajectory.append([float(transform.location.x), float(transform.location.y)])
@@ -830,7 +743,7 @@ class DataAgentMulticamera(AutoPilot):
                 # Build a simple route representation from remaining_route for logging
                 # ScenarioLogger expects numeric arrays (not Python lists) so convert to a NumPy array. Ensure shape (N,2) and provide an empty array fallback to avoid subtraction between lists inside rdp/route_as_boxes.
                 route_for_log = np.empty((0, 2), dtype=float)
-                if hasattr(self, 'remaining_route') and self.remaining_route is not None:
+                if hasattr(self, 'remaining_route') and self.remaining_route is not None and len(getattr(self, 'remaining_route')) > 0:
                     try:
                         pts = self.remaining_route[:self.config.num_route_points_saved]
                         route_arr = np.asarray([[float(p[0]), float(p[1])] for p in pts], dtype=float)
@@ -893,8 +806,7 @@ class DataAgentMulticamera(AutoPilot):
         # Route information from AutoPilot (CRITICAL: use remaining_route)
         # AutoPilot populates self.remaining_route in _get_control()
         # IMPORTANT: Convert to ego-relative coords to match simlingo reference format
-        if hasattr(self, 'remaining_route') and self.remaining_route is not None:
-            # Transform route points from global world coords to ego-relative coords
+        if hasattr(self, 'remaining_route') and self.remaining_route is not None and len(getattr(self, 'remaining_route')) > 0:
             route = []
             for p in self.remaining_route[:self.config.num_route_points_saved]:
                 # Build 4x4 matrix for route point (same format as vehicle matrices)
@@ -1605,12 +1517,6 @@ class DataAgentMulticamera(AutoPilot):
                 # Get route_id (stored in setup())
                 route_id = getattr(self, 'route_id', 'unknown')
                 
-                # Ensure save_path exists (defensive) to avoid FileNotFoundError
-                try:
-                    Path(self.save_path).mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    pass
-
                 results_path = self.save_path / 'results.json.gz'
                 # Build richer infractions structure like example
                 infractions_template = {
@@ -1672,11 +1578,6 @@ class DataAgentMulticamera(AutoPilot):
                 
                 # Save records.json.gz via scenario logger with explicit path
                 records_path = self.save_path / 'records.json.gz'
-                # Ensure records parent directory exists
-                try:
-                    Path(records_path).parent.mkdir(parents=True, exist_ok=True)
-                except Exception:
-                    pass
                 if hasattr(self, 'lon_logger') and self.lon_logger is not None:
                     try:
                         # Call lon_logger's dump_to_json with explicit path
@@ -1737,14 +1638,14 @@ class DataAgentMulticamera(AutoPilot):
         finally:
             os._exit(0)  # Force immediate exit without cleanup
 
-    def _try_load_leaderboard_checkpoint(self):
+    def _try_load_leaderboard21_checkpoint(self):
         """
-        Attempt to read the leaderboard checkpoint JSON pointed by env LEADERBOARD_CHECKPOINT
+        Attempt to read the leaderboard21 checkpoint JSON pointed by env leaderboard21_CHECKPOINT
         and extract the matching route record for the current `route_id_export` if present.
         Returns a dict or None.
         """
         try:
-            cp_path = os.environ.get('LEADERBOARD_CHECKPOINT', None)
+            cp_path = os.environ.get('leaderboard21_CHECKPOINT', None)
             if not cp_path:
                 return None
             if not os.path.exists(cp_path):
@@ -1764,8 +1665,8 @@ class DataAgentMulticamera(AutoPilot):
 
     def _compute_statistics_from_data(self):
         """
-        Compute basic statistics from collected data when leaderboard doesn't provide results.
-        This fallback is used when LEADERBOARD_TIMEOUT kills the process before statistics registration.
+        Compute basic statistics from collected data when leaderboard21 doesn't provide results.
+        This fallback is used when leaderboard21_TIMEOUT kills the process before statistics registration.
         Attempts to extract actual infractions from scenario criteria if available.
         
         Returns:
@@ -1824,7 +1725,7 @@ class DataAgentMulticamera(AutoPilot):
             # Attempt to get infractions from scenario manager if available
             try:
                 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
-                from leaderboard.utils.statistics_manager_local import PENALTY_NAME_DICT
+                from leaderboard21.utils.statistics_manager_local import PENALTY_NAME_DICT
                 
                 # Check if we have active scenario with criteria
                 if hasattr(self, '_current_scenario') and self._current_scenario is not None:
@@ -1842,11 +1743,11 @@ class DataAgentMulticamera(AutoPilot):
             except Exception as e:
                 print(f"[INFO] Could not extract infractions from scenario: {e}")
             
-            # Compute penalty score from infractions (simplified - actual leaderboard has complex penalty calculation)
+            # Compute penalty score from infractions (simplified - actual leaderboard21 has complex penalty calculation)
             score_penalty = 1.0  # No penalty if no infractions found
             total_infractions = sum(len(v) for v in infractions.values())
             if total_infractions > 0:
-                # Simple penalty: each infraction reduces score by ~7% (matching leaderboard PENALTY_VALUE_DICT)
+                # Simple penalty: each infraction reduces score by ~7% (matching leaderboard21 PENALTY_VALUE_DICT)
                 score_penalty = max(0.0, 1.0 - (total_infractions * 0.07))
             
             score_composed = score_route * score_penalty
@@ -1886,7 +1787,7 @@ class DataAgentMulticamera(AutoPilot):
         Parent AutoPilot.destroy() saves records.json.gz via ScenarioLogger.
         
         Args:
-            results: RouteRecord from leaderboard with computed statistics (completion %, infractions, scores)
+            results: RouteRecord from leaderboard21 with computed statistics (completion %, infractions, scores)
         """
         torch.cuda.empty_cache()
         
@@ -1899,7 +1800,7 @@ class DataAgentMulticamera(AutoPilot):
         
         # If no results provided (timeout scenario), try computing from collected data
         if results is None and self.save_path is not None:
-            print(f"[INFO] No results from leaderboard - computing statistics from collected data")
+            print(f"[INFO] No results from leaderboard21 - computing statistics from collected data")
             results_data = self._compute_statistics_from_data()
             if results_data is not None:
                 # Save computed statistics as results.json.gz
@@ -1911,24 +1812,24 @@ class DataAgentMulticamera(AutoPilot):
                 except Exception as e:
                     print(f"[WARN] Failed to save computed results.json.gz: {e}")
         
-        # Save results.json.gz if leaderboard provided route statistics
+        # Save results.json.gz if leaderboard21 provided route statistics
         elif results is not None and self.save_path is not None:
             try:
                 results_path = Path(self.save_path) / 'results.json.gz'
                 # RouteRecord has a to_json() method that returns vars(self)
                 results_data = results.to_json() if hasattr(results, 'to_json') else results.__dict__
                 
-                # Check if leaderboard reported 0% completion but we actually have data
-                # This happens when timeout occurs before leaderboard computes route progress
+                # Check if leaderboard21 reported 0% completion but we actually have data
+                # This happens when timeout occurs before leaderboard21 computes route progress
                 scores = results_data.get('scores', {})
                 if scores.get('score_route', 0) == 0 and self.step > 0:
-                    print(f"[INFO] Leaderboard reported 0% completion, computing actual progress...")
+                    print(f"[INFO] leaderboard21 reported 0% completion, computing actual progress...")
                     computed_stats = self._compute_statistics_from_data()
                     if computed_stats is not None:
                         # Override route completion and composed score with our computation
                         results_data['scores']['score_route'] = computed_stats['scores']['score_route']
                         results_data['scores']['score_composed'] = computed_stats['scores']['score_composed']
-                        # Keep leaderboard's infractions and penalty (they're accurate)
+                        # Keep leaderboard21's infractions and penalty (they're accurate)
                         print(f"[DATA_AGENT_MULTICAMERA] Enhanced results with computed route completion: {results_data['scores']['score_route']:.1f}%")
                 
                 with gzip.open(results_path, 'wt', encoding='utf-8') as f:
@@ -1945,55 +1846,7 @@ class DataAgentMulticamera(AutoPilot):
         # Call parent destroy - this saves records.json.gz via lon_logger.dump_to_json()
         super().destroy(results)
 
-    def detect_traffic_infrastructure_issues(self, max_distance=50.0):
-        """
-        Scans for nearby traffic lights and checks for potential infrastructure issues,
-        such as back-facing signals common in LHT misconfigurations.
 
-        Returns:
-            dict: A dictionary containing the count of back-facing lights and a list of all nearby signals with their properties.
-        """
-        if not self._vehicle or not self.world_map:
-            return {'back_facing_lights': 0, 'signals': []}
-
-        ego_location = self._vehicle.get_location()
-        ego_transform = self._vehicle.get_transform()
-        ego_forward = ego_transform.get_forward_vector()
-
-        all_actors = self._world.get_actors()
-        traffic_lights = all_actors.filter('*traffic_light*')
-
-        nearby_signals = []
-        back_facing_count = 0
-
-        for light in traffic_lights:
-            light_transform = light.get_transform()
-            distance = ego_location.distance(light_transform.location)
-
-            if distance < max_distance:
-                light_forward = light_transform.get_forward_vector()
-                
-                # Check if the light is facing away from the ego vehicle
-                dot_product = ego_forward.x * light_forward.x + ego_forward.y * light_forward.y
-                is_back_facing = dot_product < -0.5  # Facing opposite direction
-
-                if is_back_facing:
-                    back_facing_count += 1
-
-                nearby_signals.append({
-                    'id': light.id,
-                    'distance': distance,
-                    'position': [light_transform.location.x, light_transform.location.y, light_transform.location.z],
-                    'is_back_facing': is_back_facing,
-                    'state': str(light.state)
-                })
-        
-        return {
-            'back_facing_lights': back_facing_count,
-            'signals': sorted(nearby_signals, key=lambda x: x['distance'])
-        }
-        
-
-# Entry point for leaderboard
+# Entry point for leaderboard21
 if __name__ == '__main__':
     print("[INFO] DataAgentMulticamera: traffic data collection agent with multicamera")
