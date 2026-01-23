@@ -475,6 +475,11 @@ pip install /workspace/carla0916/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-m
 # pip install flash-attn==2.7.0.post2
 ```
 
+```bash 
+cd /workspace/carla0916/PythonAPI/carla/dist
+unzip carla-0.9.16-cp310-cp310-manylinux_2_31_x86_64.whl -d carla_0916_lib
+```
+
 ```bash
 conda activate simlingo16
 export CARLA_ROOT=/workspace/carla0916
@@ -485,6 +490,7 @@ export PYTHONPATH="${WORK_DIR}:${CARLA_WHEEL}:${CARLA_ROOT}/PythonAPI/carla"
 # export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.16-cp310-cp310-manylinux_2_27_x86_64.whl:${CARLA_ROOT}/PythonAPI/carla"
 echo "Switched to CARLA 0.9.16 environment"
 ```
+
 ## Note
 
 1) Since the topology ahs changed, `simlingo/leaderboard/leaderboard/scenarios/route_scenario.py` we have disabled the following.

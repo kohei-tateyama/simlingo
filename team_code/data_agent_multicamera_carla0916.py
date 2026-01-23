@@ -64,29 +64,33 @@ def convert_rgb_to_names(rgb_tuple):
 def get_entry_point():
     return 'DataAgentMulticamera'
 
-# --- LHT CRASH FIX START --- added carela 0.9.16
-srunner_folder = "/workspace/simlingo/scenario_runner21/srunner"
 
-if srunner_folder not in sys.path:
-    sys.path.insert(0, srunner_folder)
+# --- LHT CRASH FIX START --- added carela 0.9.16
+
+sr_base = "/workspace/simlingo/scenario_runner21/srunner"
+
+if sr_base not in sys.path:
+    sys.path.insert(0, sr_base)
 
 try:
-    # Now that srunner is in sys.path, this import will work
-    import scenariomanager.scenario_atomics.atomic_criteria as criteria
+    # 2. Use the exact folder name found: 'scenarioatomics' (no underscore)
+    import scenariomanager.scenarioatomics.atomic_criteria as criteria
     
-    # Redefine the setup to handle the empty traffic light list (LHT crash)
+    # Define the safe setup to prevent the LHT IndexError
     def patched_setup(self, actor, debug=False):
         self._actor = actor
         self._world = actor.get_world()
         self._map = self._world.get_map()
-        self._traffic_light = None  # Prevents IndexError: list index out of range
+        # Setting this to None prevents: traffic_light = traffic_light_list[0] -> IndexError
+        self._traffic_light = None 
 
+    # Apply the patch to the class
     criteria.RunningRedLightTest.setup = patched_setup
-    print("SUCCESS: RunningRedLightTest patched for LHT.")
+    print("[INFO]: LHT patch ok via scenarioatomics")
+
 except ImportError as e:
-    print(f"[ERROR]: Could not patch ScenarioRunner: {e}")
-except Exception as e:
-    print(f"[ERROR]: An unexpected error occurred during patching: {e}")
+    print(f"[ERROR]: Still could not find ScenarioRunner. Error: {e}")
+
 # --- LHT CRASH FIX END ---
 
 
@@ -137,52 +141,88 @@ class DataAgentMulticamera(AutoPilot):
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
     
+    
     def setup(self, path_to_conf_file, route_index=None, traffic_manager=None):
-        # Ensure scenario_name exists even if path_to_conf_file is None or unexpected
+        """
+        Precise setup for CARLA 0.9.16 with Left-Hand Traffic (LHT) support.
+        """
+        import os
+        import time
+        import carla
+        from pathlib import Path
+
+        # --- 1. PRE-INITIALIZATION LOGIC (Naming & Routes) ---
         try:
-            self.scenario_name = Path(path_to_conf_file).parent.name if path_to_conf_file is not None else 'Scenario'
+            self.scenario_name = Path(path_to_conf_file).parent.name if path_to_conf_file else 'Scenario'
         except Exception:
             self.scenario_name = 'Scenario'
 
-        # leaderboard21 doesn't provide route_index, so generate one from timestamp
+        # Determine route_id for internal tracking
         if route_index is None:
-            # Use route counter for consistent naming
-            route_index = getattr(self, '_route_counter', 0)
-            import time
+            curr_route_idx = getattr(self, '_route_counter', 0)
             timestamp = time.strftime("%m_%d_%H_%M_%S")
-            route_id = f"{route_index}_route0_{timestamp}"
+            route_id = f"{curr_route_idx}_route0_{timestamp}"
         else:
             route_id = route_index
-        
-        # Store route_id as instance variable for signal handler
+            curr_route_idx = route_index
+
         self.route_id = route_id
-        try:
-            scenario_clean = str(self.scenario_name).replace(' ', '_') if hasattr(self, 'scenario_name') else 'Scenario'
-        except:
-            scenario_clean = 'Scenario'
+        self._original_route_index = curr_route_idx
+
+        # Export Naming for Database/Logs
+        scenario_clean = str(self.scenario_name).replace(' ', '_')
         rep = os.environ.get('REPETITION', '0')
         forced_route = os.environ.get('FORCE_ROUTE_ID', '')
+        
         if forced_route:
             self.route_id_export = f"Route{scenario_clean}_{forced_route}_rep{rep}"
         else:
-            self.route_id_export = f"Route{scenario_clean}_{route_index}_rep{rep}"
-        
-        # Store original route_index before calling super()
-        self._original_route_index = route_index
-        
-        ## Added left hand traffic carla 0.9.16
-        # Guard traffic_manager usage: it may be None in some leaderboard setups
-        if traffic_manager is not None:
-            try:
-                if hasattr(traffic_manager, 'set_global_lane_offset'):
-                    traffic_manager.set_global_lane_offset(-0.5)
-                if hasattr(traffic_manager, 'set_global_lane_direction_if_lht'):
-                    traffic_manager.set_global_lane_direction_if_lht(True)
-            except Exception as e:
-                print(f"[WARN] Could not configure traffic_manager for LHT: {e}")
-        ##
+            self.route_id_export = f"Route{scenario_clean}_{curr_route_idx}_rep{rep}"
+
+        # --- 2. THE LHT CONNECTION HOOK (Immediate Access) ---
+        # We manually connect to ensure TM/Map are configured even if super() is slow
+        try:
+            _host = os.environ.get('CARLA_HOST', 'localhost')
+            _port = int(os.environ.get('CARLA_PORT', 2000))
+            _tm_port = int(os.environ.get('TRAFFIC_MANAGER_PORT', 8000))
+            
+            temp_client = carla.Client(_host, _port)
+            temp_client.set_timeout(10.0)
+            temp_world = temp_client.get_world()
+            
+            # Retrieve Traffic Manager
+            tm = traffic_manager if traffic_manager else temp_client.get_trafficmanager(_tm_port)
+            
+            print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
+            
+            # --- 3. APPLY 0.9.16 LHT RULES ---
+            if hasattr(tm, 'set_global_lane_offset'):
+                tm.set_global_lane_offset(-0.5)
+                tm.set_global_lane_direction_if_lht(True)
+                print("\033[92m[INFO][LHT] Traffic Manager configured for Left-Hand Traffic (Offset -0.5)\033[0m")
+            else:
+                print("\033[91m[ERROR][LHT] API VERSION MISMATCH! 0.9.16 functions not found in loaded module.\033[0m")
+
+            # --- 4. MAP VERIFICATION ---
+            carla_map = temp_world.get_map()
+            if hasattr(carla_map, 'get_driving_side'):
+                side = carla_map.get_driving_side()
+                if side == carla.DrivingSide.Left:
+                    print("\033[92m[INFO][LHT] ✓✓✓ MAP VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
+                else:
+                    print("\033[91m[CRITICAL] Map is Right-Hand Traffic! TM direction will fail.\033[0m")
+            else:
+                # Fallback check via OpenDrive string if API attribute is missing
+                if 'driving_side="left"' in carla_map.to_opendrive().lower():
+                    print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
+
+        except Exception as e:
+            print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}. Attempting standard setup...\033[0m")
+
+        # --- 5. LEADERBOARD CORE SETUP ---
+        # This initializes self.client, self.world, and the agent's sensors
         super().setup(path_to_conf_file, route_id, traffic_manager=traffic_manager)
-        
+       
         # Override save_path with simlingo v4 structure after super().setup()
         if os.environ.get("SAVE_PATH", None) is not None:
             import pathlib
@@ -235,8 +275,10 @@ class DataAgentMulticamera(AutoPilot):
                     # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
                     if ('_Rep' in child.name) or child.name.startswith('Town'):
                         try:
-                            shutil.move(str(child), str(consolidated_root))
-                            print(f"[INFO] Moved existing run folder {child} -> {consolidated_root}")
+                            dest = consolidated_root / child.name
+                            # Use explicit destination folder so logs show final path
+                            shutil.move(str(child), str(dest))
+                            print(f"[INFO] Moved existing run folder {child} -> {dest}")
                         except Exception as e:
                             print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
             except Exception:

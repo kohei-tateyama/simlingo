@@ -6,14 +6,6 @@
 set -u
 
 LEADERBOARD_VERSION="leaderboard21" # "leaderboard"
-# # =============================================================================
-# # ENVIRONMENT SETUP
-# # =============================================================================
-# export CARLA_ROOT=/workspace/carla0916
-# export WORK_DIR=/workspace/simlingo
-# export SCENARIO_RUNNER_ROOT=${WORK_DIR}/scenario_runner
-# export LEADERBOARD_ROOT=${WORK_DIR}/${LEADERBOARD_VERSION}
-# export PYTHONPATH="${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI:${SCENARIO_RUNNER_ROOT}:${LEADERBOARD_ROOT}"
 
 # =============================================================================
 # ENVIRONMENT SETUP (CARLA 0.9.16 / Leaderboard 2.1)
@@ -22,7 +14,12 @@ export CARLA_ROOT=/workspace/carla0916
 export WORK_DIR=/workspace/simlingo
 export LEADERBOARD_ROOT=/workspace/simlingo/leaderboard21
 export SCENARIO_RUNNER_ROOT=/workspace/simlingo/scenario_runner21
-export PYTHONPATH="${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}:${CARLA_ROOT}/PythonAPI/carla:${CARLA_ROOT}/PythonAPI"
+export CARLA_API_FORCE="/workspace/carla0916/PythonAPI/carla/dist/carla_0916_lib"
+export CARLA_AGENTS_PARENT="${CARLA_ROOT}/PythonAPI/carla"
+export LD_LIBRARY_PATH="${CARLA_API_FORCE}/carla.libs:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="${CARLA_API_FORCE}:${CARLA_AGENTS_PARENT}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}:${PYTHONPATH:-}"
+
+
 
 # Data collection settings
 export DATAGEN=1
@@ -32,22 +29,11 @@ export TEAM_CONFIG="data_collection"
 # export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
 export TOWN="Town03"  # Will be overridden by route XML
-export REPETITION="1" # MINIMUM IS 1
+export REPETITION="1" # minimum 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 
 ## LHT
-# export ROUTE_CONFIG="routes_training_LHT"
-# export ROUTE_CONFIG="routes_training_2_LHT"   
-# export ROUTE_CONFIG="routes_validation_LHT"
-# export ROUTE_CONFIG="routes_devtest_LHT"
-# export ROUTE_CONFIG="routes_devtest_2_LHT"
-# export ROUTE_CONFIG="bench2drive220"         
-# export ROUTE_CONFIG="bench2drive220_LHT" 
-# export ROUTE_CONFIG="bench2drive220_2_LHT"      
-# export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
-# export ROUTES_SUBSET="25896" #"1773" # "24206" "25896", # "25857"
-
 export ROUTE_CONFIG="routes_training"      
 export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
 export ROUTES_SUBSET="0" 
@@ -154,8 +140,9 @@ start_carla() {
 
 #     # Create left-hand traffic configuration scripts for 0.9.16
 #     # I did have abandoned the following fodler:
-#     TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
+#     # TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
 #     # I used - already run - the /workspace/simlingo/tmp_carla_0916_config/get_lht_carla_0916.py script.
+#     warn "Did you rn : cd /workspace/simlingo && python tmp_carla_0916_config/get_lht_carla_0916.py script ?"
 
 ##################################################################################
 
@@ -174,12 +161,12 @@ start_carla() {
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
     # docker run -d \
-    #     --rm \
-    #     --name carla-server-$(date +%s) \
+    #     --rm \ ---> this would been nice to have 
+    #     --name carla-server-$(date +%s) \ ---> this would been nice to have 
     #     --runtime=nvidia \
     #     --gpus all \
     #     --net=host \
-    #     --shm-size=1g \
+    #     --shm-size=1g \ --> hold run 8 is better 
     #     --env=NVIDIA_VISIBLE_DEVICES=all \
     #     --env=NVIDIA_DRIVER_CAPABILITIES=compute,graphics,utility,display,video \
     #     --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
@@ -392,26 +379,18 @@ PY
 # =============================================================================
 run_leaderboard() {
 
-
-    # cd /workspace/simlingo/leaderboard
     cd /workspace/simlingo/${LEADERBOARD_VERSION}
 
     info "Agent    : ${TEAM_AGENT}"
     info "Routes   : ${ROUTES}"
     info "Port     : ${PORT_CARLA}"
     info "Output   : ${SAVE_PATH}"
-    sep
-    # Build base args (we'll append --routes-subset per route)
+
     BASE_ARGS=(--routes=${ROUTES} --repetitions=${REPETITION} --agent=${TEAM_AGENT} --agent-config=${TEAM_CONFIG} --port=${PORT_CARLA} --traffic-manager-port=${TRAFFIC_MANAGER_PORT})
     if [ -n "${LEADERBOARD_CHECKPOINT:-}" ]; then
         BASE_ARGS+=(--checkpoint=${LEADERBOARD_CHECKPOINT})
     fi
 
-    # Validate ROUTES_SUBSET and parse into array
-    # If ROUTES_SUBSET is unset or empty, build the default subset (all routes).
-    # NOTE: Previously the script treated the literal string "0" as a sentinel meaning
-    # "not set / all routes" which prevented selecting route id '0'. Treat only empty
-    # as the sentinel so users can request route id "0" explicitly.
     if [ -z "${ROUTES_SUBSET:-}" ]; then
         # Build default subset from routes file (all ids)
         ROUTES_SUBSET=$(python - <<'PY'

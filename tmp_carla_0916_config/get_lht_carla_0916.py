@@ -79,4 +79,4 @@ if __name__ == '__main__':
 
 # Setting rule="LHT" in <header> for /workspace/carla0916/CarlaUE4/Content/Carla/Maps/OpenDrive/Town02_Opt.xodr
 # ...
-# Setting rule="LHT" in <header> for /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town12/OpenDrive/Town12.xod
+# Setting rule="LHT" in <header> for /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town12/OpenDrive/Town12.xodr
