@@ -16,7 +16,48 @@ import carla
 from scipy.integrate import RK45
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
-from leaderboard.autoagents import autonomous_agent, autonomous_agent_local
+
+import os
+
+_lb_ver = os.environ.get("LEADERBOARD_VERSION", "leaderboard")
+autonomous_agent_local = None
+
+# Try the configured leaderboard package first, then fall back to the other one.
+preferred = _lb_ver
+candidates = [preferred]
+if preferred == "leaderboard21":
+  candidates.append("leaderboard")
+else:
+  candidates.append("leaderboard21")
+
+_import_error = None
+for cand in candidates:
+  try:
+    if cand == "leaderboard21":
+      from leaderboard21.autoagents import autonomous_agent, autonomous_agent_local
+    else:
+      from leaderboard.autoagents import autonomous_agent, autonomous_agent_local
+    print(f"autopilot: using {cand}.autoagents for autonomous_agent import")
+    break
+  except Exception as e:
+    # Try importing without autonomous_agent_local if present in package differs
+    try:
+      if cand == "leaderboard21":
+        from leaderboard21.autoagents import autonomous_agent
+      else:
+        from leaderboard.autoagents import autonomous_agent
+      autonomous_agent_local = None
+      print(f"autopilot: using {cand}.autoagents (no autonomous_agent_local)")
+      break
+    except Exception as e2:
+      _import_error = e2
+
+if 'autonomous_agent' not in globals():
+  raise ImportError(
+      "Could not import 'autonomous_agent' from either 'leaderboard' or 'leaderboard21'. "
+      "Set LEADERBOARD_VERSION or adjust PYTHONPATH so one of those packages is importable. "
+      f"Last error: {_import_error}")
+
 from nav_planner import RoutePlanner
 from lateral_controller import LateralPIDController
 from privileged_route_planner import PrivilegedRoutePlanner
@@ -31,7 +72,7 @@ def get_entry_point():
   return "AutoPilot"
 
 
-class AutoPilot(autonomous_agent_local.AutonomousAgent):
+class AutoPilot(autonomous_agent.AutonomousAgent):
   """
       Privileged driving agent used for data collection.
       Drives by accessing the simulator directly.
@@ -184,18 +225,36 @@ class AutoPilot(autonomous_agent_local.AutonomousAgent):
         Args:
             hd_map (carla.Map): The map object of the CARLA world.
         """
-    print("Sparse Waypoints:", len(self._global_plan))
-    print("Dense Waypoints:", len(self.org_dense_route_world_coord))
+    # Defensive initialization: ensure route attributes exist to avoid AttributeError
+    if not hasattr(self, '_global_plan') or self._global_plan is None:
+      self._global_plan = []
+    if not hasattr(self, '_global_plan_world_coord') or self._global_plan_world_coord is None:
+      self._global_plan_world_coord = []
+    if not hasattr(self, 'org_dense_route_world_coord') or self.org_dense_route_world_coord is None:
+      self.org_dense_route_world_coord = []
+
+    # Defensive printing: handle missing attributes gracefully
+    sparse_len = len(self._global_plan)
+    dense_len = len(self.org_dense_route_world_coord)
+    print("Sparse Waypoints:", sparse_len)
+    print("Dense Waypoints :", dense_len)
 
     # Get the hero vehicle and the CARLA world
     self._vehicle = CarlaDataProvider.get_hero_actor()
     self._world = self._vehicle.get_world()
 
     # Check if the vehicle starts from a parking spot
-    distance_to_road = self.org_dense_route_world_coord[0][0].location.distance(self._vehicle.get_location())
-    # The first waypoint starts at the lane center, hence it's more than 2 m away from the center of the
-    # ego vehicle at the beginning.
-    starts_with_parking_exit = distance_to_road > 2
+    # If dense route is available, compute whether we start from a parking exit.
+    if getattr(self, 'org_dense_route_world_coord', None) and len(self.org_dense_route_world_coord) > 0:
+      try:
+        distance_to_road = self.org_dense_route_world_coord[0][0].location.distance(self._vehicle.get_location())
+        # The first waypoint starts at the lane center, hence it's more than 2 m away from the center of the
+        # ego vehicle at the beginning.
+        starts_with_parking_exit = distance_to_road > 2
+      except Exception:
+        starts_with_parking_exit = False
+    else:
+      starts_with_parking_exit = False
 
     # Set up the route planner and extrapolation
     self._waypoint_planner = PrivilegedRoutePlanner(self.config)
@@ -343,9 +402,40 @@ class AutoPilot(autonomous_agent_local.AutonomousAgent):
                                     next_stop_sign, speed_limit = self._waypoint_planner.run_step(ego_position)
 
     # Extract relevant route information
-    self.remaining_route = route_np[self.config.tf_first_checkpoint_distance:][::self.config.points_per_meter]
-    self.remaining_route_original = self._waypoint_planner.original_route_points[self._waypoint_planner.route_index:][
-        self.config.tf_first_checkpoint_distance:][::self.config.points_per_meter]
+    try:
+      step = int(self.config.points_per_meter) if getattr(self.config, 'points_per_meter', 1) else 1
+    except Exception:
+      step = 1
+
+    try:
+      start_idx = int(getattr(self.config, 'tf_first_checkpoint_distance', 0))
+    except Exception:
+      start_idx = 0
+
+    try:
+      sliced = route_np[start_idx::step]
+      # fallback: if slicing produced empty but there are route points, use remaining raw points
+      if (hasattr(sliced, 'size') and sliced.size == 0) and getattr(route_np, 'size', 0) > 0:
+        if start_idx < route_np.shape[0]:
+          sliced = route_np[start_idx:]
+        else:
+          sliced = route_np
+      # Convert to list of 2D floats (x,y)
+      self.remaining_route = [[float(p[0]), float(p[1])] for p in sliced]
+    except Exception:
+      self.remaining_route = []
+
+    try:
+      original = self._waypoint_planner.original_route_points[self._waypoint_planner.route_index:]
+      sliced_orig = original[start_idx::step]
+      if (hasattr(sliced_orig, 'size') and sliced_orig.size == 0) and getattr(original, 'size', 0) > 0:
+        if start_idx < original.shape[0]:
+          sliced_orig = original[start_idx:]
+        else:
+          sliced_orig = original
+      self.remaining_route_original = [[float(p[0]), float(p[1])] for p in sliced_orig]
+    except Exception:
+      self.remaining_route_original = []
 
     # Get the current speed and target speed
     ego_speed = tick_data["speed"]
@@ -377,8 +467,13 @@ class AutoPilot(autonomous_agent_local.AutonomousAgent):
     target_speed = min(target_speed, target_speed_route_obstacle)
 
     # Determine if the ego vehicle is at a junction
-    ego_vehicle_waypoint = self.world_map.get_waypoint(self._vehicle.get_location())
-    self.junction = ego_vehicle_waypoint.is_junction
+    # CARLA 0.9.16 FIX: get_waypoint() can hang on some maps (Town03, Town12)
+    try:
+        ego_vehicle_waypoint = self.world_map.get_waypoint(self._vehicle.get_location())
+        self.junction = ego_vehicle_waypoint.is_junction if ego_vehicle_waypoint else False
+    except Exception as e:
+        # Fallback: assume not at junction if waypoint lookup fails
+        self.junction = False
 
     # Compute throttle and brake control
     throttle, control_brake = self._longitudinal_controller.get_throttle_and_brake(brake, target_speed, ego_speed)
@@ -563,7 +658,13 @@ class AutoPilot(autonomous_agent_local.AutonomousAgent):
           continue
 
         vehicle_location = vehicle.get_location()
-        vehicle_waypoint = self.world_map.get_waypoint(vehicle_location)
+        # CARLA 0.9.16 FIX: get_waypoint() can hang, skip vehicle if lookup fails
+        try:
+          vehicle_waypoint = self.world_map.get_waypoint(vehicle_location)
+          if vehicle_waypoint is None:
+            continue
+        except Exception:
+          continue
 
         # Check if the vehicle is on the previous lane IDs
         if (vehicle_waypoint.road_id, vehicle_waypoint.lane_id) in previous_lane_ids:

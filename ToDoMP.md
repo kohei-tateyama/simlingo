@@ -521,9 +521,3 @@ Location: /home/pim1yh/miniconda3/envs/simlingo/lib/python3.8/site-packages
 Requires: 
 Required-by: 
 ```
-
-carla 0.9.15
-
-bash script/run_carla_mp_pilot_script.sh --mode autopilot --duration 10 --route urban --town Town02 --weather ClearNoon --spawn-index 7 --autopilot-long --fps 20
-
-bash script/test_data_agent_multicamera.sh

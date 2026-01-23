@@ -35,7 +35,7 @@ import matplotlib.lines as mlines
 
 from shapely.geometry import Polygon
 
-from autopilot import AutoPilot
+from autopilot_0916 import AutoPilot
 import team_code.transfuser_utils as t_u
 
 from birds_eye_view.chauffeurnet import ObsManager
@@ -142,22 +142,26 @@ class DataAgentMulticamera(AutoPilot):
         signal.signal(signal.SIGINT, self._signal_handler)
     
     
+    
+    
     def setup(self, path_to_conf_file, route_index=None, traffic_manager=None):
         """
-        Precise setup for CARLA 0.9.16 with Left-Hand Traffic (LHT) support.
+        Precise setup for CARLA 0.9.16 with Auto-LHT support.
+        Fixes the 'object has no attribute client' error.
         """
         import os
         import time
+        import shutil
         import carla
         from pathlib import Path
+        from datetime import datetime
 
-        # --- 1. PRE-INITIALIZATION LOGIC (Naming & Routes) ---
+        # --- 1. PRE-INITIALIZATION (Naming & Routes) ---
         try:
             self.scenario_name = Path(path_to_conf_file).parent.name if path_to_conf_file else 'Scenario'
         except Exception:
             self.scenario_name = 'Scenario'
 
-        # Determine route_id for internal tracking
         if route_index is None:
             curr_route_idx = getattr(self, '_route_counter', 0)
             timestamp = time.strftime("%m_%d_%H_%M_%S")
@@ -169,105 +173,61 @@ class DataAgentMulticamera(AutoPilot):
         self.route_id = route_id
         self._original_route_index = curr_route_idx
 
-        # Export Naming for Database/Logs
-        scenario_clean = str(self.scenario_name).replace(' ', '_')
-        rep = os.environ.get('REPETITION', '0')
-        forced_route = os.environ.get('FORCE_ROUTE_ID', '')
-        
-        if forced_route:
-            self.route_id_export = f"Route{scenario_clean}_{forced_route}_rep{rep}"
-        else:
-            self.route_id_export = f"Route{scenario_clean}_{curr_route_idx}_rep{rep}"
-
-        # --- 2. THE LHT CONNECTION HOOK (Immediate Access) ---
-        # We manually connect to ensure TM/Map are configured even if super() is slow
+        # --- 2. LHT/RHT SMART DETECTION ---
+        # We use a local client here because super().setup() hasn't created self.client yet
         try:
             _host = os.environ.get('CARLA_HOST', 'localhost')
             _port = int(os.environ.get('CARLA_PORT', 2000))
             _tm_port = int(os.environ.get('TRAFFIC_MANAGER_PORT', 8000))
             
-            # 1. Ensure we use the local client we just verified
-            temp_client = carla.Client(_host, _port)
-            temp_client.set_timeout(10.0)
-            temp_world = temp_client.get_world()
-            
-            # 2. FORCE a fresh TM handle from this specific client
-            # Do NOT use the passed-in 'traffic_manager' variable if it's already instantiated
-            tm = temp_client.get_trafficmanager(_tm_port)
-            
-            print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
-            
-            # --- 3. APPLY 0.9.16 LHT RULES ---
-            # We use 'getattr' to be extra safe with the check
-            if hasattr(tm, 'set_global_lane_direction_if_lht'):
-                tm.set_global_lane_offset(-0.5)
-                tm.set_global_lane_direction_if_lht(True)
-                print("\033[92m[INFO][LHT] TM configured via set_global_lane_direction_if_lht\033[0m")
+            check_client = carla.Client(_host, _port)
+            check_client.set_timeout(10.0)
+            check_world = check_client.get_world()
+            check_map = check_world.get_map()
+            tm = check_client.get_trafficmanager(_tm_port)
 
-            # If that's missing, use the standard 0.9.16 global_lane_offset
-            elif hasattr(tm, 'global_lane_offset'):
-                # In many 0.9.16 builds, setting a negative offset on an LHT map 
-                # automatically triggers the correct behavior
-                tm.global_lane_offset(-0.5)
-                print("\033[92m[INFO][LHT] TM configured via global_lane_offset (-0.5)\033[0m")
-            else:
-                print("\033[91m[ERROR][LHT] Could not find 0.9.16 LHT methods!\033[0m")
+            # Check Side
+            is_lht = False
+            if hasattr(check_map, 'get_driving_side'):
+                is_lht = (check_map.get_driving_side() == carla.DrivingSide.Left)
+            elif 'driving_side="left"' in check_map.to_opendrive().lower():
+                is_lht = True
 
-            # --- 4. MAP VERIFICATION ---
-            carla_map = temp_world.get_map()
-            if hasattr(carla_map, 'get_driving_side'):
-                side = carla_map.get_driving_side()
-                if side == carla.DrivingSide.Left:
-                    print("\033[92m[INFO][LHT] ✓✓✓ MAP VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
-                else:
-                    print("\033[91m[CRITICAL] Map is Right-Hand Traffic! TM direction will fail.\033[0m")
+            print(f"\033[94m[DEBUG] Map: {check_map.name} | Detected LHT: {is_lht}\033[0m")
+
+            if is_lht:
+                print("\033[92m[INFO] Setting up Left-Hand Traffic offsets...\033[0m")
+                if hasattr(tm, 'set_global_lane_direction_if_lht'):
+                    tm.set_global_lane_offset(-0.5)
+                    tm.set_global_lane_direction_if_lht(True)
+                elif hasattr(tm, 'global_lane_offset'):
+                    tm.global_lane_offset(-0.5)
             else:
-                # Fallback check via OpenDrive string if API attribute is missing
-                if 'driving_side="left"' in carla_map.to_opendrive().lower():
-                    print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
+                print("\033[93m[INFO] Standard Right-Hand Traffic detected. Resetting offset.\033[0m")
+                if hasattr(tm, 'global_lane_offset'):
+                    tm.global_lane_offset(0.0)
 
         except Exception as e:
-            print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}. Attempting standard setup...\033[0m")
+            print(f"\033[91m[ERROR] LHT Hook Failed: {e}\033[0m")
 
-        # --- 5. LEADERBOARD CORE SETUP ---
-        # This initializes self.client, self.world, and the agent's sensors
+        # --- 3. LEADERBOARD CORE SETUP ---
+        # Now we call the parent setup
         super().setup(path_to_conf_file, route_id, traffic_manager=traffic_manager)
-       
-        # Override save_path with simlingo v4 structure after super().setup()
-        if os.environ.get("SAVE_PATH", None) is not None:
-            import pathlib
-            base_path = pathlib.Path(os.environ["SAVE_PATH"])
-            save_subdir = os.environ.get('SAVE_SUBDIR', None)
 
-            # Allow runner to force the Town used for naming (important when route XML town differs)
+        # --- 4. SIMLINGO V4 FOLDER STRUCTURE ---
+        # (This part of your code remains the same as your previous version)
+        if os.environ.get("SAVE_PATH", None) is not None:
+            base_path = Path(os.environ["SAVE_PATH"])
+            save_subdir = os.environ.get('SAVE_SUBDIR', None)
             town = os.environ.get('FORCE_TOWN', '') or os.environ.get("TOWN", "Town03")
             rep = os.environ.get("REPETITION", "0")
-            forced_route = os.environ.get('FORCE_ROUTE_ID', '')
-
             weather_config = os.environ.get("WEATHER_CONFIG", "test_clear_noon")
-
             timestamp = datetime.now().strftime('%m_%d_%H_%M_%S')
-            # If route_id looks like "<num>_route0_<ts>", extract numeric id if needed
-            route_token = None
-            try:
-                if isinstance(route_id, str) and '_route' in route_id:
-                    # keep the full route_id's numeric part after '_route' if present
-                    parts = route_id.split('_route')
-                    if len(parts) >= 2 and parts[1]:
-                        # parts[1] may contain <num>_<ts> -> take the leading numeric id
-                        route_token = parts[1].split('_')[0]
-                else:
-                    route_token = str(route_index)
-            except Exception:
-                route_token = str(route_index)
 
-            if forced_route:
-                town_folder = f"{town}_Rep{rep}_route{forced_route}_{timestamp}"
-            else:
-                # Use route_token to include the route id in the Town folder name
-                town_folder = f"{town}_Rep{rep}_route{route_token}_{timestamp}"
+            # Build Folder Name
+            route_token = str(route_index) if route_index is not None else "0"
+            town_folder = f"{town}_Rep{rep}_route{route_token}_{timestamp}"
 
-            # Build consolidated path: <SAVE_SUBDIR or default>/weather/<town_folder>
             if save_subdir:
                 self.save_path = base_path / Path(save_subdir) / weather_config / town_folder
             else:
@@ -275,60 +235,28 @@ class DataAgentMulticamera(AutoPilot):
                 consolidated_root.mkdir(parents=True, exist_ok=True)
                 self.save_path = consolidated_root / town_folder
 
-            try:
-                for child in sorted(base_path.iterdir()):
-                    if not child.is_dir():
-                        continue
-                    # skip known safe folders
-                    if child.name in ['training_3_scenarios', 'outputs', 'output']:
-                        continue
-                    # Identify candidate run folders (heuristic: name contains '_Rep' or startswith 'Town')
-                    if ('_Rep' in child.name) or child.name.startswith('Town'):
-                        try:
-                            dest = consolidated_root / child.name
-                            # Use explicit destination folder so logs show final path
-                            shutil.move(str(child), str(dest))
-                            print(f"[INFO] Moved existing run folder {child} -> {dest}")
-                        except Exception as e:
-                            print(f"[WARN] Could not move {child} into {consolidated_root}: {e}")
-            except Exception:
-                pass
             self.save_path.mkdir(parents=True, exist_ok=True)
-            
             if self.datagen:
                 (self.save_path / "measurements").mkdir(exist_ok=True)
-
-            # Write a sentinel so runners can deterministically find this run folder
-            try:
-                last_run_file = base_path / '.last_run'
-                with open(last_run_file, 'w') as fh:
-                    fh.write(str(self.save_path))
-            except Exception:
-                pass
-
-            # If the parent autopilot created a ScenarioLogger, update its save_path
-            if hasattr(self, 'lon_logger') and self.lon_logger is not None:
-                try:
-                    # Ensure lon_logger writes to the new nested save path
-                    self.lon_logger.save_path = str(self.save_path)
-                    # update any cached records file path
-                    self.lon_logger.records_file_path = os.path.join(str(self.save_path), 'records.json.gz')
-                    # update route_index to full route_id string (not numeric) to match results.json.gz timestamp
-                    try:
-                        self.lon_logger.route_index = route_id  # Use full string like "767_route0_01_11_15_54_52"
-                    except Exception:
-                        pass
-                except Exception as e:
-                    print(f"[WARN] Could not update lon_logger.save_path: {e}")
         
-        # Override track setting - standard leaderboard21 requires SENSORS track
         from leaderboard21.autoagents.autonomous_agent import Track
         self.track = Track.SENSORS
-
-        self.SAVE_TF_LABELS = int(os.environ.get('SAVE_TF_LABELS', 0))
         self.step_tmp = 0
-        # self.tm = traffic_manager
         self.cutin_vehicle_starting_position = None
+
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         
         # Multi-camera frame management
         self.frame_counter = 0

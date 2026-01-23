@@ -25,14 +25,12 @@ export CARLA_AGENTS="${CARLA_SRC}"
 export LD_LIBRARY_PATH="${CARLA_API_BASE}/carla.libs:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="${CARLA_API_BASE}:${CARLA_AGENTS}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}"
 
-echo "[DEBUG] Verifying CARLA 0.9.16 Python API is importable..."
+info " Verifying CARLA 0.9.16 Python API ..."
 python3 - <<'PY'
 import sys, os
 
-# Force the CARLA API base path to the front of sys.path to avoid importing other versions
 carla_base = os.environ.get('CARLA_API_BASE', '')
 if carla_base:
-    # remove obvious site-packages carla entries
     sys.path = [p for p in sys.path if not (('site-packages' in p and 'carla' in p.lower()))]
     if carla_base not in sys.path:
         sys.path.insert(0, carla_base)
@@ -50,9 +48,9 @@ try:
     # Heuristic: 0.9.16 exposes Map.get_driving_side and other helpers
     api_ok = hasattr(carla, 'Map') and hasattr(carla.Map, 'get_driving_side')
 
-    print(f'Active Path: {getattr(carla, "__file__", "<unknown>")}')
-    print(f'Detected client version: {client_version}')
-    print(f'API heuristic (Map.get_driving_side present): {api_ok}')
+    print(f'[INFO] Active Path: {getattr(carla, "__file__", "<unknown>")}')
+    print(f'[INFO] Detected client version: {client_version}')
+    # print(f'API heuristic (Map.get_driving_side present): {api_ok}')
 
     verified = False
     if client_version:
@@ -62,12 +60,12 @@ try:
 
     print(f'0.9.16 Verified: {verified}')
     if not verified:
-        print('FATAL: Imported CARLA PythonAPI does not appear to be 0.9.16')
+        print('[ERROR][FATAL] Imported CARLA PythonAPI does not appear to be 0.9.16')
         sys.exit(1)
     else:
-        print('\033[92m[PROCEEDING] 0.9.16 Python API confirmed. Launching simulation...\033[0m')
+        print('\033[92m[INFO][PROCEEDING] 0.9.16 Python API confirmed. Launching simulation...\033[0m')
 except Exception as e:
-    print(f'FATAL ERROR: Could not import CARLA PythonAPI: {e}')
+    print(f'[ERROR][FATAL] Could not import CARLA PythonAPI: {e}')
     sys.exit(1)
 PY
 
