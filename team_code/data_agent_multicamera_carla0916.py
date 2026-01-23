@@ -186,22 +186,30 @@ class DataAgentMulticamera(AutoPilot):
             _port = int(os.environ.get('CARLA_PORT', 2000))
             _tm_port = int(os.environ.get('TRAFFIC_MANAGER_PORT', 8000))
             
+            # 1. Ensure we use the local client we just verified
             temp_client = carla.Client(_host, _port)
             temp_client.set_timeout(10.0)
             temp_world = temp_client.get_world()
             
-            # Retrieve Traffic Manager
-            tm = traffic_manager if traffic_manager else temp_client.get_trafficmanager(_tm_port)
+            # 2. FORCE a fresh TM handle from this specific client
+            # Do NOT use the passed-in 'traffic_manager' variable if it's already instantiated
+            tm = temp_client.get_trafficmanager(_tm_port)
             
             print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
             
             # --- 3. APPLY 0.9.16 LHT RULES ---
-            if hasattr(tm, 'set_global_lane_offset'):
+            # We use 'getattr' to be extra safe with the check
+            has_lht_func = hasattr(tm, 'set_global_lane_direction_if_lht')
+            
+            if has_lht_func:
+                # Mandatory 0.9.16 sequence for Left-Hand Traffic (Town12/Town13)
                 tm.set_global_lane_offset(-0.5)
                 tm.set_global_lane_direction_if_lht(True)
                 print("\033[92m[INFO][LHT] Traffic Manager configured for Left-Hand Traffic (Offset -0.5)\033[0m")
             else:
-                print("\033[91m[ERROR][LHT] API VERSION MISMATCH! 0.9.16 functions not found in loaded module.\033[0m")
+                # DIAGNOSTIC: List what TM actually has
+                print("\033[91m[ERROR][LHT] API VERSION MISMATCH! Methods missing.\033[0m")
+                print(f"[DEBUG] Available TM Methods: {[m for m in dir(tm) if 'lane' in m]}")
 
             # --- 4. MAP VERIFICATION ---
             carla_map = temp_world.get_map()

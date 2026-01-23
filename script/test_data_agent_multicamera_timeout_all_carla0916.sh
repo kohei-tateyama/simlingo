@@ -10,16 +10,70 @@ LEADERBOARD_VERSION="leaderboard21" # "leaderboard"
 # =============================================================================
 # ENVIRONMENT SETUP (CARLA 0.9.16 / Leaderboard 2.1)
 # =============================================================================
-export CARLA_ROOT=/workspace/carla0916
-export WORK_DIR=/workspace/simlingo
-export LEADERBOARD_ROOT=/workspace/simlingo/leaderboard21
-export SCENARIO_RUNNER_ROOT=/workspace/simlingo/scenario_runner21
-export CARLA_API_FORCE="/workspace/carla0916/PythonAPI/carla/dist/carla_0916_lib"
-export CARLA_AGENTS_PARENT="${CARLA_ROOT}/PythonAPI/carla"
-export LD_LIBRARY_PATH="${CARLA_API_FORCE}/carla.libs:${LD_LIBRARY_PATH:-}"
-export PYTHONPATH="${CARLA_API_FORCE}:${CARLA_AGENTS_PARENT}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}:${PYTHONPATH:-}"
+unset PYTHONPATH
+export PYTHONNOUSERSITE=1
+export WORK_DIR="/workspace/simlingo"
+export CARLA_ROOT="/workspace/carla0916"
+export LEADERBOARD_ROOT="${WORK_DIR}/leaderboard21"
+export SCENARIO_RUNNER_ROOT="${WORK_DIR}/scenario_runner21"
+# export CARLA_API_BASE="${CARLA_ROOT}/PythonAPI/carla/dist/carla_0916_lib"
+# export CARLA_SRC="${CARLA_ROOT}/PythonAPI/carla"
+# export LD_LIBRARY_PATH="${CARLA_API_BASE}/carla.libs:${LD_LIBRARY_PATH:-}"
+# export PYTHONPATH="${CARLA_API_BASE}:${CARLA_SRC}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}"
 
+export CARLA_API_BASE="/workspace/carla0916/PythonAPI/carla/dist/carla_0916_lib"
+export CARLA_SRC="/workspace/carla0916/PythonAPI/carla"
+export CARLA_AGENTS="${CARLA_SRC}"
+export LD_LIBRARY_PATH="${CARLA_API_BASE}/carla.libs:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="${CARLA_API_BASE}:${CARLA_AGENTS}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}"
 
+echo "[DEBUG] Verifying CARLA 0.9.16 Python API is importable..."
+python3 - <<'PY'
+import sys, os
+
+# Force the CARLA API base path to the front of sys.path to avoid importing other versions
+carla_base = os.environ.get('CARLA_API_BASE', '')
+if carla_base:
+    # remove obvious site-packages carla entries
+    sys.path = [p for p in sys.path if not (('site-packages' in p and 'carla' in p.lower()))]
+    if carla_base not in sys.path:
+        sys.path.insert(0, carla_base)
+
+try:
+    import carla
+    # Try to get the client-reported version if possible
+    client_version = None
+    try:
+        client_version = carla.Client('localhost', 2000).get_client_version()
+    except Exception:
+        # ignore connection errors; fall back to API inspection below
+        client_version = None
+
+    # Heuristic: 0.9.16 exposes Map.get_driving_side and other helpers
+    api_ok = hasattr(carla, 'Map') and hasattr(carla.Map, 'get_driving_side')
+
+    print(f'Active Path: {getattr(carla, "__file__", "<unknown>")}')
+    print(f'Detected client version: {client_version}')
+    print(f'API heuristic (Map.get_driving_side present): {api_ok}')
+
+    verified = False
+    if client_version:
+        verified = str(client_version).startswith('0.9.16')
+    else:
+        verified = api_ok
+
+    print(f'0.9.16 Verified: {verified}')
+    if not verified:
+        print('FATAL: Imported CARLA PythonAPI does not appear to be 0.9.16')
+        sys.exit(1)
+    else:
+        print('\033[92m[PROCEEDING] 0.9.16 Python API confirmed. Launching simulation...\033[0m')
+except Exception as e:
+    print(f'FATAL ERROR: Could not import CARLA PythonAPI: {e}')
+    sys.exit(1)
+PY
+
+#####
 
 # Data collection settings
 export DATAGEN=1
@@ -342,7 +396,7 @@ try:
     start = time.time()
     world = client.load_world(target_full)
     elapsed = time.time() - start
-    print(f'[INFO]: OK_LOADED: {target_full} : {elapsed:.1f}\n', end='')
+    print(f'[INFO] OK_LOADED: {target_full} : {elapsed:.1f}\n', end='')
     sys.exit(0)
 except Exception as e:
     print(f'ERROR:{e}', end='')
