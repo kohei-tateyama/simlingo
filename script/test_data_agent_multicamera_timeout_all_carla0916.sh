@@ -25,7 +25,7 @@ export CARLA_AGENTS="${CARLA_SRC}"
 export LD_LIBRARY_PATH="${CARLA_API_BASE}/carla.libs:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="${CARLA_API_BASE}:${CARLA_AGENTS}:${LEADERBOARD_ROOT}:${SCENARIO_RUNNER_ROOT}:${WORK_DIR}"
 
-info " Verifying CARLA 0.9.16 Python API ..."
+echo "[INFO] Verifying CARLA 0.9.16 Python API ..."
 python3 - <<'PY'
 import sys, os
 
@@ -58,7 +58,7 @@ try:
     else:
         verified = api_ok
 
-    print(f'0.9.16 Verified: {verified}')
+    print(f'[INFO] carla 0.9.16 Verified: {verified}')
     if not verified:
         print('[ERROR][FATAL] Imported CARLA PythonAPI does not appear to be 0.9.16')
         sys.exit(1)
@@ -112,7 +112,6 @@ export TRAFFIC_MANAGER_PORT=${TRAFFIC_MANAGER_PORT:-8000}
 cleanup_carla() {
     sep
     info "Cleaning up CARLA and ${LEADERBOARD_VERSION} (0.9.16) (!!!)..."
-    sep
 
     pkill -9 -f "leaderboard_evaluator.py" 2>/dev/null || true
 
@@ -713,8 +712,7 @@ patch_multicamera_images() {
 # =============================================================================
 main() {
     sep
-    info "Testing data_agent_multicamera.py (CARLA 0.9.16)"
-    sep
+    info "Testing data_agent_multicamera_carla0916.py (CARLA 0.9.16)"
 
     cleanup_carla
     start_carla
