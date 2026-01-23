@@ -195,10 +195,78 @@ class DataAgentMulticamera(AutoPilot):
             
             
             
+   
+        # --- 2. THE LHT CONNECTION HOOK (Immediate Access) ---
+        try:
+            _host = os.environ.get('CARLA_HOST', 'localhost')
+            _port = int(os.environ.get('CARLA_PORT', 2000))
+            _tm_port = int(os.environ.get('TRAFFIC_MANAGER_PORT', 8000))
             
+            # 1. Connect to the simulation
+            temp_client = carla.Client(_host, _port)
+            temp_client.set_timeout(20.0)
+            temp_world = temp_client.get_world()
+            
+            # 2. Hard-coded XODR Verification (Bypassing API cache)
+            xodr_path = "/workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town12/OpenDrive/Town12.xodr"
+            is_lht = False
+            
+            if os.path.exists(xodr_path):
+                with open(xodr_path, 'r') as f:
+                    xodr_content = f.read()
+                
+                # Check for the rule change you made in the XML header
+                if 'rule="LHT"' in xodr_content:
+                    is_lht = True
+                    print("\033[92m[INFO][LHT] ✓✓✓ MODIFIED XODR VERIFIED AS LEFT-HAND TRAFFIC \033[0m")
+                else:
+                    print("\033[91m[CRITICAL] File found but rule='LHT' not detected in Town12.xodr!\033[0m")
+            else:
+                print(f"\033[91m[ERROR] Could not find XODR file at {xodr_path}\033[0m")
 
+            # 3. Get TM handle
+            tm = temp_client.get_trafficmanager(_tm_port)
+            print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
+            
+            # --- 4. APPLY 0.9.16 LHT RULES ---
+            if is_lht:
+                # Force TM to stop keeping to the right
+                if hasattr(tm, 'set_global_keep_right_rule_percentage'):
+                    tm.set_global_keep_right_rule_percentage(0.0)
+                
+                # Apply 0.9.16 specific LHT direction and offset
+                if hasattr(tm, 'set_global_lane_direction_if_lht'):
+                    # Use negative offset to shift to the left lane in LHT
+                    tm.set_global_lane_offset(-0.5)
+                    tm.set_global_lane_direction_if_lht(True)
+                    print("\033[92m[INFO][LHT] TM configured: Offset -0.5 | Direction LHT=True\033[0m")
+                
+                elif hasattr(tm, 'global_lane_offset'):
+                    tm.global_lane_offset(-0.5)
+                    print("\033[92m[INFO][LHT] TM configured via global_lane_offset (-0.5)\033[0m")
+            else:
+                # Safety reset if not in LHT mode
+                if hasattr(tm, 'global_lane_offset'):
+                    tm.global_lane_offset(0.0)
+                print("\033[93m[WARN] Skipping LHT config as XODR check failed.\033[0m")
+
+        except Exception as e:
+            import traceback
+            print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}\033[0m")
+            print(traceback.format_exc())
+            tm = traffic_manager # Fallback to passed TM
+
+        # --- 5. LEADERBOARD CORE SETUP ---
+        super().setup(path_to_conf_file, route_id, traffic_manager=tm)
+        
+        
+        
+                
+        ################################################################################
+        ################################################################################
+        ################################################################################
+                
         # # --- 2. THE LHT CONNECTION HOOK (Immediate Access) ---
-        # # We manually connect to ensure TM/Map are configured even if super() is slow
         # try:
         #     _host = os.environ.get('CARLA_HOST', 'localhost')
         #     _port = int(os.environ.get('CARLA_PORT', 2000))
@@ -209,146 +277,165 @@ class DataAgentMulticamera(AutoPilot):
         #     temp_client.set_timeout(10.0)
         #     temp_world = temp_client.get_world()
             
-        #     # 2. FORCE a fresh TM handle from this specific client
-        #     # Do NOT use the passed-in 'traffic_manager' variable if it's already instantiated
-        #     tm = temp_client.get_trafficmanager(_tm_port)
-        #     tm.set_global_keep_right_percentage(0.0) 
-            
         #     print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
             
-        #     # --- 3. APPLY 0.9.16 LHT RULES ---
-        #     # We use 'getattr' to be extra safe with the check
-        #     if hasattr(tm, 'set_global_lane_direction_if_lht'):
-        #         tm.set_global_lane_offset(-0.5)
-        #         tm.set_global_lane_direction_if_lht(True)
-        #         print("\033[92m[INFO][LHT] TM configured via set_global_lane_direction_if_lht\033[0m")
-        #     # If that's missing, use the standard 0.9.16 global_lane_offset
-        #     elif hasattr(tm, 'global_lane_offset'):
-        #         # In many 0.9.16 builds, setting a negative offset on an LHT map 
-        #         tm.global_lane_offset(-0.5)
-        #         print("\033[92m[INFO][LHT] TM configured via global_lane_offset (-0.5)\033[0m")
-        #     else:
-        #         print("\033[91m[ERROR][LHT] Could not find 0.9.16 LHT methods!\033[0m")
+        #     # --- 3. FORCE LOAD THE CORRECT MAP FROM ROUTE CONFIG ---
+        #     # Parse the route file to get the target map
+        #     target_map = None
+        #     route_id_to_load = os.environ.get('FORCE_ROUTE_ID', '')
+        #     routes_file = os.environ.get('ROUTES', '')
+            
+        #     if routes_file and os.path.exists(routes_file):
+        #         import xml.etree.ElementTree as ET
+        #         tree = ET.parse(routes_file)
+        #         root = tree.getroot()
                 
-
-        #     # --- 4. MAP VERIFICATION ---
+        #         # If we have a specific route ID, find its map
+        #         if route_id_to_load:
+        #             for route in root.findall('.//route'):
+        #                 if route.get('id') == route_id_to_load:
+        #                     target_map = route.get('town') or route.get('map')
+        #                     break
+                
+        #         # Fallback: get first route's map
+        #         if not target_map:
+        #             first_route = root.find('.//route')
+        #             if first_route is not None:
+        #                 target_map = first_route.get('town') or first_route.get('map')
+            
+        #     # Also check FORCE_TOWN environment variable (set by your bash script)
+        #     if not target_map:
+        #         target_map = os.environ.get('FORCE_TOWN', '')
+            
+        #     # Load the map if we found one
+        #     if target_map:
+        #         print(f"\033[94m[DEBUG][LHT] Route requires map: {target_map}\033[0m")
+                
+        #         # Check if we need to load it
+        #         current_map = temp_world.get_map()
+        #         current_map_name = current_map.name.split('/')[-1]
+                
+        #         if current_map_name != target_map:
+        #             print(f"\033[93m[INFO][LHT] Current map is {current_map_name}, loading {target_map}...\033[0m")
+                    
+        #             # Find the full map path
+        #             available_maps = temp_client.get_available_maps()
+        #             target_full_path = None
+                    
+        #             for map_path in available_maps:
+        #                 if map_path.endswith('/' + target_map):
+        #                     target_full_path = map_path
+        #                     break
+                    
+        #             # Fallback: construct path manually
+        #             if not target_full_path:
+        #                 target_full_path = f'/Game/Carla/Maps/{target_map}'
+                    
+        #             print(f"\033[94m[DEBUG][LHT] Loading map: {target_full_path}\033[0m")
+        #             temp_client.set_timeout(180.0)  # Map loading can take time
+        #             temp_world = temp_client.load_world(target_full_path)
+        #             temp_client.set_timeout(10.0)
+        #             print(f"\033[92m[INFO][LHT] ✓ Map {target_map} loaded successfully\033[0m")
+        #         else:
+        #             print(f"\033[92m[INFO][LHT] ✓ Map {target_map} already loaded\033[0m")
+            
+        #     # --- 4. MAP VERIFICATION (now with correct map loaded) ---
         #     carla_map = temp_world.get_map()
+        #     is_lht = False
+            
+        #     print(f"\033[94m[DEBUG][LHT] Checking map: {carla_map.name}\033[0m")
+            
+        #     # Method 1: Use CARLA API if available
         #     if hasattr(carla_map, 'get_driving_side'):
         #         side = carla_map.get_driving_side()
-        #         if side == carla.DrivingSide.Left:
-        #             print("\033[92m[INFO][LHT] ✓✓✓ MAP VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
+        #         if hasattr(carla, 'DrivingSide') and side == carla.DrivingSide.Left:
+        #             is_lht = True
+        #             print("\033[92m[INFO][LHT] ✓✓✓ MAP VERIFIED AS LEFT-HAND TRAFFIC (via API) \033[0m")
         #         else:
-        #             print("\033[91m[CRITICAL] Map is Right-Hand Traffic! TM direction will fail.\033[0m")
+        #             print(f"\033[91m[CRITICAL] Map driving side via API: {side}\033[0m")
+            
+        #     # Method 2: Parse OpenDrive XML
+        #     if not is_lht:
+        #         opendrive_str = carla_map.to_opendrive()
+                
+        #         # Check for LHT indicators in XML
+        #         if 'rule="LHT"' in opendrive_str:
+        #             is_lht = True
+        #             print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC (rule=\"LHT\") \033[0m")
+        #         elif 'driving_side="left"' in opendrive_str.lower():
+        #             is_lht = True
+        #             print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC (driving_side) \033[0m")
+        #         else:
+        #             # Debug: show first 1000 chars of header
+        #             header_end = opendrive_str.find('</header>')
+        #             if header_end > 0:
+        #                 print(f"\033[93m[DEBUG][LHT] OpenDrive header:\n{opendrive_str[:header_end+10]}\033[0m")
+        #             print("\033[91m[CRITICAL] OpenDrive does not indicate LHT!\033[0m")
+            
+        #     # 5. FORCE a fresh TM handle from this specific client
+        #     tm = temp_client.get_trafficmanager(_tm_port)
+            
+        #     # --- 6. APPLY CARLA 0.9.16 LHT CONFIGURATION ---
+        #     if is_lht:
+        #         print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
+                
+        #         # Method 1: Set the lane offset (POSITIVE for LHT)
+        #         if hasattr(tm, 'set_global_lane_offset'):
+        #             tm.set_global_lane_offset(0.5)
+        #             print("\033[92m[INFO][LHT] ✓ Applied set_global_lane_offset(0.5)\033[0m")
+                
+        #         # Method 2: Use global_lane_offset attribute
+        #         if hasattr(tm, 'global_lane_offset'):
+        #             # This is a method in 0.9.16, call it
+        #             tm.global_lane_offset(0.5)
+        #             print("\033[92m[INFO][LHT] ✓ Applied global_lane_offset(0.5)\033[0m")
+                
+        #         # Method 3: Disable keep-right percentage (CRITICAL for LHT!)
+        #         # Check available methods from your debug output
+        #         if hasattr(tm, 'keep_right_rule_percentage'):
+        #             # This appears to be the correct method name in 0.9.16
+        #             tm.keep_right_rule_percentage(0.0)
+        #             print("\033[92m[INFO][LHT] ✓ Applied keep_right_rule_percentage(0.0)\033[0m")
+                
+        #         # Method 4: Try alternative percentage methods
+        #         if hasattr(tm, 'random_left_lanechange_percentage'):
+        #             # Encourage left lane changes in LHT
+        #             tm.random_left_lanechange_percentage(tm.get_port(), 30.0)
+        #             print("\033[92m[INFO][LHT] ✓ Applied random_left_lanechange_percentage(30.0)\033[0m")
+                
+        #         if hasattr(tm, 'keep_slow_lane_rule_percentage'):
+        #             # In LHT, slow lane is the LEFT lane
+        #             tm.keep_slow_lane_rule_percentage(tm.get_port(), 75.0)
+        #             print("\033[92m[INFO][LHT] ✓ Applied keep_slow_lane_rule_percentage(75.0)\033[0m")
+                
+        #         print("\033[92m[INFO][LHT] ✓✓✓ All available LHT configurations applied\033[0m")
         #     else:
-        #         # Fallback check via OpenDrive string if API attribute is missing
-        #         if 'driving_side="left"' in carla_map.to_opendrive().lower():
-        #             print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
+        #         print("\033[93m[WARN][LHT] Map is RHT - skipping LHT configuration\033[0m")
+            
+        #     # 7. Additional TM settings for better behavior
+        #     if hasattr(tm, 'set_synchronous_mode'):
+        #         settings = temp_world.get_settings()
+        #         tm.set_synchronous_mode(settings.synchronous_mode)
+        #         print(f"\033[92m[INFO][LHT] TM sync mode: {settings.synchronous_mode}\033[0m")
+            
+        #     # 8. Print all available TM methods for debugging
+        #     print("\033[94m[DEBUG][LHT] Available TM methods:\033[0m")
+        #     tm_methods = [method for method in dir(tm) if not method.startswith('_')]
+        #     for method in sorted(tm_methods):
+        #         print(f"\033[94m  - {method}\033[0m")
 
         # except Exception as e:
-        #     print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}. Attempting standard setup...\033[0m")
+        #     import traceback
+        #     print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}\033[0m")
+        #     print(f"\033[33m{traceback.format_exc()}\033[0m")
+        #     # Fallback: use the original traffic_manager parameter
+        #     tm = traffic_manager
 
-        # # --- 5. LEADERBOARD CORE SETUP ---
-        # # super().setup(path_to_conf_file, route_id, traffic_manager=traffic_manager)
+        # # --- 9. LEADERBOARD CORE SETUP ---
         # super().setup(path_to_conf_file, route_id, traffic_manager=tm)
-        
-        
-        
-        # --- 2. THE LHT CONNECTION HOOK (Immediate Access) ---
-        # We manually connect to ensure TM/Map are configured even if super() is slow
-        try:
-            _host = os.environ.get('CARLA_HOST', 'localhost')
-            _port = int(os.environ.get('CARLA_PORT', 2000))
-            _tm_port = int(os.environ.get('TRAFFIC_MANAGER_PORT', 8000))
-            
-            # 1. Ensure we use the local client we just verified
-            temp_client = carla.Client(_host, _port)
-            temp_client.set_timeout(10.0)
-            temp_world = temp_client.get_world()
-            
-            print(f"\033[94m[DEBUG][LHT] API Source: {carla.__file__}\033[0m")
-            
-            # --- 3. MAP VERIFICATION FIRST ---
-            carla_map = temp_world.get_map()
-            is_lht = False
-            
-            if hasattr(carla_map, 'get_driving_side'):
-                side = carla_map.get_driving_side()
-                if side == carla.DrivingSide.Left:
-                    is_lht = True
-                    print("\033[92m[INFO][LHT] ✓✓✓ MAP VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
-                else:
-                    print("\033[91m[CRITICAL] Map is Right-Hand Traffic!\033[0m")
-            else:
-                # Fallback check via OpenDrive string if API attribute is missing
-                opendrive_str = carla_map.to_opendrive()
-                if 'rule="LHT"' in opendrive_str or 'driving_side="left"' in opendrive_str.lower():
-                    is_lht = True
-                    print("\033[92m[INFO][LHT] ✓✓✓ OPENDRIVE VERIFIED AS LEFT-HAND TRAFFIC 🏆\033[0m")
-                else:
-                    print("\033[91m[CRITICAL] OpenDrive does not indicate LHT!\033[0m")
-            
-            # 4. FORCE a fresh TM handle from this specific client
-            tm = temp_client.get_trafficmanager(_tm_port)
-            
-            # --- 5. APPLY CARLA 0.9.16 LHT CONFIGURATION ---
-            if is_lht:
-                # Method 1: Try the specific LHT method (if exists in your build)
-                if hasattr(tm, 'set_global_lane_direction_if_lht'):
-                    tm.set_global_lane_direction_if_lht(True)
-                    print("\033[92m[INFO][LHT] Applied set_global_lane_direction_if_lht(True)\033[0m")
                 
-                # Method 2: Set the lane offset (standard in 0.9.16)
-                if hasattr(tm, 'set_global_lane_offset'):
-                    # For LHT, use POSITIVE offset to shift vehicles to the left
-                    tm.set_global_lane_offset(0.5)
-                    print("\033[92m[INFO][LHT] Applied set_global_lane_offset(0.5)\033[0m")
-                elif hasattr(tm, 'global_lane_offset'):
-                    tm.global_lane_offset = 0.5
-                    print("\033[92m[INFO][LHT] Applied global_lane_offset = 0.5\033[0m")
                 
-                # Method 3: Disable keep-right rule (THIS IS CRITICAL FOR LHT)
-                if hasattr(tm, 'set_global_keep_right_rule_percentage'):
-                    # Setting to 0% means vehicles WON'T keep right = they'll keep left
-                    tm.set_global_keep_right_rule_percentage(0.0)
-                    print("\033[92m[INFO][LHT] Applied set_global_keep_right_rule_percentage(0.0)\033[0m")
-                
-                # Method 4: Alternative attribute access
-                if hasattr(tm, 'global_percentage_speed_difference'):
-                    # Ensure vehicles follow speed limits properly
-                    tm.global_percentage_speed_difference = 30.0
-                    print("\033[92m[INFO][LHT] Set global_percentage_speed_difference = 30.0\033[0m")
-                
-                print("\033[92m[INFO][LHT] ✓ All available LHT configurations applied\033[0m")
-            else:
-                print("\033[93m[WARN][LHT] Map is RHT - skipping LHT configuration\033[0m")
-            
-            # 6. Additional TM settings for better behavior
-            if hasattr(tm, 'set_synchronous_mode'):
-                settings = temp_world.get_settings()
-                tm.set_synchronous_mode(settings.synchronous_mode)
-                print(f"\033[92m[INFO][LHT] TM sync mode: {settings.synchronous_mode}\033[0m")
-            
-            # 7. Print all available TM methods for debugging
-            print("\033[94m[DEBUG][LHT] Available TM methods:\033[0m")
-            tm_methods = [method for method in dir(tm) if not method.startswith('_')]
-            for method in sorted(tm_methods):
-                print(f"\033[94m  - {method}\033[0m")
-
-        except Exception as e:
-            import traceback
-            print(f"\033[33m[WARN][LHT] Connection Hook failed: {e}\033[0m")
-            print(f"\033[33m{traceback.format_exc()}\033[0m")
-            # Fallback: use the original traffic_manager parameter
-            tm = traffic_manager
-
-        # --- 8. LEADERBOARD CORE SETUP ---
-        super().setup(path_to_conf_file, route_id, traffic_manager=tm)
-        
-        
-        
-        
-        
-        
+        ################################################################################
        
         # Override save_path with simlingo v4 structure after super().setup()
         if os.environ.get("SAVE_PATH", None) is not None:
