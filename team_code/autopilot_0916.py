@@ -17,46 +17,48 @@ from scipy.integrate import RK45
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 
-import os
+# ##
+# _lb_ver = os.environ.get("LEADERBOARD_VERSION", "leaderboard")
+# autonomous_agent_local = None
 
-_lb_ver = os.environ.get("LEADERBOARD_VERSION", "leaderboard")
+# preferred = _lb_ver
+# candidates = [preferred]
+# if preferred == "leaderboard21":
+#   candidates.append("leaderboard")
+# else:
+#   candidates.append("leaderboard21")
+# print(f"[DEBUG]: {_lb_ver} is the leaderboard")
+# print(f"[DEBUG]: {_lb_ver} is the leaderboard")
+# _import_error = None
+# for cand in candidates:
+#   try:
+#     if cand == "leaderboard21":
+#       from leaderboard.autoagents import autonomous_agent, autonomous_agent_local
+#     else:
+#       from leaderboard.autoagents import autonomous_agent, autonomous_agent_local
+#     print(f"autopilot: using {cand}.autoagents for autonomous_agent import")
+#     break
+#   except Exception as e:
+#     # Try importing without autonomous_agent_local if present in package differs
+#     try:
+#       if cand == "leaderboard21":
+#         from leaderboard21.autoagents import autonomous_agent
+#       else:
+#         from leaderboard.autoagents import autonomous_agent
+#       autonomous_agent_local = None
+#       print(f"autopilot: using {cand}.autoagents (no autonomous_agent_local)")
+#       break
+#     except Exception as e2:
+#       _import_error = e2
+# if 'autonomous_agent' not in globals():
+#   raise ImportError(
+#       "Could not import 'autonomous_agent' from either 'leaderboard' or 'leaderboard21'. "
+#       "Set LEADERBOARD_VERSION or adjust PYTHONPATH so one of those packages is importable. "
+#       f"Last error: {_import_error}")
+
+
+from leaderboard21.autoagents import autonomous_agent
 autonomous_agent_local = None
-
-# Try the configured leaderboard package first, then fall back to the other one.
-preferred = _lb_ver
-candidates = [preferred]
-if preferred == "leaderboard21":
-  candidates.append("leaderboard")
-else:
-  candidates.append("leaderboard21")
-
-_import_error = None
-for cand in candidates:
-  try:
-    if cand == "leaderboard21":
-      from leaderboard21.autoagents import autonomous_agent, autonomous_agent_local
-    else:
-      from leaderboard.autoagents import autonomous_agent, autonomous_agent_local
-    print(f"autopilot: using {cand}.autoagents for autonomous_agent import")
-    break
-  except Exception as e:
-    # Try importing without autonomous_agent_local if present in package differs
-    try:
-      if cand == "leaderboard21":
-        from leaderboard21.autoagents import autonomous_agent
-      else:
-        from leaderboard.autoagents import autonomous_agent
-      autonomous_agent_local = None
-      print(f"autopilot: using {cand}.autoagents (no autonomous_agent_local)")
-      break
-    except Exception as e2:
-      _import_error = e2
-
-if 'autonomous_agent' not in globals():
-  raise ImportError(
-      "Could not import 'autonomous_agent' from either 'leaderboard' or 'leaderboard21'. "
-      "Set LEADERBOARD_VERSION or adjust PYTHONPATH so one of those packages is importable. "
-      f"Last error: {_import_error}")
 
 from nav_planner import RoutePlanner
 from lateral_controller import LateralPIDController
@@ -165,7 +167,8 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     self._vehicle_lights = carla.VehicleLightState.Position | carla.VehicleLightState.LowBeam
 
     # Get the world map and the ego vehicle
-    self.world_map = CarlaDataProvider.get_map()
+    # self.world_map = CarlaDataProvider.get_map()
+    self.world_map = None
 
     # Set up the save path if specified
     if os.environ.get("SAVE_PATH", None) is not None:
@@ -225,6 +228,8 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
         Args:
             hd_map (carla.Map): The map object of the CARLA world.
         """
+        
+    self.world_map = hd_map
     # Defensive initialization: ensure route attributes exist to avoid AttributeError
     if not hasattr(self, '_global_plan') or self._global_plan is None:
       self._global_plan = []
@@ -232,6 +237,7 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
       self._global_plan_world_coord = []
     if not hasattr(self, 'org_dense_route_world_coord') or self.org_dense_route_world_coord is None:
       self.org_dense_route_world_coord = []
+      
 
     # Defensive printing: handle missing attributes gracefully
     sparse_len = len(self._global_plan)

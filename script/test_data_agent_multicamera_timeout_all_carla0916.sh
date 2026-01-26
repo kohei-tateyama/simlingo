@@ -5,7 +5,7 @@
 
 set -u
 
-LEADERBOARD_VERSION="leaderboard21" # "leaderboard"
+export LEADERBOARD_VERSION="leaderboard21" # "leaderboard"
 
 # =============================================================================
 # ENVIRONMENT SETUP (CARLA 0.9.16 / Leaderboard 2.1)
