@@ -521,3 +521,43 @@ Location: /home/pim1yh/miniconda3/envs/simlingo/lib/python3.8/site-packages
 Requires: 
 Required-by: 
 ```
+
+
+monday fix the opath of town12
+
+```bash
+ if LooseVersion(dist.version) < LooseVersion('0.9.10'):
+autopilot: using leaderboard21.autoagents (no autonomous_agent_local)
+[INFO]: LHT patch ok via scenarioatomics
+
+========= Preparing RouteScenario_0 (repetition 0) =========
+> Loading the world
+WARNING: No InMemoryMap cache found. Setting up local map. This may take a while... 
+> Setting up the agent
+[DEBUG][LHT] API Source: /workspace/carla0916/PythonAPI/carla/dist/carla_0916_lib/carla/__init__.py
+[DEBUG][LHT] Route requires map: Town12
+[INFO][LHT] ✓ Map Town12 already loaded
+[DEBUG][LHT] Checking map: Carla/Maps/Town12/Town12
+[DEBUG][LHT] OpenDrive header:
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenDRIVE>
+    <header revMajor="1" revMinor="4" name="" version="1" date="2022-07-19T16:57:05" north="1.7586998257390694e+3" south="-6.5552663783476373e+3" east="4.1970842115782034e+3" west="-5.2494260710891067e+3" vendor="MathWorks">
+        <geoReference><![CDATA[+proj=tmerc +lat_0=0 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +geoidgrids=egm96_15.gtx +vunits=m +no_defs ]]></geoReference>
+        <userData>
+            <vectorScene program="RoadRunner" version="R2022a Update 3 (1.4.3.171cebf5cc)"/>
+        </userData>
+    </header>
+
+[CRITICAL] OpenDrive does not indicate LHT!
+[WARN][LHT] Map is RHT - skipping LHT configuration
+[INFO][LHT] TM sync mode: True
+[DEBUG][LHT] Available TM methods:
+  - auto_lane_change
+  - collision_detection
+  - distance_to_leading_vehicle
+  - force_lane_change
+  - get_all_actions
+  - get_next_action
+  - get_port
+  - global_lane_offset
+  ```
