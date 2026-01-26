@@ -26,6 +26,9 @@ class PrivilegedRoutePlanner(object):
         """
 
     self.config = config
+    ## Added
+    self._is_lht_map = False
+    ## Added
 
     self.points_per_meter = self.config.points_per_meter
     self.ego_vehicles_route_point_search_distance = self.config.ego_vehicles_route_point_search_distance
@@ -119,13 +122,19 @@ class PrivilegedRoutePlanner(object):
       if transition_end_index - idx < self.transition_smoothness_distance:
         transition_factor = self._smooth_transition(
             float(transition_end_index - idx) / self.transition_smoothness_distance)
-        self.commands[idx] = RoadOption.CHANGELANERIGHT if shift_to_left_lane else RoadOption.CHANGELANELEFT
+        ## Added
+        # self.commands[idx] = RoadOption.CHANGELANERIGHT if shift_to_left_lane else RoadOption.CHANGELANELEFT
+        ## Added
+        self.commands[idx] = RoadOption.CHANGELANELEFT if shift_to_left_lane else RoadOption.CHANGELANERIGHT
       else:
         self.commands[idx] = self.commands_orig[idx]
 
       # Update the route points with the shifted lane location
       target_lane = self.route_waypoints[idx].get_left_lane(
       ) if shift_to_left_lane else self.route_waypoints[idx].get_right_lane()
+      
+      
+      
       if target_lane is None:
         target_lane = self.route_waypoints[idx]
 
@@ -167,7 +176,10 @@ class PrivilegedRoutePlanner(object):
       if transition_end_index - idx < self.transition_smoothness_distance:
         transition_factor = self._smooth_transition(
             float(transition_end_index - idx) / self.transition_smoothness_distance)
-        self.commands[idx] = RoadOption.CHANGELANERIGHT
+        # self.commands[idx] = RoadOption.CHANGELANERIGHT
+        ## Added
+        self.commands[idx] = RoadOption.CHANGELANELEFT
+        ## Added
       else:
         self.commands[idx] = self.commands_orig[idx]
 
@@ -241,9 +253,15 @@ class PrivilegedRoutePlanner(object):
       elif idx >= end_index - transition_length:
         transition_factor = self._smooth_transition(float(end_index - idx) / transition_length)
         if shift_to_left_lane:
-          self.commands[idx] = RoadOption.CHANGELANERIGHT
-        else:
+          ## Added
+          # self.commands[idx] = RoadOption.CHANGELANERIGHT
+          ## Added
           self.commands[idx] = RoadOption.CHANGELANELEFT
+        else:
+          ## Added
+          # self.commands[idx] = RoadOption.CHANGELANELEFT
+          ## Added
+          self.commands[idx] = RoadOption.CHANGELANERIGHT
 
       # The actual route shift
       self.route_points[idx] = lane_transition_factor * transition_factor * loc + (
@@ -366,9 +384,18 @@ class PrivilegedRoutePlanner(object):
       shift_end_index = last_idx + int(last_actor_extent * self.points_per_meter + transition_length +
                                        extra_length_after)
 
-    # Determine the shift direction
-    shift_to_left_lane = True if obstacle_direction == "right" else False
-
+    ## Determine the shift direction
+    # shift_to_left_lane = True if obstacle_direction == "right" else False
+    ## Added
+    if self._is_lht_map:
+        # LHT: obstacle on right → shift right (into oncoming traffic)
+        #      obstacle on left → shift left (into oncoming traffic)
+        shift_to_left_lane = False if obstacle_direction == "right" else True
+    else:
+        # RHT: obstacle on right → shift left
+        #      obstacle on left → shift right
+        shift_to_left_lane = True if obstacle_direction == "right" else False
+    ## Added
     # Shift the route smoothly
     self.shift_route_smoothly(shift_start_index,
                               shift_end_index,

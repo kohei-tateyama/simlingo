@@ -404,9 +404,9 @@ class DataAgentMulticamera(AutoPilot):
             tm = traffic_manager
         
         # --- 6. LEADERBOARD CORE SETUP ---
-        
+    
         super().setup(path_to_conf_file, route_id, traffic_manager=tm)
-
+        self._is_lht_map = is_lht
         # Set the flag on BOTH possible CarlaDataProvider instances
         if is_lht:
             print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
@@ -414,98 +414,40 @@ class DataAgentMulticamera(AutoPilot):
             if hasattr(tm, 'global_lane_offset'):
                 tm.global_lane_offset(-0.5)
                 print(f"\033[92m[INFO][LHT] ✓ Applied global_lane_offset(-0.5)\033[0m")
-
-            from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP21
-            CDP21._is_lht_map = True
-            print("\033[92m[INFO][LHT] ✓ Set scenario_runner21 CarlaDataProvider._is_lht_map = True\033[0m")
+            
+            # Set flag on scenario_runner21 version
+            try:
+                from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP21
+                CDP21._is_lht_map = True
+                print("\033[92m[INFO][LHT] ✓ Set scenario_runner21 CarlaDataProvider._is_lht_map = True\033[0m")
+            except ImportError:
+                print("\033[93m[WARN][LHT] Could not import scenario_runner21 CarlaDataProvider\033[0m")
+            
+            # ALSO set flag on old srunner version (the one actually being used)
+            try:
+                import sys
+                # Check if old srunner is loaded
+                if 'srunner.scenariomanager.carla_data_provider' in sys.modules:
+                    from srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP_old
+                    CDP_old._is_lht_map = True
+                    print("\033[92m[INFO][LHT] ✓ Set srunner CarlaDataProvider._is_lht_map = True\033[0m")
+                else:
+                    print("\033[93m[WARN][LHT] Old srunner CarlaDataProvider not loaded yet\033[0m")
+            except ImportError:
+                print("\033[93m[WARN][LHT] Could not import old srunner CarlaDataProvider\033[0m")
         else:
-            from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP21
-            CDP21._is_lht_map = False
-           
+            # Set to False on both
+            try:
+                from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP21
+                CDP21._is_lht_map = False
+            except:
+                pass
+            try:
+                from srunner.scenariomanager.carla_data_provider import CarlaDataProvider as CDP_old
+                CDP_old._is_lht_map = False
+            except:
+                pass
                 
-        
-        # ######### I did modify the carla_data_provider.py - do not check this code here. Kept for reference 
-        # ######### I did modify the carla_data_provider.py - do not check this code here. Kept for reference 
-
-        # if is_lht:
-        #     print("\033[92m[INFO][LHT] Installing LHT vehicle configuration hook...\033[0m")
-            
-        #     from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider
-            
-        #     _original_request_new_actor = CarlaDataProvider.request_new_actor
-            
-        #     def _lht_request_new_actor(model, spawn_point, rolename='scenario', autopilot=False,
-        #                             random_location=False, color=None, actor_category="car",
-        #                             safe_blueprint=False, tick=True):
-        #         """Wrapper that applies LHT settings to autopilot vehicles"""
-                
-        #         print(f"\033[96m[DEBUG][LHT] >>> request_new_actor called: {rolename}, autopilot={autopilot}, model={model}\033[0m")
-                
-        #         # Call original method
-        #         actor = _original_request_new_actor(
-        #             model, spawn_point, rolename, autopilot, random_location,
-        #             color, actor_category, safe_blueprint, tick
-        #         )
-                
-        #         if actor:
-        #             print(f"\033[96m[DEBUG][LHT] >>> Actor spawned: {actor.type_id}\033[0m")
-        #         else:
-        #             print(f"\033[93m[DEBUG][LHT] >>> Actor spawn FAILED\033[0m")
-        #             return None
-                
-        #         # Apply LHT settings if autopilot is enabled
-        #         if autopilot and actor.type_id.startswith('vehicle.'):
-        #             print(f"\033[93m[DEBUG][LHT] >>> Applying LHT settings to {actor.type_id}...\033[0m")
-        #             try:
-        #                 tm = CarlaDataProvider._client.get_trafficmanager(
-        #                     CarlaDataProvider._traffic_manager_port
-        #                 )
-                        
-        #                 # Disable auto lane change
-        #                 if hasattr(tm, 'auto_lane_change'):
-        #                     tm.auto_lane_change(actor, False)
-        #                     print(f"\033[92m    ✓ auto_lane_change(False)\033[0m")
-                        
-        #                 # Strong left offset
-        #                 if hasattr(tm, 'vehicle_lane_offset'):
-        #                     tm.vehicle_lane_offset(actor, -1.0)  # VERY strong left shift
-        #                     print(f"\033[92m    ✓ vehicle_lane_offset(-1.0)\033[0m")
-                        
-        #                 # Favor left lane changes
-        #                 if hasattr(tm, 'random_left_lanechange_percentage'):
-        #                     tm.random_left_lanechange_percentage(actor, 95.0)
-        #                     print(f"\033[92m    ✓ random_left_lanechange_percentage(95.0)\033[0m")
-                        
-        #                 if hasattr(tm, 'random_right_lanechange_percentage'):
-        #                     tm.random_right_lanechange_percentage(actor, 2.0)
-        #                     print(f"\033[92m    ✓ random_right_lanechange_percentage(2.0)\033[0m")
-                        
-        #                 # Keep to slow lane (left in LHT)
-        #                 if hasattr(tm, 'keep_slow_lane_rule_percentage'):
-        #                     tm.keep_slow_lane_rule_percentage(actor, 98.0)
-        #                     print(f"\033[92m    ✓ keep_slow_lane_rule_percentage(98.0)\033[0m")
-                        
-        #                 print(f"\033[92m[LHT] ✓✓✓ Applied ALL LHT settings to {rolename} ({actor.type_id})\033[0m")
-                        
-        #             except Exception as e:
-        #                 import traceback
-        #                 print(f"\033[91m[ERROR][LHT] Failed to apply LHT: {e}\033[0m")
-        #                 print(f"\033[91m{traceback.format_exc()}\033[0m")
-        #         else:
-        #             if not autopilot:
-        #                 print(f"\033[93m[DEBUG][LHT] >>> Skipping (autopilot=False)\033[0m")
-        #             elif not actor.type_id.startswith('vehicle.'):
-        #                 print(f"\033[93m[DEBUG][LHT] >>> Skipping (not a vehicle: {actor.type_id})\033[0m")
-                
-        #         return actor
-            
-        #     CarlaDataProvider.request_new_actor = staticmethod(_lht_request_new_actor)
-        #     print("\033[92m[INFO][LHT] ✓ LHT hook installed (with detailed debug logging)\033[0m")
-        
-        # ######### I did modify the carla_data_provider.py - do not check this code here. Kept for reference 
-        # ######### I did modify the carla_data_provider.py - do not check this code here. Kept for reference 
-        # ######### I did modify the carla_data_provider.py - do not check this code here. Kept for reference 
-        
        
         # Override save_path with simlingo v4 structure after super().setup()
         if os.environ.get("SAVE_PATH", None) is not None:
