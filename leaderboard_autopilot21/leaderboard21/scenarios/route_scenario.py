@@ -43,10 +43,10 @@ from srunner.scenariomanager.weather_sim import RouteWeatherBehavior
 from srunner.scenariomanager.lights_sim import RouteLightsBehavior
 from srunner.scenariomanager.timer import RouteTimeoutBehavior
 
-from leaderboard.utils.route_parser import RouteParser, DIST_THRESHOLD
-from leaderboard.utils.route_manipulation import interpolate_trajectory
+from leaderboard21.utils.route_parser import RouteParser, DIST_THRESHOLD
+from leaderboard21.utils.route_manipulation import interpolate_trajectory
 
-import leaderboard.utils.parked_vehicles as parked_vehicles
+import leaderboard21.utils.parked_vehicles as parked_vehicles
 
 
 class RouteScenario(BasicScenario):

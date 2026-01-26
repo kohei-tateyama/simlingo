@@ -560,4 +560,135 @@ WARNING: No InMemoryMap cache found. Setting up local map. This may take a while
   - get_next_action
   - get_port
   - global_lane_offset
+  - global_percentage_speed_difference
+  - ignore_lights_percentage
+  - ignore_signs_percentage
+  - ignore_vehicles_percentage
+  - ignore_walkers_percentage
+  - keep_slow_lane_rule_percentage
+  - random_left_lanechange_percentage
+  - random_right_lanechange_percentage
+  - set_boundaries_respawn_dormant_vehicles
+  - set_desired_speed
+  - set_global_distance_to_leading_vehicle
+  - set_hybrid_physics_mode
+  - set_hybrid_physics_radius
+  - set_osm_mode
+  - set_path
+  - set_random_device_seed
+  - set_respawn_dormant_vehicles
+  - set_route
+  - set_synchronous_mode
+  - shut_down
+  - update_vehicle_lights
+  - vehicle_lane_offset
+  - vehicle_percentage_speed_difference
   ```
+
+
+
+
+
+grep -r "set_autopilot" --include="*.py" | grep -v ".pyc"
+
+scenario_runner21/manual_control.py:        world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner21/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner21/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner21/no_rendering_mode.py:        self.hero_actor.set_autopilot(False)
+scenario_runner21/no_rendering_mode.py:                            world.hero_actor.set_autopilot(self._autopilot_enabled)
+scenario_runner21/srunner/scenariomanager/carla_data_provider.py:                actor.set_autopilot(autopilot, CarlaDataProvider._traffic_manager_port)
+scenario_runner21/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=True)
+scenario_runner21/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=False)
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        self._actor.set_autopilot(self._activate, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        actor.set_autopilot(True, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner21/srunner/scenarios/background_activity.py:                        actor.set_autopilot(False, self._tm_port)
+scenario_runner21/srunner/scenarios/background_activity.py:            actor.set_autopilot(False, self._tm_port)
+
+
+scenario_runner_autopilot/manual_control.py:        world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner_autopilot/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner_autopilot/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner_autopilot/no_rendering_mode.py:        self.hero_actor.set_autopilot(False)
+scenario_runner_autopilot/no_rendering_mode.py:                            world.hero_actor.set_autopilot(self._autopilot_enabled)
+scenario_runner_autopilot/srunner/scenariomanager/carla_data_provider.py:                actor.set_autopilot(autopilot, CarlaDataProvider._traffic_manager_port)
+scenario_runner_autopilot/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=True)
+scenario_runner_autopilot/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=False)
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        self._actor.set_autopilot(self._activate, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        actor.set_autopilot(True, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner_autopilot/srunner/scenarios/background_activity.py:                        actor.set_autopilot(False, self._tm_port)
+scenario_runner_autopilot/srunner/scenarios/background_activity.py:            actor.set_autopilot(False, self._tm_port)
+scenario_runner/manual_control.py:        world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+scenario_runner/no_rendering_mode.py:        self.hero_actor.set_autopilot(False)
+scenario_runner/no_rendering_mode.py:                            world.hero_actor.set_autopilot(self._autopilot_enabled)
+scenario_runner/srunner/scenariomanager/carla_data_provider.py:                actor.set_autopilot(autopilot, CarlaDataProvider._traffic_manager_port)
+scenario_runner/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=True)
+scenario_runner/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=False)
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        self._actor.set_autopilot(self._activate, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        actor.set_autopilot(True, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+scenario_runner/srunner/scenarios/background_activity.py:                        actor.set_autopilot(False, self._tm_port)
+scenario_runner/srunner/scenarios/background_activity.py:            actor.set_autopilot(False, self._tm_port)
+
+
+Bench2Drive/scenario_runner/manual_control.py:        world.player.set_autopilot(self._autopilot_enabled)
+Bench2Drive/scenario_runner/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+Bench2Drive/scenario_runner/manual_control.py:                    world.player.set_autopilot(self._autopilot_enabled)
+Bench2Drive/scenario_runner/no_rendering_mode.py:        self.hero_actor.set_autopilot(False)
+Bench2Drive/scenario_runner/no_rendering_mode.py:                            world.hero_actor.set_autopilot(self._autopilot_enabled)
+Bench2Drive/scenario_runner/srunner/scenariomanager/carla_data_provider.py:                actor.set_autopilot(autopilot, CarlaDataProvider._traffic_manager_port)
+Bench2Drive/scenario_runner/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=True)
+Bench2Drive/scenario_runner/srunner/scenariomanager/actorcontrols/carla_autopilot.py:        self._actor.set_autopilot(enabled=False)
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        self._actor.set_autopilot(self._activate, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:        actor.set_autopilot(True, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenariomanager/scenarioatomics/atomic_behaviors.py:                actor.set_autopilot(False, CarlaDataProvider.get_traffic_manager_port())
+Bench2Drive/scenario_runner/srunner/scenarios/background_activity.py:                        actor.set_autopilot(False, self._tm_port)
+Bench2Drive/scenario_runner/srunner/scenarios/background_activity.py:            actor.set_autopilot(False, self._tm_port)
+
+
+
+```python
+# Configure each spawned vehicle for LHT
+for spawn_point in spawn_points:
+    vehicle = world.spawn_actor(vehicle_blueprint, spawn_point)
+    vehicle.set_autopilot(True, tm_port)
+    
+    # Apply LHT-specific per-vehicle settings
+    if hasattr(self, '_is_lht') and self._is_lht:
+        tm = self._tm
+        
+        # Disable auto lane change (vehicles stay in their lane more)
+        if hasattr(tm, 'auto_lane_change'):
+            tm.auto_lane_change(vehicle, False)
+        
+        # Increase left lane change probability
+        if hasattr(tm, 'random_left_lanechange_percentage'):
+            tm.random_left_lanechange_percentage(vehicle, 80.0)  # High probability
+        
+        # Decrease right lane change probability
+        if hasattr(tm, 'random_right_lanechange_percentage'):
+            tm.random_right_lanechange_percentage(vehicle, 10.0)  # Low probability
+        
+        # Keep to slow lane (left in LHT)
+        if hasattr(tm, 'keep_slow_lane_rule_percentage'):
+            tm.keep_slow_lane_rule_percentage(vehicle, 90.0)
+        
+        # Individual lane offset
+        if hasattr(tm, 'vehicle_lane_offset'):
+            tm.vehicle_lane_offset(vehicle, -0.3)
+```

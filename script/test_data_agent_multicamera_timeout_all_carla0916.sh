@@ -79,6 +79,7 @@ export TEAM_CONFIG="data_collection"
 # export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
 export TOWN="Town12"  # Will be overridden by route XM I need to figure it out if it is mandatory to get it write for importing the city, for the folder it is fine replaicing it.
+export FORCE_TOWN="Town12"  # FORCE this map to be loaded in agent setup
 export REPETITION="1" # minimum 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
@@ -503,12 +504,23 @@ print('', end='')
 PY
     )
     unset ROUTE_ID_TMP
-        if [ -n "${route_town}" ]; then
-            export FORCE_TOWN="${route_town}"
-            info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id}"
-        else
-            unset FORCE_TOWN
+        # if [ -n "${route_town}" ]; then
+        #     export FORCE_TOWN="${route_town}"
+        #     info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id}"
+        # else
+        #     unset FORCE_TOWN
+        # fi
+
+        # Override FORCE_TOWN with route-specific town (or keep initial FORCE_TOWN as fallback)
+        if [ -n "${route_town}" ]; then  
+            export FORCE_TOWN="${route_town}"  
+            info "Setting FORCE_TOWN=${FORCE_TOWN} for route ${route_id} (from route XML)"  
+        elif [ -n "${FORCE_TOWN:-}" ]; then
+            info "Using default FORCE_TOWN=${FORCE_TOWN} for route ${route_id} (no town in XML)"
+        else  
+            warn "No town specified for route ${route_id} and no FORCE_TOWN fallback set"
         fi
+        
         export FORCE_ROUTE_ID="${route_id}"
         ARGS=("${BASE_ARGS[@]}" "--routes-subset=${route_id}")
 
