@@ -254,10 +254,76 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     if hasattr(self, '_command_planner'):
         self._command_planner._is_lht = is_lht
         print(f"\033[92m[INFO][AUTOPILOT] ✓ Set command_planner LHT mode: {is_lht}\033[0m")
+        
+    
+    if hasattr(self, '_global_plan') and len(self._global_plan) > 0:
+      print(f"\033[93m[DEBUG][GLOBAL_PLAN] Checking first item from leaderboard:\033[0m")
+      first_item = self._global_plan[0]
+      print(f"  Type: {type(first_item)}")
+      
+      # Handle different possible formats
+      if isinstance(first_item, tuple) and len(first_item) > 0:
+          first_elem = first_item[0]
+          if hasattr(first_elem, 'location'):
+              # It's a Transform
+              first_wp = hd_map.get_waypoint(first_elem.location)
+              print(f"  First global_plan waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}")
+              if is_lht and first_wp.lane_id > 0:
+                  print(f"\033[91m[ERROR][LHT] Leaderboard gave WRONG-SIDE route!\033[0m")
+              elif is_lht and first_wp.lane_id < 0:
+                  print(f"\033[92m[OK][LHT] Leaderboard route is correct\033[0m")
+          elif isinstance(first_elem, dict) and 'x' in first_elem:
+              # It's a dict with coordinates
+              loc = carla.Location(x=first_elem['x'], y=first_elem['y'], z=first_elem.get('z', 0))
+              first_wp = hd_map.get_waypoint(loc)
+              print(f"  First global_plan waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}")
+              if is_lht and first_wp.lane_id > 0:
+                  print(f"\033[91m[ERROR][LHT] Leaderboard gave WRONG-SIDE route!\033[0m")
+              elif is_lht and first_wp.lane_id < 0:
+                  print(f"\033[92m[OK][LHT] Leaderboard route is correct\033[0m")
+    
+    
+    # Check org_dense_route_world_coord instead
+    if hasattr(self, 'org_dense_route_world_coord') and len(self.org_dense_route_world_coord) > 0:
+        print(f"\033[93m[DEBUG][DENSE_ROUTE] Checking first dense route waypoint:\033[0m")
+        first_dense = self.org_dense_route_world_coord[0]
+        if isinstance(first_dense, tuple) and len(first_dense) > 0:
+            first_wp_dense = first_dense[0]  # This should be a waypoint
+            if hasattr(first_wp_dense, 'lane_id'):
+                print(f"  First dense route: lane_id={first_wp_dense.lane_id}, road_id={first_wp_dense.road_id}")
+                if is_lht and first_wp_dense.lane_id > 0:
+                    print(f"\033[91m[ERROR][LHT] Dense route has WRONG-SIDE (positive lane_id)!\033[0m")
+                elif is_lht and first_wp_dense.lane_id < 0:
+                    print(f"\033[92m[OK][LHT] Dense route is correct (negative lane_id)\033[0m")
 
     # Get the hero vehicle and the CARLA world
     self._vehicle = CarlaDataProvider.get_hero_actor()
     self._world = self._vehicle.get_world()
+    
+    spawn_wp = hd_map.get_waypoint(self._vehicle.get_location())
+    print(f"\033[93m[DEBUG][SPAWN] Vehicle spawned at: lane_id={spawn_wp.lane_id}, road_id={spawn_wp.road_id}\033[0m")
+    if is_lht and spawn_wp.lane_id > 0:
+        print(f"\033[91m[ERROR][LHT] Vehicle spawned on WRONG side (RHT lane {spawn_wp.lane_id})!\033[0m")
+        print(f"\033[91m       This means the ROUTE PLANNER gave us a RHT route!\033[0m")
+    elif is_lht and spawn_wp.lane_id < 0:
+        print(f"\033[92m[OK][LHT] Vehicle spawned correctly on LHT lane {spawn_wp.lane_id}\033[0m")
+        
+
+    # ADD THIS:
+    # Check opposite lane
+    opposite_wp = spawn_wp.get_left_lane() if spawn_wp.lane_id < 0 else spawn_wp.get_right_lane()
+    if opposite_wp:
+        print(f"\033[93m[DEBUG][SPAWN] Opposite lane: lane_id={opposite_wp.lane_id}\033[0m")
+        print(f"\033[93m[DEBUG][SPAWN] Current lane width: {spawn_wp.lane_width}m\033[0m")
+        
+    # Check if we're in the leftmost or rightmost lane
+    left_wp = spawn_wp.get_left_lane()
+    right_wp = spawn_wp.get_right_lane()
+    print(f"\033[93m[DEBUG][SPAWN] Left lane exists: {left_wp is not None}, Right lane exists: {right_wp is not None}\033[0m")
+    if left_wp:
+        print(f"\033[93m[DEBUG][SPAWN] Left lane ID: {left_wp.lane_id}\033[0m")
+    if right_wp:
+        print(f"\033[93m[DEBUG][SPAWN] Right lane ID: {right_wp.lane_id}\033[0m")
 
     # Check if the vehicle starts from a parking spot
     # If dense route is available, compute whether we start from a parking exit.
@@ -286,6 +352,19 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
       
     self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
                                       starts_with_parking_exit, self._vehicle.get_location())
+    
+    # Add debug block:
+    print(f"\033[93m[DEBUG][ROUTE] Checking first 10 route waypoints:\033[0m")
+    for i in range(min(10, len(self._waypoint_planner.route_waypoints))):
+        wp = self._waypoint_planner.route_waypoints[i]
+        print(f"  [{i}] road_id={wp.road_id}, lane_id={wp.lane_id}, lane_type={wp.lane_type}")
+
+    if len(self._waypoint_planner.route_waypoints) > 0:
+        first_wp = self._waypoint_planner.route_waypoints[0]
+        if self._is_lht_map and first_wp.lane_id > 0:
+            print(f"\033[91m[ERROR][LHT] Route has POSITIVE lane_id {first_wp.lane_id} on LHT map! Route planner is broken!\033[0m")
+        elif self._is_lht_map and first_wp.lane_id < 0:
+            print(f"\033[92m[OK][LHT] Route correctly uses NEGATIVE lane_id {first_wp.lane_id}\033[0m")
     ## Added
     self._waypoint_planner.save()
 

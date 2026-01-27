@@ -87,7 +87,7 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 ## LHT
 export ROUTE_CONFIG="routes_training"      
 export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
-export ROUTES_SUBSET="0" 
+export ROUTES_SUBSET="0"   
 
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then

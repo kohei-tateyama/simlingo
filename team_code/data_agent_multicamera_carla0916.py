@@ -680,15 +680,38 @@ class DataAgentMulticamera(AutoPilot):
             cam_height = 1.5  # meters above vehicle center
             fov = '110'
             
-            # Define 6-camera configuration matching japanese_driving_autopilot_cameras_mp.py
-            camera_configs = [
-                {'name': 'F', 'x': 2.5, 'y': 0.0, 'yaw': 0.0},      # Front center
-                {'name': 'B', 'x': -2.5, 'y': 0.0, 'yaw': 180.0},   # Back center
-                {'name': 'RF', 'x': 1.0, 'y': 1.0, 'yaw': 55.0},    # Right-Front diagonal
-                {'name': 'LF', 'x': 1.0, 'y': -1.0, 'yaw': -55.0},  # Left-Front diagonal
-                {'name': 'RB', 'x': -1.0, 'y': 1.0, 'yaw': 125.0},  # Right-Back diagonal
-                {'name': 'LB', 'x': -1.0, 'y': -1.0, 'yaw': -125.0} # Left-Back diagonal
-            ]
+            # # Define 6-camera configuration matching japanese_driving_autopilot_cameras_mp.py
+            # camera_configs = [
+            #     {'name': 'F', 'x': 2.5, 'y': 0.0, 'yaw': 0.0},      # Front center
+            #     {'name': 'B', 'x': -2.5, 'y': 0.0, 'yaw': 180.0},   # Back center
+            #     {'name': 'RF', 'x': 1.0, 'y': 1.0, 'yaw': 55.0},    # Right-Front diagonal
+            #     {'name': 'LF', 'x': 1.0, 'y': -1.0, 'yaw': -55.0},  # Left-Front diagonal
+            #     {'name': 'RB', 'x': -1.0, 'y': 1.0, 'yaw': 125.0},  # Right-Back diagonal
+            #     {'name': 'LB', 'x': -1.0, 'y': -1.0, 'yaw': -125.0} # Left-Back diagonal
+            # ]
+            
+            is_lht = getattr(self, '_is_lht_map', False)
+
+            if is_lht:
+                # LHT: Driver on RIGHT side
+                camera_configs = [
+                    {'name': 'F', 'x': 2.5, 'y': 0.0, 'yaw': 0.0},      # Front center
+                    {'name': 'B', 'x': -2.5, 'y': 0.0, 'yaw': 180.0},   # Back center
+                    {'name': 'LF', 'x': 1.0, 'y': 1.0, 'yaw': 55.0},    # Left-Front (driver side in LHT)
+                    {'name': 'RF', 'x': 1.0, 'y': -1.0, 'yaw': -55.0},  # Right-Front (passenger side in LHT)
+                    {'name': 'LB', 'x': -1.0, 'y': 1.0, 'yaw': 125.0},  # Left-Back
+                    {'name': 'RB', 'x': -1.0, 'y': -1.0, 'yaw': -125.0} # Right-Back
+                ]
+            else:
+                # RHT: Driver on LEFT side (original)
+                camera_configs = [
+                    {'name': 'F', 'x': 2.5, 'y': 0.0, 'yaw': 0.0},
+                    {'name': 'B', 'x': -2.5, 'y': 0.0, 'yaw': 180.0},
+                    {'name': 'RF', 'x': 1.0, 'y': 1.0, 'yaw': 55.0},
+                    {'name': 'LF', 'x': 1.0, 'y': -1.0, 'yaw': -55.0},
+                    {'name': 'RB', 'x': -1.0, 'y': 1.0, 'yaw': 125.0},
+                    {'name': 'LB', 'x': -1.0, 'y': -1.0, 'yaw': -125.0}
+                ]
             
             for cam in camera_configs:
                 result.append({
