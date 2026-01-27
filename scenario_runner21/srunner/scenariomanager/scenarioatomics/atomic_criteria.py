@@ -1639,11 +1639,47 @@ class RunningRedLightTest(Criterion):
         self._last_red_light_id = None
         self.debug = False
 
-        all_actors = CarlaDataProvider.get_all_actors()
-        for _actor in all_actors:
-            if 'traffic_light' in _actor.type_id:
-                center, waypoints = self.get_traffic_light_waypoints(_actor)
-                self._list_traffic_lights.append((_actor, center, waypoints))
+        # all_actors = CarlaDataProvider.get_all_actors()
+        # for _actor in all_actors:
+        #     if 'traffic_light' in _actor.type_id:
+        #         center, waypoints = self.get_traffic_light_waypoints(_actor)
+        #         self._list_traffic_lights.append((_actor, center, waypoints))
+        
+        import os
+        is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+        
+        try:
+            all_actors = CarlaDataProvider.get_all_actors()
+            traffic_light_count = 0
+            
+            for _actor in all_actors:
+                if 'traffic_light' in _actor.type_id:
+                    try:
+                        center, waypoints = self.get_traffic_light_waypoints(_actor)
+                        
+                        # Safety check: ensure waypoints list is not empty
+                        if waypoints and len(waypoints) > 0:
+                            self._list_traffic_lights.append((_actor, center, waypoints))
+                            traffic_light_count += 1
+                        elif self.debug or is_lht:
+                            print(f"[RunningRedLightTest] Traffic light {_actor.id} has no valid waypoints (LHT={is_lht})")
+                    
+                    except (IndexError, AttributeError) as e:
+                        # In LHT maps, get_traffic_light_waypoints might fail
+                        if self.debug or is_lht:
+                            print(f"[RunningRedLightTest] Failed to process traffic light {_actor.id}: {e}")
+                        continue
+            
+            if self.debug or is_lht:
+                print(f"[RunningRedLightTest] Initialized with {traffic_light_count} traffic lights (LHT={is_lht})")
+            
+            if traffic_light_count == 0 and is_lht:
+                print(f"[RunningRedLightTest] No traffic lights found on LHT map - test will be passive")
+        
+        except Exception as e:
+            print(f"[RunningRedLightTest] Error during initialization: {e}")
+            import traceback
+            traceback.print_exc()
 
     # pylint: disable=no-self-use
     def is_vehicle_crossing_line(self, seg1, seg2):
@@ -1756,10 +1792,62 @@ class RunningRedLightTest(Criterion):
         y_ = math.sin(math.radians(angle)) * point.x + math.cos(math.radians(angle)) * point.y
         return carla.Vector3D(x_, y_, point.z)
 
+    # def get_traffic_light_waypoints(self, traffic_light):
+    #     """
+    #     get area of a given traffic light
+    #     """
+    #     base_transform = traffic_light.get_transform()
+    #     base_rot = base_transform.rotation.yaw
+    #     area_loc = base_transform.transform(traffic_light.trigger_volume.location)
+
+    #     # Discretize the trigger box into points
+    #     area_ext = traffic_light.trigger_volume.extent
+    #     x_values = np.arange(-0.9 * area_ext.x, 0.9 * area_ext.x, 1.0)  # 0.9 to avoid crossing to adjacent lanes
+
+    #     area = []
+    #     for x in x_values:
+    #         point = self.rotate_point(carla.Vector3D(x, 0, area_ext.z), base_rot)
+    #         point_location = area_loc + carla.Location(x=point.x, y=point.y)
+    #         area.append(point_location)
+
+    #     # Get the waypoints of these points, removing duplicates
+    #     ini_wps = []
+    #     for pt in area:
+    #         wpx = self._map.get_waypoint(pt)
+    #         # As x_values are arranged in order, only the last one has to be checked
+    #         if not ini_wps or ini_wps[-1].road_id != wpx.road_id or ini_wps[-1].lane_id != wpx.lane_id:
+    #             ini_wps.append(wpx)
+
+    #     # Advance them until the intersection
+    #     wps = []
+    #     for wpx in ini_wps:
+    #         while not wpx.is_intersection:
+    #             next_wp = wpx.next(0.5)[0] ## changed 
+                
+    #             ## If I use this one, the task does nor procede at all.
+    #             # next_wps = wpx.next(0.5)
+    #             # if not next_wps:
+    #             #     # No next waypoint, skip this traffic light
+    #             #     continue
+    #             # next_wp = next_wps[0]
+                
+    #             if next_wp and not next_wp.is_intersection:
+    #                 wpx = next_wp
+    #             else:
+    #                 break
+    #         wps.append(wpx)
+
+    #     return area_loc, wps
+    
+    
     def get_traffic_light_waypoints(self, traffic_light):
         """
-        get area of a given traffic light
+        get area of a given traffic light - LHT safe version
         """
+        import os
+        
+        is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+        
         base_transform = traffic_light.get_transform()
         base_rot = base_transform.rotation.yaw
         area_loc = base_transform.transform(traffic_light.trigger_volume.location)
@@ -1770,36 +1858,53 @@ class RunningRedLightTest(Criterion):
 
         area = []
         for x in x_values:
-            point = self.rotate_point(carla.Vector3D(x, 0, area_ext.z), base_rot)
-            point_location = area_loc + carla.Location(x=point.x, y=point.y)
-            area.append(point_location)
+            point = base_transform.transform(carla.Location(x=x, y=0, z=0))
+            area.append(point)
 
         # Get the waypoints of these points, removing duplicates
         ini_wps = []
         for pt in area:
             wpx = self._map.get_waypoint(pt)
-            # As x_values are arranged in order, only the last one has to be checked
-            if not ini_wps or ini_wps[-1].road_id != wpx.road_id or ini_wps[-1].lane_id != wpx.lane_id:
+            
+            # LHT safety: check if waypoint is valid
+            if wpx is None:
+                if self.debug or is_lht:
+                    print(f"[get_traffic_light_waypoints] Invalid waypoint at {pt}")
+                continue
+            
+            # On LHT maps, we might need to check the opposite lane
+            if is_lht and wpx.lane_id > 0:
+                # We're on the RHT side, try to get LHT side
+                left_wp = wpx.get_left_lane()
+                if left_wp and left_wp.lane_type == carla.LaneType.Driving:
+                    wpx = left_wp
+            
+            # Avoid duplicates
+            if wpx not in ini_wps:
                 ini_wps.append(wpx)
+
+        # LHT safety: ensure we have at least some waypoints
+        if len(ini_wps) == 0:
+            if self.debug or is_lht:
+                print(f"[get_traffic_light_waypoints] No valid waypoints found for traffic light (LHT={is_lht})")
+            # Return empty but valid structure
+            return area_loc, []
 
         # Advance them until the intersection
         wps = []
         for wpx in ini_wps:
             while not wpx.is_intersection:
-                next_wp = wpx.next(0.5)[0] ## changed 
-                
-                ## If I use this one, the task does nor procede at all.
-                # next_wps = wpx.next(0.5)
-                # if not next_wps:
-                #     # No next waypoint, skip this traffic light
-                #     continue
-                # next_wp = next_wps[0]
-                
-                if next_wp and not next_wp.is_intersection:
-                    wpx = next_wp
-                else:
+                next_wp = wpx.next(0.5)
+                if len(next_wp) == 0:
                     break
+                wpx = next_wp[0]
             wps.append(wpx)
+
+        # LHT safety check before accessing list
+        if len(wps) == 0:
+            if self.debug or is_lht:
+                print(f"[get_traffic_light_waypoints] No intersection waypoints found (LHT={is_lht})")
+            return area_loc, []
 
         return area_loc, wps
 

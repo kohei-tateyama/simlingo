@@ -142,7 +142,11 @@ def interpolate_trajectory(waypoints_trajectory, hop_resolution=1.0):
         - waypoints_trajectory: the current coarse trajectory
         - hop_resolution: distance between the trajectory's waypoints
     """
-
+    import os
+    is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+    if is_lht:
+        print(f"\033[94m[INTERPOLATE] Checking interpolated route for LHT compatibility...\033[0m")
+        
     grp = GlobalRoutePlanner(CarlaDataProvider.get_map(), hop_resolution)
     # Obtain route plan
     lat_ref, lon_ref = _get_latlon_ref(CarlaDataProvider.get_world())

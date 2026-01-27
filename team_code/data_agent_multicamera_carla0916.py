@@ -67,7 +67,7 @@ def get_entry_point():
 
 # --- LHT CRASH FIX START --- added carela 0.9.16
 sr_base = "/workspace/simlingo/scenario_runner21/srunner"
-
+OFFSET_LHT_TM = -0.5
 if sr_base not in sys.path:
     sys.path.insert(0, sr_base)
 
@@ -347,20 +347,18 @@ class DataAgentMulticamera(AutoPilot):
             # --- 5. APPLY CARLA 0.9.16 LHT CONFIGURATION ---
             if is_lht:
                 print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
-                off_set_dummy = -0.5 
-                # Set global lane offset (NEGATIVE for LHT in 0.9.16)
                 if hasattr(tm, 'set_global_lane_offset'):
                     try:
-                        tm.set_global_lane_offset(off_set_dummy)
-                        print(f"\033[92m[INFO][LHT] Applied set_global_lane_offset({off_set_dummy})\033[0m")
+                        tm.set_global_lane_offset(OFFSET_LHT_TM)
+                        print(f"\033[92m[INFO][LHT] Applied set_global_lane_offset({OFFSET_LHT_TM})\033[0m")
                     except Exception as e:
                         print(f"\033[93m[WARN][LHT] set_global_lane_offset failed: {e}\033[0m")
                 
                 # Use global_lane_offset method (alternative in 0.9.16)
                 if hasattr(tm, 'global_lane_offset'):
                     try:
-                        tm.global_lane_offset(off_set_dummy)
-                        print(f"\033[92m[INFO][LHT] Applied global_lane_offset({off_set_dummy})\033[0m")
+                        tm.global_lane_offset(OFFSET_LHT_TM)
+                        print(f"\033[92m[INFO][LHT] Applied global_lane_offset({OFFSET_LHT_TM})\033[0m")
                     except Exception as e:
                         print(f"\033[93m[WARN][LHT] global_lane_offset failed: {e}\033[0m")
                         tm.global_lane_offset(0.0)
@@ -411,8 +409,8 @@ class DataAgentMulticamera(AutoPilot):
             print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
             
             if hasattr(tm, 'global_lane_offset'):
-                tm.global_lane_offset(-0.5)
-                print(f"\033[92m[INFO][LHT] ✓ Applied global_lane_offset(-0.5)\033[0m")
+                tm.global_lane_offset(OFFSET_LHT_TM)
+                print(f"\033[92m[INFO][LHT] ✓ Applied global_lane_offset({OFFSET_LHT_TM})\033[0m")
             
             # Set flag on scenario_runner21 version
             try:

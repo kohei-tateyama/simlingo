@@ -587,5 +587,48 @@ WARNING: No InMemoryMap cache found. Setting up local map. This may take a while
 
 
 
--rw-r--r-- 1 pim1yh workspace 71350074 Sep 16 04:50 Town12.original_rht.xodr   Original RHT (backup)
--rw-r--r-- 1 pim1yh workspace 71837807 Jan 26 16:34 Town12.xodr                Current LHT (ACTIVE)
+
+```bash
+cd /workspace/carla0916/CarlaUE4/Content/Carla/Maps/OpenDrive
+rm -f Town*.xodr
+
+# Restore RHT originals by removing .backup_rht extension
+for f in *.backup_rht; do
+    mv "$f" "${f%.backup_rht}"
+done
+
+# Do the same for Town12, Town13, Town15
+for town in Town12 Town13 Town15; do
+    cd /workspace/carla0916/CarlaUE4/Content/Carla/Maps/$town/OpenDrive
+    rm -f Town*.xodr
+    for f in *.backup_rht; do
+        [ -f "$f" ] && mv "$f" "${f%.backup_rht}"
+    done
+done
+
+# Verify restoration
+echo "=== OpenDrive folder ==="
+ls -lh /workspace/carla0916/CarlaUE4/Content/Carla/Maps/OpenDrive/ | grep -v backup
+
+echo "=== Town12 ==="
+ls -lh /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town12/OpenDrive/
+
+echo "=== Town13 ==="
+ls -lh /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town13/OpenDrive/
+
+echo "=== Town15 ==="
+ls -lh /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town15/OpenDrive/
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

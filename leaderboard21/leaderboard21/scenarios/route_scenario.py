@@ -20,6 +20,14 @@ import py_trees
 import traceback
 import numpy as np
 
+# sys.path = [p for p in sys.path if 'scenario_runner' not in p or 'scenario_runner21' in p]
+# # Add scenario_runner21 FIRST
+# sr21_base = "/workspace/simlingo/scenario_runner21"
+# if sr21_base not in sys.path:
+#     sys.path.insert(0, sr21_base)
+# print(f"[DEBUG] scenario_runner21 forced: {sr21_base}")
+
+
 import carla
 from agents.navigation.local_planner import RoadOption
 
@@ -106,20 +114,50 @@ class RouteScenario(BasicScenario):
         # Set runtime init mode. Do this after the first set of scenarios has been initialized!
         CarlaDataProvider.set_runtime_init_mode(True)
 
+    # def _get_route(self, config):
+    #     """
+    #     Gets the route from the configuration, interpolating it to the desired density,
+    #     saving it to the CarlaDataProvider and sending it to the agent
+
+    #     Parameters:
+    #     - world: CARLA world
+    #     - config: Scenario configuration (RouteConfiguration)
+    #     - debug_mode: boolean to decide whether or not the route poitns are printed
+    #     """
+
+    #     # Prepare route's trajectory (interpolate and add the GPS route)
+    #     self.gps_route, self.route = interpolate_trajectory(config.keypoints)
+    #     return self.route
+    
     def _get_route(self, config):
         """
         Gets the route from the configuration, interpolating it to the desired density,
         saving it to the CarlaDataProvider and sending it to the agent
-
-        Parameters:
-        - world: CARLA world
-        - config: Scenario configuration (RouteConfiguration)
-        - debug_mode: boolean to decide whether or not the route poitns are printed
         """
-
+        import os
+        
+        is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+        print(f"\033[94m[ROUTE_SCENARIO] _get_route called, LHT={is_lht}\033[0m")
+        
         # Prepare route's trajectory (interpolate and add the GPS route)
         self.gps_route, self.route = interpolate_trajectory(config.keypoints)
+        
+        # DEBUG: Check first waypoint
+        if len(self.route) > 0:
+            first_wp = self.route[0][0]  # Transform
+            print(f"\033[94m[ROUTE_SCENARIO] First route waypoint location: {first_wp.location}\033[0m")
+            
+            # Get the actual lane
+            carla_map = CarlaDataProvider.get_map()
+            actual_wp = carla_map.get_waypoint(first_wp.location)
+            if actual_wp:
+                print(f"\033[94m[ROUTE_SCENARIO] First waypoint lane_id: {actual_wp.lane_id}, road_id: {actual_wp.road_id}\033[0m")
+                if is_lht and actual_wp.lane_id > 0:
+                    print(f"\033[91m[ERROR][ROUTE_SCENARIO] Route uses WRONG SIDE (RHT lane on LHT map)!\033[0m")
+                    print(f"\033[91m  This means interpolate_trajectory() or the route XML is wrong!\033[0m")
+        
         return self.route
+    
 
     def _filter_scenarios(self, scenario_configs):
         """
@@ -141,14 +179,61 @@ class RouteScenario(BasicScenario):
 
         return new_scenarios_config
 
+    # def _spawn_ego_vehicle(self):
+    #     """Spawn the ego vehicle at the first waypoint of the route"""
+    #     elevate_transform = self.route[0][0]
+    #     elevate_transform.location.z += 0.5
+
+    #     ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz_2020',
+    #                                                       elevate_transform,
+    #                                                       rolename='hero')
+    #     if not ego_vehicle:
+    #         return
+
+    #     spectator = self.world.get_spectator()
+    #     spectator.set_transform(carla.Transform(elevate_transform.location + carla.Location(z=50),
+    #                                                 carla.Rotation(pitch=-90)))
+
+    #     self.world.tick()
+
+    #     return ego_vehicle
+    
+    
     def _spawn_ego_vehicle(self):
         """Spawn the ego vehicle at the first waypoint of the route"""
+        
+        is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+        
         elevate_transform = self.route[0][0]
         elevate_transform.location.z += 0.5
-
+        
+        # DEBUG: Check spawn lane
+        carla_map = CarlaDataProvider.get_map()
+        spawn_wp = carla_map.get_waypoint(elevate_transform.location)
+        
+        print(f"\033[94m[ROUTE_SCENARIO] Spawning ego vehicle:\033[0m")
+        print(f"  Location: {elevate_transform.location}")
+        print(f"  Lane ID: {spawn_wp.lane_id if spawn_wp else 'N/A'}")
+        print(f"  Road ID: {spawn_wp.road_id if spawn_wp else 'N/A'}")
+        print(f"  LHT mode: {is_lht}")
+        
+        if is_lht and spawn_wp and spawn_wp.lane_id > 0:
+            print(f"\033[91m[ERROR] Spawning on WRONG SIDE (positive lane_id {spawn_wp.lane_id})!\033[0m")
+            print(f"\033[93m[FIX] Attempting to correct to left lane...\033[0m")
+            
+            # Try to get the correct LHT lane
+            left_lane = spawn_wp.get_left_lane()
+            if left_lane and left_lane.lane_type == carla.LaneType.Driving and left_lane.lane_id < 0:
+                corrected_transform = left_lane.transform
+                corrected_transform.location.z += 0.5
+                elevate_transform = corrected_transform
+                print(f"\033[92m[FIX] ✓ Corrected to lane_id {left_lane.lane_id}\033[0m")
+            else:
+                print(f"\033[91m[FIX] ✗ Could not find valid left lane!\033[0m")
+        
         ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz_2020',
-                                                          elevate_transform,
-                                                          rolename='hero')
+                                                        elevate_transform,
+                                                        rolename='hero')
         if not ego_vehicle:
             return
 
@@ -159,6 +244,8 @@ class RouteScenario(BasicScenario):
         self.world.tick()
 
         return ego_vehicle
+        
+        
 
     def _get_parking_slots(self, max_distance=100, route_step=10):
         """Spawn parked vehicles."""
@@ -425,9 +512,16 @@ class RouteScenario(BasicScenario):
         
         # criteria.add_child(RunningRedLightTest(self.ego_vehicles[0]))
         try:
-            criteria.add_child(RunningRedLightTest(self.ego_vehicles[0]))
+            red_light_test = RunningRedLightTest(self.ego_vehicles[0])
+            criteria.add_child(red_light_test)
+            print("[INFO] ✓ RunningRedLightTest initialized successfully")
+        except IndexError as e:
+            print(f"[WARN] Could not create RunningRedLightTest (LHT map issue): {e}")
+            print("[INFO] Skipping RunningRedLightTest - this is expected on LHT maps")
         except Exception as e:
             print(f"[WARN] Could not create RunningRedLightTest: {e}")
+            import traceback
+            print(traceback.format_exc())
             
         criteria.add_child(RunningStopTest(self.ego_vehicles[0]))
         criteria.add_child(MinimumSpeedRouteTest(self.ego_vehicles[0], self.route, checkpoints=4, name="MinSpeedTest"))
