@@ -134,6 +134,52 @@ def main():
         print("Done. Restart CARLA to pick up modified maps.")
     else:
         print("No files changed.")
+        
+        
+        
+def verify_lht_conversion(path):
+    """Verify the XODR is properly converted to LHT"""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    
+    # Check 1: Header has LHT userData
+    header = find_element_any_ns(root, 'header')
+    has_lht_marker = has_vectorlane_in_header(header) if header else False
+    
+    # Check 2: Count RHT vs LHT roads
+    rht_roads = 0
+    lht_roads = 0
+    for elem in root.iter():
+        if isinstance(elem.tag, str) and (elem.tag.endswith('}road') or elem.tag == 'road'):
+            rule = elem.attrib.get('rule', 'RHT')
+            if rule == 'LHT':
+                lht_roads += 1
+            else:
+                rht_roads += 1
+    
+    # Check 3: Traffic light lane IDs
+    positive_signal_lanes = 0
+    negative_signal_lanes = 0
+    for elem in root.iter():
+        if isinstance(elem.tag, str) and (elem.tag.endswith('}validity') or elem.tag == 'validity'):
+            from_lane = elem.attrib.get('fromLane')
+            if from_lane:
+                try:
+                    val = int(from_lane)
+                    if val > 0:
+                        positive_signal_lanes += 1
+                    else:
+                        negative_signal_lanes += 1
+                except ValueError:
+                    pass
+    
+    print(f"\n[VERIFY] {os.path.basename(path)}:")
+    print(f"  Header userData: {'✓ LHT' if has_lht_marker else '✗ Missing'}")
+    print(f"  Roads: {lht_roads} LHT, {rht_roads} RHT")
+    print(f"  Traffic signals: {negative_signal_lanes} LHT lanes, {positive_signal_lanes} RHT lanes")
+    
+    return has_lht_marker and lht_roads > 0 and positive_signal_lanes == 0
+
 
 if __name__ == '__main__':
     main()
