@@ -1,3 +1,0 @@
-huggingface-hub>=0.14.1
-azure-storage-blob>=12.10.0
-requests>=2.28
