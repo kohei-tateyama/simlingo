@@ -613,6 +613,7 @@ class PrivilegedRoutePlanner(object):
     print(f"\033[92m[ROUTE-PLANNER] After interpolation: {len(self.route_waypoints)} waypoints\033[0m")
 
     self.compute_route_info(carla_world, carla_map)
+    
 
   def compute_rotation_angles(self, route_points):
     """

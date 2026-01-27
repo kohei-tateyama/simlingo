@@ -458,10 +458,16 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
   #       self.org_dense_route_world_coord = []
   
   
+  
+  
+  
+  
   def set_global_plan(self, global_plan_gps, global_plan_world_coord):
     """
-    Override to populate org_dense_route_world_coord from the leaderboard's route.
-    INCLUDES LHT LANE CORRECTION!
+    Override to populate org_dense_route_world_coord with LHT-corrected waypoints.
+    
+    CRITICAL: This receives waypoints from the leaderboard BEFORE route_scenario corrections,
+    so we MUST correct them here for LHT.
     """
     import os
     import carla
@@ -478,86 +484,117 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     print(f"  - GPS plan: {len(global_plan_gps) if global_plan_gps else 0} points")
     print(f"  - World plan: {len(global_plan_world_coord) if global_plan_world_coord else 0} points")
     
-    # Populate org_dense_route_world_coord from global_plan_world_coord
-    if global_plan_world_coord and len(global_plan_world_coord) > 0:
-        # CRITICAL: Apply LHT correction HERE before storing
-        if is_lht:
-            print(f"\033[93m[AUTOPILOT] !!! APPLYING LHT CORRECTION TO AGENT ROUTE !!!\033[0m")
-            
-            # We need the map to correct lanes
-            # Get it from CarlaDataProvider if available, otherwise wait
-            try:
-                from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider
-                carla_map = CarlaDataProvider.get_map()
-            except:
-                # Fallback: map might not be available yet
-                carla_map = None
-                print(f"\033[93m[WARN] Map not available yet in set_global_plan, will correct in _init()\033[0m")
-            
-            self.org_dense_route_world_coord = []
-            corrections = 0
-            
-            for item in global_plan_world_coord:
-                if isinstance(item, tuple) and len(item) >= 2:
-                    transform, road_option = item
-                    
-                    # If map available, correct lane now
-                    if carla_map:
-                        wp = carla_map.get_waypoint(transform.location)
-                        
-                        # If on RHT side, find LHT side
-                        if wp and wp.lane_id > 0:
-                            lht_wp = wp
-                            
-                            # Try left
-                            attempts = 0
-                            while lht_wp.lane_id > 0 and attempts < 10:
-                                next_left = lht_wp.get_left_lane()
-                                if next_left and next_left.lane_type == carla.LaneType.Driving:
-                                    lht_wp = next_left
-                                    attempts += 1
-                                else:
-                                    break
-                            
-                            # Try right if still wrong
-                            if lht_wp.lane_id > 0:
-                                right_wp = wp.get_right_lane()
-                                if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
-                                    lht_wp = right_wp
-                            
-                            if lht_wp.lane_id < 0:
-                                # Use corrected transform
-                                self.org_dense_route_world_coord.append((lht_wp.transform, road_option))
-                                corrections += 1
-                            else:
-                                # Couldn't correct, use original
-                                self.org_dense_route_world_coord.append((transform, road_option))
-                        else:
-                            # Already on LHT side or no waypoint
-                            self.org_dense_route_world_coord.append((transform, road_option))
-                    else:
-                        # No map yet, store original (will correct in _init)
-                        self.org_dense_route_world_coord.append((transform, road_option))
-                else:
-                    print(f"\033[93m[WARN] Unexpected format in global_plan_world_coord: {type(item)}\033[0m")
-            
-            if carla_map:
-                print(f"\033[92m[AUTOPILOT] ✓ Corrected {corrections}/{len(self.org_dense_route_world_coord)} waypoints to LHT in set_global_plan\033[0m")
-            else:
-                print(f"\033[93m[AUTOPILOT] Stored {len(self.org_dense_route_world_coord)} waypoints (will correct in _init)\033[0m")
-        
-        else:
-            # RHT mode, store as-is
-            self.org_dense_route_world_coord = []
-            for item in global_plan_world_coord:
-                if isinstance(item, tuple) and len(item) >= 2:
-                    self.org_dense_route_world_coord.append(item)
-        
-        print(f"\033[92m[AUTOPILOT] ✓ Populated org_dense_route_world_coord with {len(self.org_dense_route_world_coord)} waypoints\033[0m")
-    else:
+    if not global_plan_world_coord or len(global_plan_world_coord) == 0:
         print(f"\033[91m[ERROR] global_plan_world_coord is empty!\033[0m")
         self.org_dense_route_world_coord = []
-
+        return
+    
+    # LHT CORRECTION: MUST fix waypoints here because leaderboard gives us RHT waypoints
+    if is_lht:
+        print(f"\033[93m[AUTOPILOT] !!! CORRECTING {len(global_plan_world_coord)} WAYPOINTS TO LHT !!!\033[0m")
+        
+        # Get map from CarlaDataProvider
+        try:
+            from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
+            carla_map = CarlaDataProvider.get_map()
+            
+            if carla_map is None:
+                print(f"\033[91m[WARN] Map not available in set_global_plan\033[0m")
+                print(f"\033[91m       Storing uncorrected waypoints - will try to fix in _init()\033[0m")
+                self.org_dense_route_world_coord = list(global_plan_world_coord)
+                return
+            
+            corrected_plan = []
+            corrections = 0
+            failed_corrections = 0
+            
+            for idx, (transform, road_option) in enumerate(global_plan_world_coord):
+                # Get current waypoint
+                wp = carla_map.get_waypoint(transform.location, project_to_road=True)
+                
+                if wp is None:
+                    # Can't get waypoint, keep original
+                    corrected_plan.append((transform, road_option))
+                    continue
+                
+                # Check if on wrong side (positive lane_id = RHT in LHT map)
+                if wp.lane_id > 0:
+                    # Find LHT lane (negative lane_id)
+                    lht_wp = None
+                    
+                    # Method 1: Try going left (crossing to other side of road)
+                    temp_wp = wp
+                    for attempt in range(10):
+                        left_wp = temp_wp.get_left_lane()
+                        if left_wp and left_wp.lane_type == carla.LaneType.Driving:
+                            if left_wp.lane_id < 0:
+                                lht_wp = left_wp
+                                break
+                            temp_wp = left_wp
+                        else:
+                            break
+                    
+                    # Method 2: If still not found, try right
+                    if lht_wp is None or lht_wp.lane_id > 0:
+                        right_wp = wp.get_right_lane()
+                        if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
+                            lht_wp = right_wp
+                    
+                    # Use corrected waypoint if found
+                    if lht_wp and lht_wp.lane_id < 0:
+                        corrected_plan.append((lht_wp.transform, road_option))
+                        corrections += 1
+                    else:
+                        # Couldn't find LHT lane, keep original
+                        corrected_plan.append((transform, road_option))
+                        failed_corrections += 1
+                        if failed_corrections <= 5:  # Only print first 5
+                            print(f"\033[91m[WARN] idx {idx}: couldn't find LHT lane for lane {wp.lane_id}, road {wp.road_id}\033[0m")
+                else:
+                    # Already on LHT side (negative lane_id)
+                    corrected_plan.append((transform, road_option))
+            
+            self.org_dense_route_world_coord = corrected_plan
+            
+            print(f"\033[92m[AUTOPILOT] ✓ Corrected {corrections}/{len(global_plan_world_coord)} waypoints to LHT\033[0m")
+            if failed_corrections > 0:
+                print(f"\033[93m[AUTOPILOT] ⚠ Failed to correct {failed_corrections} waypoints\033[0m")
+            
+            # Verify first waypoint
+            if len(corrected_plan) > 0:
+                first_transform, _ = corrected_plan[0]
+                first_wp = carla_map.get_waypoint(first_transform.location)
+                if first_wp:
+                    print(f"\033[94m[AUTOPILOT] First waypoint after correction: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}\033[0m")
+                    if first_wp.lane_id > 0:
+                        print(f"\033[91m[AUTOPILOT] ✗✗✗ STILL ON RHT SIDE! ✗✗✗\033[0m")
+                    else:
+                        print(f"\033[92m[AUTOPILOT] ✓✓✓ Correctly on LHT side ✓✓✓\033[0m")
+        
+        except Exception as e:
+            print(f"\033[91m[ERROR] LHT correction failed: {e}\033[0m")
+            import traceback
+            traceback.print_exc()
+            # Store uncorrected as fallback
+            self.org_dense_route_world_coord = list(global_plan_world_coord)
+    else:
+        # RHT mode - use as-is
+        self.org_dense_route_world_coord = list(global_plan_world_coord)
+        print(f"\033[94m[AUTOPILOT] ✓ Stored {len(self.org_dense_route_world_coord)} waypoints (RHT mode)\033[0m")
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   def sensors(self):
     """
         Returns a list of sensor specifications for the ego vehicle.
