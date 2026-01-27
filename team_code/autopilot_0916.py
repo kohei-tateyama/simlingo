@@ -402,15 +402,69 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     
     
     
+  # def set_global_plan(self, global_plan_gps, global_plan_world_coord):
+  #   """
+  #   Override to populate org_dense_route_world_coord from the leaderboard's route.
+    
+  #   The leaderboard calls this with:
+  #   - global_plan_gps: List of GPS coordinates
+  #   - global_plan_world_coord: List of (Transform, RoadOption) tuples
+  #   """
+  #   import os
+    
+  #   # Call parent to set _global_plan and _global_plan_world_coord
+  #   super().set_global_plan(global_plan_gps, global_plan_world_coord)
+    
+  #   # Get LHT status from environment (set by leaderboard_evaluator)
+  #   is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+  #   self._is_lht_map = is_lht
+    
+  #   print(f"\033[94m[AUTOPILOT] set_global_plan called:\033[0m")
+  #   print(f"  - LHT mode: {is_lht}")
+  #   print(f"  - GPS plan: {len(global_plan_gps) if global_plan_gps else 0} points")
+  #   print(f"  - World plan: {len(global_plan_world_coord) if global_plan_world_coord else 0} points")
+    
+  #   # Populate org_dense_route_world_coord from global_plan_world_coord
+  #   # The format is: [(Transform, RoadOption), (Transform, RoadOption), ...]
+  #   if global_plan_world_coord and len(global_plan_world_coord) > 0:
+  #       self.org_dense_route_world_coord = []
+        
+  #       for item in global_plan_world_coord:
+  #           # Each item is (Transform, RoadOption)
+  #           if isinstance(item, tuple) and len(item) >= 2:
+  #               transform, road_option = item
+  #               # Store the full tuple
+  #               self.org_dense_route_world_coord.append((transform, road_option))
+  #           else:
+  #               print(f"\033[93m[WARN] Unexpected format in global_plan_world_coord: {type(item)}\033[0m")
+        
+  #       print(f"\033[92m[AUTOPILOT] ✓ Populated org_dense_route_world_coord with {len(self.org_dense_route_world_coord)} waypoints\033[0m")
+        
+  #       # Debug: Check first waypoint lane
+  #       if len(self.org_dense_route_world_coord) > 0 and hasattr(self, 'world_map') and self.world_map:
+  #           first_transform, _ = self.org_dense_route_world_coord[0]
+  #           try:
+  #               first_wp = self.world_map.get_waypoint(first_transform.location)
+  #               if first_wp:
+  #                   print(f"\033[94m[AUTOPILOT] First route waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}\033[0m")
+  #                   if is_lht and first_wp.lane_id > 0:
+  #                       print(f"\033[91m[ERROR][LHT] Route uses WRONG lane (positive lane_id on LHT map)!\033[0m")
+  #                   elif is_lht and first_wp.lane_id < 0:
+  #                       print(f"\033[92m[OK][LHT] Route uses correct lane (negative lane_id)\033[0m")
+  #           except:
+  #               pass
+  #   else:
+  #       print(f"\033[91m[ERROR] global_plan_world_coord is empty!\033[0m")
+  #       self.org_dense_route_world_coord = []
+  
+  
   def set_global_plan(self, global_plan_gps, global_plan_world_coord):
     """
     Override to populate org_dense_route_world_coord from the leaderboard's route.
-    
-    The leaderboard calls this with:
-    - global_plan_gps: List of GPS coordinates
-    - global_plan_world_coord: List of (Transform, RoadOption) tuples
+    INCLUDES LHT LANE CORRECTION!
     """
     import os
+    import carla
     
     # Call parent to set _global_plan and _global_plan_world_coord
     super().set_global_plan(global_plan_gps, global_plan_world_coord)
@@ -425,34 +479,81 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     print(f"  - World plan: {len(global_plan_world_coord) if global_plan_world_coord else 0} points")
     
     # Populate org_dense_route_world_coord from global_plan_world_coord
-    # The format is: [(Transform, RoadOption), (Transform, RoadOption), ...]
     if global_plan_world_coord and len(global_plan_world_coord) > 0:
-        self.org_dense_route_world_coord = []
-        
-        for item in global_plan_world_coord:
-            # Each item is (Transform, RoadOption)
-            if isinstance(item, tuple) and len(item) >= 2:
-                transform, road_option = item
-                # Store the full tuple
-                self.org_dense_route_world_coord.append((transform, road_option))
+        # CRITICAL: Apply LHT correction HERE before storing
+        if is_lht:
+            print(f"\033[93m[AUTOPILOT] !!! APPLYING LHT CORRECTION TO AGENT ROUTE !!!\033[0m")
+            
+            # We need the map to correct lanes
+            # Get it from CarlaDataProvider if available, otherwise wait
+            try:
+                from scenario_runner21.srunner.scenariomanager.carla_data_provider import CarlaDataProvider
+                carla_map = CarlaDataProvider.get_map()
+            except:
+                # Fallback: map might not be available yet
+                carla_map = None
+                print(f"\033[93m[WARN] Map not available yet in set_global_plan, will correct in _init()\033[0m")
+            
+            self.org_dense_route_world_coord = []
+            corrections = 0
+            
+            for item in global_plan_world_coord:
+                if isinstance(item, tuple) and len(item) >= 2:
+                    transform, road_option = item
+                    
+                    # If map available, correct lane now
+                    if carla_map:
+                        wp = carla_map.get_waypoint(transform.location)
+                        
+                        # If on RHT side, find LHT side
+                        if wp and wp.lane_id > 0:
+                            lht_wp = wp
+                            
+                            # Try left
+                            attempts = 0
+                            while lht_wp.lane_id > 0 and attempts < 10:
+                                next_left = lht_wp.get_left_lane()
+                                if next_left and next_left.lane_type == carla.LaneType.Driving:
+                                    lht_wp = next_left
+                                    attempts += 1
+                                else:
+                                    break
+                            
+                            # Try right if still wrong
+                            if lht_wp.lane_id > 0:
+                                right_wp = wp.get_right_lane()
+                                if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
+                                    lht_wp = right_wp
+                            
+                            if lht_wp.lane_id < 0:
+                                # Use corrected transform
+                                self.org_dense_route_world_coord.append((lht_wp.transform, road_option))
+                                corrections += 1
+                            else:
+                                # Couldn't correct, use original
+                                self.org_dense_route_world_coord.append((transform, road_option))
+                        else:
+                            # Already on LHT side or no waypoint
+                            self.org_dense_route_world_coord.append((transform, road_option))
+                    else:
+                        # No map yet, store original (will correct in _init)
+                        self.org_dense_route_world_coord.append((transform, road_option))
+                else:
+                    print(f"\033[93m[WARN] Unexpected format in global_plan_world_coord: {type(item)}\033[0m")
+            
+            if carla_map:
+                print(f"\033[92m[AUTOPILOT] ✓ Corrected {corrections}/{len(self.org_dense_route_world_coord)} waypoints to LHT in set_global_plan\033[0m")
             else:
-                print(f"\033[93m[WARN] Unexpected format in global_plan_world_coord: {type(item)}\033[0m")
+                print(f"\033[93m[AUTOPILOT] Stored {len(self.org_dense_route_world_coord)} waypoints (will correct in _init)\033[0m")
+        
+        else:
+            # RHT mode, store as-is
+            self.org_dense_route_world_coord = []
+            for item in global_plan_world_coord:
+                if isinstance(item, tuple) and len(item) >= 2:
+                    self.org_dense_route_world_coord.append(item)
         
         print(f"\033[92m[AUTOPILOT] ✓ Populated org_dense_route_world_coord with {len(self.org_dense_route_world_coord)} waypoints\033[0m")
-        
-        # Debug: Check first waypoint lane
-        if len(self.org_dense_route_world_coord) > 0 and hasattr(self, 'world_map') and self.world_map:
-            first_transform, _ = self.org_dense_route_world_coord[0]
-            try:
-                first_wp = self.world_map.get_waypoint(first_transform.location)
-                if first_wp:
-                    print(f"\033[94m[AUTOPILOT] First route waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}\033[0m")
-                    if is_lht and first_wp.lane_id > 0:
-                        print(f"\033[91m[ERROR][LHT] Route uses WRONG lane (positive lane_id on LHT map)!\033[0m")
-                    elif is_lht and first_wp.lane_id < 0:
-                        print(f"\033[92m[OK][LHT] Route uses correct lane (negative lane_id)\033[0m")
-            except:
-                pass
     else:
         print(f"\033[91m[ERROR] global_plan_world_coord is empty!\033[0m")
         self.org_dense_route_world_coord = []

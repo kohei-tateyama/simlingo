@@ -133,21 +133,59 @@ def downsample_route(route, sample_factor):
     return ids_to_sample
 
 
+# def interpolate_trajectory(waypoints_trajectory, hop_resolution=1.0):
+#     """
+#     Given some raw keypoints interpolate a full dense trajectory to be used by the user.
+#     returns the full interpolated route both in GPS coordinates and also in its original form.
+    
+#     Args:
+#         - waypoints_trajectory: the current coarse trajectory
+#         - hop_resolution: distance between the trajectory's waypoints
+#     """
+#     import os
+#     is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+#     if is_lht:
+#         print(f"\033[94m[INTERPOLATE] Checking interpolated route for LHT compatibility...\033[0m")
+        
+#     grp = GlobalRoutePlanner(CarlaDataProvider.get_map(), hop_resolution)
+#     # Obtain route plan
+#     lat_ref, lon_ref = _get_latlon_ref(CarlaDataProvider.get_world())
+
+#     route = []
+#     gps_route = []
+
+#     for i in range(len(waypoints_trajectory) - 1):
+
+#         waypoint = waypoints_trajectory[i]
+#         waypoint_next = waypoints_trajectory[i + 1]
+#         interpolated_trace = grp.trace_route(waypoint, waypoint_next)
+#         for wp, connection in interpolated_trace:
+#             route.append((wp.transform, connection))
+#             gps_coord = _location_to_gps(lat_ref, lon_ref, wp.transform.location)
+#             gps_route.append((gps_coord, connection))
+
+#     return gps_route, route
+
+
 def interpolate_trajectory(waypoints_trajectory, hop_resolution=1.0):
     """
     Given some raw keypoints interpolate a full dense trajectory to be used by the user.
-    returns the full interpolated route both in GPS coordinates and also in its original form.
+    Returns the full interpolated route both in GPS coordinates and also in its original form.
+    
+    Automatically corrects waypoints to LHT (left-hand traffic) side if CARLA_MAP_IS_LHT=1.
     
     Args:
         - waypoints_trajectory: the current coarse trajectory
         - hop_resolution: distance between the trajectory's waypoints
     """
     import os
+    import carla
+    
     is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
-    if is_lht:
-        print(f"\033[94m[INTERPOLATE] Checking interpolated route for LHT compatibility...\033[0m")
-        
+    
     grp = GlobalRoutePlanner(CarlaDataProvider.get_map(), hop_resolution)
+    carla_map = CarlaDataProvider.get_map()
+    
     # Obtain route plan
     lat_ref, lon_ref = _get_latlon_ref(CarlaDataProvider.get_world())
 
@@ -155,13 +193,69 @@ def interpolate_trajectory(waypoints_trajectory, hop_resolution=1.0):
     gps_route = []
 
     for i in range(len(waypoints_trajectory) - 1):
-
         waypoint = waypoints_trajectory[i]
         waypoint_next = waypoints_trajectory[i + 1]
         interpolated_trace = grp.trace_route(waypoint, waypoint_next)
+        
         for wp, connection in interpolated_trace:
             route.append((wp.transform, connection))
             gps_coord = _location_to_gps(lat_ref, lon_ref, wp.transform.location)
             gps_route.append((gps_coord, connection))
+
+    # LHT FIX: After interpolation, ensure waypoints are on correct side
+    if is_lht and len(route) > 0:
+        print(f"\033[94m[INTERPOLATE] Correcting {len(route)} waypoints for LHT...\033[0m")
+        
+        corrected_route = []
+        corrected_gps_route = []
+        corrections = 0
+        
+        for idx, ((transform, road_option), (gps_coord, gps_option)) in enumerate(zip(route, gps_route)):
+            # Get waypoint from transform location
+            wp = carla_map.get_waypoint(transform.location)
+            
+            # If on RHT side (positive lane_id), switch to LHT side (negative lane_id)
+            if wp and wp.lane_id > 0:
+                # Try to find LHT lane (negative lane_id)
+                lht_wp = wp
+                
+                # First, try going left
+                while lht_wp.lane_id > 0:
+                    next_left = lht_wp.get_left_lane()
+                    if next_left and next_left.lane_type == carla.LaneType.Driving:
+                        lht_wp = next_left
+                    else:
+                        break
+                
+                # If still on RHT side, try going right (in case road is inverted)
+                if lht_wp.lane_id > 0:
+                    right_wp = wp.get_right_lane()
+                    if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
+                        lht_wp = right_wp
+                
+                # Use corrected waypoint if we found LHT lane
+                if lht_wp.lane_id < 0:
+                    corrected_transform = lht_wp.transform
+                    corrected_gps = _location_to_gps(lat_ref, lon_ref, corrected_transform.location)
+                    
+                    corrected_route.append((corrected_transform, road_option))
+                    corrected_gps_route.append((corrected_gps, gps_option))
+                    corrections += 1
+                else:
+                    # Couldn't find LHT lane, keep original
+                    corrected_route.append((transform, road_option))
+                    corrected_gps_route.append((gps_coord, gps_option))
+            else:
+                # Already on LHT side or no waypoint found, keep original
+                corrected_route.append((transform, road_option))
+                corrected_gps_route.append((gps_coord, gps_option))
+        
+        print(f"\033[92m[INTERPOLATE] ✓ Corrected {corrections}/{len(route)} waypoints to LHT side\033[0m")
+        
+        # Replace with corrected routes
+        route = corrected_route
+        gps_route = corrected_gps_route
+    elif is_lht:
+        print(f"\033[93m[INTERPOLATE] LHT mode active but route is empty\033[0m")
 
     return gps_route, route

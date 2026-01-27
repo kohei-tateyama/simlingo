@@ -83,8 +83,10 @@ export REPETITION="1" # minimum 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 
-## LHT
-export ROUTE_CONFIG="routes_training"      
+## RHT
+# export ROUTE_CONFIG="routes_training"
+## LHT      
+export ROUTE_CONFIG="routes_training_LHT"      
 export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
 export ROUTES_SUBSET="0"   
 

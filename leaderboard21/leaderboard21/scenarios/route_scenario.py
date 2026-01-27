@@ -132,29 +132,75 @@ class RouteScenario(BasicScenario):
     def _get_route(self, config):
         """
         Gets the route from the configuration, interpolating it to the desired density,
-        saving it to the CarlaDataProvider and sending it to the agent
+        saving it to the CarlaDataProvider and sending it to the agent.
+        
+        NOW WITH LHT LANE CORRECTION!
         """
         import os
+        import carla
         
         is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
-        print(f"\033[94m[ROUTE_SCENARIO] _get_route called, LHT={is_lht}\033[0m")
         
         # Prepare route's trajectory (interpolate and add the GPS route)
         self.gps_route, self.route = interpolate_trajectory(config.keypoints)
         
-        # DEBUG: Check first waypoint
-        if len(self.route) > 0:
-            first_wp = self.route[0][0]  # Transform
-            print(f"\033[94m[ROUTE_SCENARIO] First route waypoint location: {first_wp.location}\033[0m")
+        if is_lht and len(self.route) > 0:
+            print(f"\033[93m[ROUTE_SCENARIO] !!! FORCING LHT LANE CORRECTION FOR {len(self.route)} WAYPOINTS !!!\033[0m")
             
-            # Get the actual lane
+            corrected_route = []
+            corrections = 0
             carla_map = CarlaDataProvider.get_map()
-            actual_wp = carla_map.get_waypoint(first_wp.location)
-            if actual_wp:
-                print(f"\033[94m[ROUTE_SCENARIO] First waypoint lane_id: {actual_wp.lane_id}, road_id: {actual_wp.road_id}\033[0m")
-                if is_lht and actual_wp.lane_id > 0:
-                    print(f"\033[91m[ERROR][ROUTE_SCENARIO] Route uses WRONG SIDE (RHT lane on LHT map)!\033[0m")
-                    print(f"\033[91m  This means interpolate_trajectory() or the route XML is wrong!\033[0m")
+            
+            for transform, road_option in self.route:
+                wp = carla_map.get_waypoint(transform.location)
+                
+                # If on RHT side (positive lane_id), switch to LHT side (negative)
+                if wp and wp.lane_id > 0:
+                    lht_wp = wp
+                    
+                    # Try going left to find negative lane_id
+                    attempts = 0
+                    while lht_wp.lane_id > 0 and attempts < 10:
+                        next_left = lht_wp.get_left_lane()
+                        if next_left and next_left.lane_type == carla.LaneType.Driving:
+                            lht_wp = next_left
+                            attempts += 1
+                        else:
+                            break
+                    
+                    # If still positive, try right
+                    if lht_wp.lane_id > 0:
+                        right_wp = wp.get_right_lane()
+                        if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
+                            lht_wp = right_wp
+                    
+                    if lht_wp.lane_id < 0:
+                        corrected_route.append((lht_wp.transform, road_option))
+                        corrections += 1
+                    else:
+                        print(f"\033[91m[WARN] Could not find LHT lane for waypoint at lane {wp.lane_id}\033[0m")
+                        corrected_route.append((transform, road_option))
+                else:
+                    corrected_route.append((transform, road_option))
+            
+            self.route = corrected_route
+            print(f"\033[92m[ROUTE_SCENARIO] ✓✓✓ CORRECTED {corrections}/{len(self.route)} WAYPOINTS TO LHT SIDE ✓✓✓\033[0m")
+            
+            # Verify first waypoint
+            if len(self.route) > 0:
+                first_transform, _ = self.route[0]
+                first_wp = carla_map.get_waypoint(first_transform.location)
+                if first_wp:
+                    print(f"\033[94m[ROUTE_SCENARIO] First route waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}\033[0m")
+                    if first_wp.lane_id > 0:
+                        print(f"\033[91m[ROUTE_SCENARIO] ✗✗✗ ERROR: STILL ON RHT SIDE! ✗✗✗\033[0m")
+                    else:
+                        print(f"\033[92m[ROUTE_SCENARIO] ✓ Correctly on LHT side (lane_id < 0)\033[0m")
+        else:
+            if is_lht:
+                print(f"\033[93m[ROUTE_SCENARIO] LHT mode but route is empty!\033[0m")
+            else:
+                print(f"\033[94m[ROUTE_SCENARIO] RHT mode - no lane correction needed\033[0m")
         
         return self.route
     
@@ -183,54 +229,62 @@ class RouteScenario(BasicScenario):
     #     """Spawn the ego vehicle at the first waypoint of the route"""
     #     elevate_transform = self.route[0][0]
     #     elevate_transform.location.z += 0.5
-
     #     ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz_2020',
     #                                                       elevate_transform,
     #                                                       rolename='hero')
     #     if not ego_vehicle:
     #         return
-
     #     spectator = self.world.get_spectator()
     #     spectator.set_transform(carla.Transform(elevate_transform.location + carla.Location(z=50),
     #                                                 carla.Rotation(pitch=-90)))
-
     #     self.world.tick()
-
     #     return ego_vehicle
-    
-    
+
+        
     def _spawn_ego_vehicle(self):
         """Spawn the ego vehicle at the first waypoint of the route"""
+        import os
+        import carla
         
         is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
         
         elevate_transform = self.route[0][0]
-        elevate_transform.location.z += 0.5
         
-        # DEBUG: Check spawn lane
-        carla_map = CarlaDataProvider.get_map()
-        spawn_wp = carla_map.get_waypoint(elevate_transform.location)
-        
-        print(f"\033[94m[ROUTE_SCENARIO] Spawning ego vehicle:\033[0m")
-        print(f"  Location: {elevate_transform.location}")
-        print(f"  Lane ID: {spawn_wp.lane_id if spawn_wp else 'N/A'}")
-        print(f"  Road ID: {spawn_wp.road_id if spawn_wp else 'N/A'}")
-        print(f"  LHT mode: {is_lht}")
-        
-        if is_lht and spawn_wp and spawn_wp.lane_id > 0:
-            print(f"\033[91m[ERROR] Spawning on WRONG SIDE (positive lane_id {spawn_wp.lane_id})!\033[0m")
-            print(f"\033[93m[FIX] Attempting to correct to left lane...\033[0m")
+        # LHT FIX: Force spawn on correct side
+        if is_lht:
+            spawn_wp = self.map.get_waypoint(elevate_transform.location)
             
-            # Try to get the correct LHT lane
-            left_lane = spawn_wp.get_left_lane()
-            if left_lane and left_lane.lane_type == carla.LaneType.Driving and left_lane.lane_id < 0:
-                corrected_transform = left_lane.transform
-                corrected_transform.location.z += 0.5
-                elevate_transform = corrected_transform
-                print(f"\033[92m[FIX] ✓ Corrected to lane_id {left_lane.lane_id}\033[0m")
+            print(f"\033[94m[ROUTE_SCENARIO] Original spawn: lane_id={spawn_wp.lane_id}, road_id={spawn_wp.road_id}\033[0m")
+            
+            # If on wrong side (positive lane_id in LHT), switch to left
+            if spawn_wp.lane_id > 0:
+                print(f"\033[93m[ROUTE_SCENARIO] Wrong side detected, switching to LHT lane...\033[0m")
+                
+                # Get left lane (negative lane_id)
+                left_wp = spawn_wp
+                while left_wp.lane_id > 0:
+                    next_left = left_wp.get_left_lane()
+                    if next_left and next_left.lane_type == carla.LaneType.Driving:
+                        left_wp = next_left
+                    else:
+                        break
+                
+                # Also check right side in case lanes are inverted
+                if left_wp.lane_id > 0:
+                    right_wp = spawn_wp.get_right_lane()
+                    if right_wp and right_wp.lane_id < 0 and right_wp.lane_type == carla.LaneType.Driving:
+                        left_wp = right_wp
+                
+                if left_wp.lane_id < 0:
+                    elevate_transform = left_wp.transform
+                    print(f"\033[92m[ROUTE_SCENARIO] ✓ Corrected spawn: lane_id={left_wp.lane_id}, road_id={left_wp.road_id}\033[0m")
+                else:
+                    print(f"\033[91m[ROUTE_SCENARIO] ✗ Could not find LHT lane! Using original\033[0m")
             else:
-                print(f"\033[91m[FIX] ✗ Could not find valid left lane!\033[0m")
+                print(f"\033[92m[ROUTE_SCENARIO] ✓ Already on LHT lane {spawn_wp.lane_id}\033[0m")
         
+        elevate_transform.location.z += 0.5
+
         ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz_2020',
                                                         elevate_transform,
                                                         rolename='hero')

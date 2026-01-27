@@ -231,17 +231,7 @@ class LeaderboardEvaluator(object):
     #     if map_name != town:
     #         raise Exception("The CARLA server uses the wrong map!"
     #                         " This scenario requires the use of map {}".format(town))
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     
     def _load_and_wait_for_world(self, args, town):
         """
@@ -377,10 +367,6 @@ class LeaderboardEvaluator(object):
         if is_lht:
             print("\033[92m[WORLD] ✓ LHT mode ACTIVE - Agent-level navigation required\033[0m")
             
-        
-        
-        
-        
 
     def _register_statistics(self, route_index, entry_status, crash_message=""):
         """
