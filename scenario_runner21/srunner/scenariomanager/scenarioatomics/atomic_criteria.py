@@ -1786,7 +1786,15 @@ class RunningRedLightTest(Criterion):
         wps = []
         for wpx in ini_wps:
             while not wpx.is_intersection:
-                next_wp = wpx.next(0.5)[0]
+                next_wp = wpx.next(0.5)[0] ## changed 
+                
+                ## If I use this one, the task does nor procede at all.
+                # next_wps = wpx.next(0.5)
+                # if not next_wps:
+                #     # No next waypoint, skip this traffic light
+                #     continue
+                # next_wp = next_wps[0]
+                
                 if next_wp and not next_wp.is_intersection:
                     wpx = next_wp
                 else:

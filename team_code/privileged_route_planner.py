@@ -405,54 +405,194 @@ class PrivilegedRoutePlanner(object):
 
     return shift_start_index, shift_end_index
 
+  # def setup_route(self, global_plan, carla_world, carla_map, starts_with_parking_exit, vehicle_loc):
+  ## This is the one working for the RHT
+  #   """
+  #       Set up the route for the autonomous vehicle based on the given global plan.
+
+  #       Args:
+  #           global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
+  #           carla_world (carla.World): The CARLA world object.
+  #           carla_map (carla.Map): The CARLA map object.
+  #           starts_with_parking_exit (bool): A flag indicating if the route starts with a parking exit scenario.
+  #           vehicle_location (carla.Location): The initial location of the vehicle.
+  #       """
+  #   self.route_index = self.extra_route_length * self.points_per_meter
+  #   self.last_route_index = self.route_index
+
+  #   # Get all waypoint objects of the route and add extra waypoints at the end
+  #   # to ensure the vehicle completes the route properly and avoids unexpected side effects
+  #   route_waypoints = [transform.location for transform, _ in global_plan]
+  #   route_waypoints = [carla_map.get_waypoint(loc) for loc in route_waypoints]
+  #   cmds = [cmd for _, cmd in global_plan]
+
+  #   # Handle the case where the route starts with a parking exit scenario
+  #   # In this case the first wp is on the center of the road, not the parking lot,
+  #   # where the agent starts
+  #   if starts_with_parking_exit:  # workaraound for ParkingExit scenario
+  #     self.route_index = 0
+  #     self.last_route_index = 0
+
+  #     cmds.insert(0, RoadOption.CHANGELANELEFT)
+  #     route_waypoints.insert(0, carla_map.get_waypoint(vehicle_loc))
+  #   else:
+  #     # Add extra waypoints at the beginning of the route
+  #     for _ in range(self.extra_route_length):
+  #       prev_wps = route_waypoints[0].previous(1)
+  #       if len(prev_wps) == 0:
+  #         break
+  #       route_waypoints.insert(0, prev_wps[0])
+  #       cmds.insert(0, RoadOption.LANEFOLLOW)
+  #       self.route_index += 1
+  #       self.last_route_index += 1
+
+  #   # Add extra waypoints at the end of the route
+  #   for _ in range(self.extra_route_length):
+  #     next_wps = route_waypoints[-1].next(1)
+  #     if len(next_wps) == 0:
+  #       break
+
+  #     route_waypoints.append(next_wps[0])
+  #     cmds.append(RoadOption.LANEFOLLOW)
+
+  #   # Generate a numpy array containing the route locations
+  #   route_points = [wp.transform.location for wp in route_waypoints]
+  #   route_points = np.array([[loc.x, loc.y, loc.z] for loc in route_points])
+
+  #   # Smooth and interpolate the route
+  #   self.route_points, self.commands = self.smooth_and_supersample(route_points, cmds)
+  #   self.original_route_points = np.copy(self.route_points)
+  #   self.commands_orig = self.commands.copy()
+
+  #   # Get the waypoint objects for the route points
+  #   self.route_waypoints = []
+  #   for route_loc in self.route_points:
+  #     wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
+  #     self.route_waypoints.append(wp)
+
+  #   self.compute_route_info(carla_world, carla_map)
+  
   def setup_route(self, global_plan, carla_world, carla_map, starts_with_parking_exit, vehicle_loc):
     """
-        Set up the route for the autonomous vehicle based on the given global plan.
-
-        Args:
-            global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
-            carla_world (carla.World): The CARLA world object.
-            carla_map (carla.Map): The CARLA map object.
-            starts_with_parking_exit (bool): A flag indicating if the route starts with a parking exit scenario.
-            vehicle_location (carla.Location): The initial location of the vehicle.
-        """
+    This is the one working for the LHT
+    Set up the route for the autonomous vehicle based on the given global plan.
+    
+    Args:
+        global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
+        carla_world (carla.World): The CARLA world object.
+        carla_map (carla.Map): The CARLA map object.
+        starts_with_parking_exit (bool): A flag indicating if the route starts with a parking exit scenario.
+        vehicle_loc (carla.Location): The initial location of the vehicle.
+    """
+    import os
+    
+    is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+    print(f"\033[94m[ROUTE-PLANNER] setup_route called with LHT={is_lht}\033[0m")
+    print(f"[ROUTE-PLANNER] Global plan length: {len(global_plan)}\033[0m")
+    
     self.route_index = self.extra_route_length * self.points_per_meter
     self.last_route_index = self.route_index
 
     # Get all waypoint objects of the route and add extra waypoints at the end
     # to ensure the vehicle completes the route properly and avoids unexpected side effects
     route_waypoints = [transform.location for transform, _ in global_plan]
-    route_waypoints = [carla_map.get_waypoint(loc) for loc in route_waypoints]
-    cmds = [cmd for _, cmd in global_plan]
+    
+    # DEBUG: Check locations before conversion
+    print(f"\033[94m[ROUTE-PLANNER] Extracted {len(route_waypoints)} locations from global_plan\033[0m")
+    
+    # Convert locations to waypoints with error checking
+    converted_waypoints = []
+    failed_indices = []
+    
+    for idx, loc in enumerate(route_waypoints):
+        wp = carla_map.get_waypoint(loc, project_to_road=True, lane_type=carla.LaneType.Driving)
+        
+        if wp is None:
+            failed_indices.append(idx)
+            print(f"\033[93m[WARN] Failed to get waypoint at index {idx}: {loc}\033[0m")
+        else:
+            converted_waypoints.append(wp)
+    
+    if failed_indices:
+        print(f"\033[93m[ROUTE-PLANNER] Failed to convert {len(failed_indices)}/{len(route_waypoints)} waypoints\033[0m")
+    
+    route_waypoints = converted_waypoints
+    
+    # CRITICAL CHECK: Ensure we have waypoints
+    if not route_waypoints or len(route_waypoints) == 0:
+        print("\033[91m[ERROR] route_waypoints is EMPTY after conversion!\033[0m")
+        print(f"\033[91m  - Global plan had {len(global_plan)} points\033[0m")
+        print(f"\033[91m  - All {len(failed_indices)} conversions failed\033[0m")
+        print(f"\033[91m  - Map: {carla_map.name}\033[0m")
+        print(f"\033[91m  - LHT mode: {is_lht}\033[0m")
+        
+        # Emergency fallback: try without lane type filter
+        print("\033[93m[ROUTE-PLANNER] Attempting emergency recovery...\033[0m")
+        route_locations = [transform.location for transform, _ in global_plan]
+        route_waypoints = []
+        for loc in route_locations:
+            wp = carla_map.get_waypoint(loc, project_to_road=True)  # No lane_type filter
+            if wp:
+                route_waypoints.append(wp)
+        
+        if not route_waypoints:
+            raise ValueError(f"Could not convert ANY waypoints from global_plan! Map={carla_map.name}, LHT={is_lht}")
+        else:
+            print(f"\033[92m[ROUTE-PLANNER] ✓ Emergency recovery successful: {len(route_waypoints)} waypoints\033[0m")
+    
+    print(f"\033[92m[ROUTE-PLANNER] Successfully converted to {len(route_waypoints)} waypoints\033[0m")
+    
+    cmds = [cmd for _, cmd in global_plan[:len(route_waypoints)]]  # Match length
 
     # Handle the case where the route starts with a parking exit scenario
-    # In this case the first wp is on the center of the road, not the parking lot,
-    # where the agent starts
-    if starts_with_parking_exit:  # workaraound for ParkingExit scenario
-      self.route_index = 0
-      self.last_route_index = 0
-
-      cmds.insert(0, RoadOption.CHANGELANELEFT)
-      route_waypoints.insert(0, carla_map.get_waypoint(vehicle_loc))
+    if starts_with_parking_exit:
+        self.route_index = 0
+        self.last_route_index = 0
+        
+        cmds.insert(0, RoadOption.CHANGELANELEFT)
+        vehicle_wp = carla_map.get_waypoint(vehicle_loc, project_to_road=True)
+        
+        if vehicle_wp is None:
+            print(f"\033[93m[WARN] Could not get waypoint for vehicle_loc: {vehicle_loc}\033[0m")
+            vehicle_wp = route_waypoints[0]  # Fallback
+        
+        route_waypoints.insert(0, vehicle_wp)
     else:
-      # Add extra waypoints at the beginning of the route
-      for _ in range(self.extra_route_length):
-        prev_wps = route_waypoints[0].previous(1)
-        if len(prev_wps) == 0:
-          break
-        route_waypoints.insert(0, prev_wps[0])
-        cmds.insert(0, RoadOption.LANEFOLLOW)
-        self.route_index += 1
-        self.last_route_index += 1
+        # Add extra waypoints at the beginning of the route
+        for i in range(self.extra_route_length):
+            if len(route_waypoints) == 0:
+                print(f"\033[91m[ERROR] route_waypoints became empty at iteration {i}\033[0m")
+                break
+                
+            prev_wps = route_waypoints[0].previous(1)
+            if len(prev_wps) == 0:
+                print(f"\033[93m[INFO] No more previous waypoints at iteration {i}\033[0m")
+                break
+            
+            route_waypoints.insert(0, prev_wps[0])
+            cmds.insert(0, RoadOption.LANEFOLLOW)
+            self.route_index += 1
+            self.last_route_index += 1
 
     # Add extra waypoints at the end of the route
-    for _ in range(self.extra_route_length):
-      next_wps = route_waypoints[-1].next(1)
-      if len(next_wps) == 0:
-        break
+    for i in range(self.extra_route_length):
+        if len(route_waypoints) == 0:
+            print(f"\033[91m[ERROR] route_waypoints is empty when adding end waypoints\033[0m")
+            break
+            
+        next_wps = route_waypoints[-1].next(1)
+        if len(next_wps) == 0:
+            print(f"\033[93m[INFO] No more next waypoints at iteration {i}\033[0m")
+            break
 
-      route_waypoints.append(next_wps[0])
-      cmds.append(RoadOption.LANEFOLLOW)
+        route_waypoints.append(next_wps[0])
+        cmds.append(RoadOption.LANEFOLLOW)
+
+    # Final validation
+    if not route_waypoints:
+        raise ValueError("route_waypoints is empty after all processing!")
+    
+    print(f"\033[92m[ROUTE-PLANNER] Final route has {len(route_waypoints)} waypoints\033[0m")
 
     # Generate a numpy array containing the route locations
     route_points = [wp.transform.location for wp in route_waypoints]
@@ -466,8 +606,11 @@ class PrivilegedRoutePlanner(object):
     # Get the waypoint objects for the route points
     self.route_waypoints = []
     for route_loc in self.route_points:
-      wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
-      self.route_waypoints.append(wp)
+        wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
+        if wp:
+            self.route_waypoints.append(wp)
+    
+    print(f"\033[92m[ROUTE-PLANNER] After interpolation: {len(self.route_waypoints)} waypoints\033[0m")
 
     self.compute_route_info(carla_world, carla_map)
 

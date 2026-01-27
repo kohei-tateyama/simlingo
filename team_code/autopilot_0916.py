@@ -350,6 +350,10 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     else:
         self._waypoint_planner._is_lht_map = False
       
+    # Ensure we have a dense route to setup the privileged planner
+    if not getattr(self, 'org_dense_route_world_coord', None) or len(self.org_dense_route_world_coord) == 0:
+      raise RuntimeError("Cannot setup PrivilegedRoutePlanner: org_dense_route_world_coord is empty")
+
     self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
                                       starts_with_parking_exit, self._vehicle.get_location())
     
@@ -394,6 +398,64 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
           actor.destroy()
 
     self.initialized = True
+    
+    
+    
+    
+  def set_global_plan(self, global_plan_gps, global_plan_world_coord):
+    """
+    Override to populate org_dense_route_world_coord from the leaderboard's route.
+    
+    The leaderboard calls this with:
+    - global_plan_gps: List of GPS coordinates
+    - global_plan_world_coord: List of (Transform, RoadOption) tuples
+    """
+    import os
+    
+    # Call parent to set _global_plan and _global_plan_world_coord
+    super().set_global_plan(global_plan_gps, global_plan_world_coord)
+    
+    # Get LHT status from environment (set by leaderboard_evaluator)
+    is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
+    self._is_lht_map = is_lht
+    
+    print(f"\033[94m[AUTOPILOT] set_global_plan called:\033[0m")
+    print(f"  - LHT mode: {is_lht}")
+    print(f"  - GPS plan: {len(global_plan_gps) if global_plan_gps else 0} points")
+    print(f"  - World plan: {len(global_plan_world_coord) if global_plan_world_coord else 0} points")
+    
+    # Populate org_dense_route_world_coord from global_plan_world_coord
+    # The format is: [(Transform, RoadOption), (Transform, RoadOption), ...]
+    if global_plan_world_coord and len(global_plan_world_coord) > 0:
+        self.org_dense_route_world_coord = []
+        
+        for item in global_plan_world_coord:
+            # Each item is (Transform, RoadOption)
+            if isinstance(item, tuple) and len(item) >= 2:
+                transform, road_option = item
+                # Store the full tuple
+                self.org_dense_route_world_coord.append((transform, road_option))
+            else:
+                print(f"\033[93m[WARN] Unexpected format in global_plan_world_coord: {type(item)}\033[0m")
+        
+        print(f"\033[92m[AUTOPILOT] ✓ Populated org_dense_route_world_coord with {len(self.org_dense_route_world_coord)} waypoints\033[0m")
+        
+        # Debug: Check first waypoint lane
+        if len(self.org_dense_route_world_coord) > 0 and hasattr(self, 'world_map') and self.world_map:
+            first_transform, _ = self.org_dense_route_world_coord[0]
+            try:
+                first_wp = self.world_map.get_waypoint(first_transform.location)
+                if first_wp:
+                    print(f"\033[94m[AUTOPILOT] First route waypoint: lane_id={first_wp.lane_id}, road_id={first_wp.road_id}\033[0m")
+                    if is_lht and first_wp.lane_id > 0:
+                        print(f"\033[91m[ERROR][LHT] Route uses WRONG lane (positive lane_id on LHT map)!\033[0m")
+                    elif is_lht and first_wp.lane_id < 0:
+                        print(f"\033[92m[OK][LHT] Route uses correct lane (negative lane_id)\033[0m")
+            except:
+                pass
+    else:
+        print(f"\033[91m[ERROR] global_plan_world_coord is empty!\033[0m")
+        self.org_dense_route_world_coord = []
 
   def sensors(self):
     """
@@ -1236,16 +1298,19 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
         with gzip.open(self.save_path / "target_speeds.json.gz", "wt", encoding="utf-8") as f:
           ujson.dump(self.speed_histogram, f, indent=4)
 
-      del self.speed_histogram
-
       if self.tp_stats:
         if len(self.tp_sign_agrees_with_angle) > 0:
           print("Agreement between TP and steering: ",
                 sum(self.tp_sign_agrees_with_angle) / len(self.tp_sign_agrees_with_angle))
           with gzip.open(self.save_path / "tp_agreements.json.gz", "wt", encoding="utf-8") as f:
             ujson.dump(self.tp_sign_agrees_with_angle, f, indent=4)
+            
+    if hasattr(self, 'tp_sign_agrees_with_angle'):
+        del self.tp_sign_agrees_with_angle
+    
+    if hasattr(self, 'speed_histogram'):
+        del self.speed_histogram
 
-    del self.tp_sign_agrees_with_angle
     del self.visible_walker_ids
     del self.walker_past_pos
 

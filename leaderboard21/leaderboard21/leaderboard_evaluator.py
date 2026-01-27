@@ -204,10 +204,103 @@ class LeaderboardEvaluator(object):
             self.traffic_manager.set_synchronous_mode(False)
             self.traffic_manager.set_hybrid_physics_mode(False)
 
+    # def _load_and_wait_for_world(self, args, town):
+    #     """
+    #     Load a new CARLA world without changing the settings and provide data to CarlaDataProvider
+    #     """
+    #     self.world = self.client.load_world(town, reset_settings=False)
+
+    #     # Large Map settings are always reset, for some reason
+    #     settings = self.world.get_settings()
+    #     settings.tile_stream_distance = 650
+    #     settings.actor_active_distance = 650
+    #     self.world.apply_settings(settings)
+
+    #     self.world.reset_all_traffic_lights()
+    #     CarlaDataProvider.set_client(self.client)
+    #     CarlaDataProvider.set_traffic_manager_port(args.traffic_manager_port)
+    #     CarlaDataProvider.set_world(self.world)
+
+    #     # This must be here so that all route repetitions use the same 'unmodified' seed
+    #     self.traffic_manager.set_random_device_seed(args.traffic_manager_seed)
+
+    #     # Wait for the world to be ready
+    #     self.world.tick()
+
+    #     map_name = CarlaDataProvider.get_map().name.split("/")[-1]
+    #     if map_name != town:
+    #         raise Exception("The CARLA server uses the wrong map!"
+    #                         " This scenario requires the use of map {}".format(town))
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     def _load_and_wait_for_world(self, args, town):
         """
-        Load a new CARLA world without changing the settings and provide data to CarlaDataProvider
+        Load a new CARLA world without changing the settings and provide data to CarlaDataProvider.
+        Includes automatic LHT (Left-Hand Traffic) detection and Traffic Manager configuration.
         """
+        import os
+        import xml.etree.ElementTree as ET
+        
+        # ==================== PRE-LOAD: LHT DETECTION ====================
+        is_lht = False
+        xodr_candidates = [
+            f"/workspace/carla0916/CarlaUE4/Content/Carla/Maps/{town}/OpenDrive/{town}.xodr",
+            f"/workspace/carla0916/CarlaUE4/Content/Carla/Maps/OpenDrive/{town}.xodr",
+        ]
+        
+        print(f"\033[94m[LHT-DETECT] Analyzing {town} for traffic rules...\033[0m")
+        
+        for xodr_path in xodr_candidates:
+            if os.path.exists(xodr_path):
+                print(f"\033[94m[LHT-DETECT] Found XODR file: {xodr_path}\033[0m")
+                try:
+                    # Method 1: Parse XML header
+                    tree = ET.parse(xodr_path)
+                    root = tree.getroot()
+                    header = root.find('header')
+                    
+                    if header is not None:
+                        rule = header.get('rule', '').upper()
+                        
+                        if rule == 'LHT':
+                            is_lht = True
+                            print("\033[92m[LHT-DETECT] ✓✓✓ LEFT-HAND TRAFFIC MAP DETECTED ✓✓✓\033[0m")
+                            break
+                        elif rule == 'RHT':
+                            print("\033[92m[LHT-DETECT] ✓ Right-Hand Traffic map detected\033[0m")
+                            break
+                    
+                    # Method 2: Text search fallback
+                    with open(xodr_path, 'r', encoding='utf-8') as f:
+                        xodr_content = f.read(2000)
+                    
+                    if 'rule="LHT"' in xodr_content:
+                        is_lht = True
+                        print("\033[92m[LHT-DETECT] ✓✓✓ LHT DETECTED (fallback method) ✓✓✓\033[0m")
+                        break
+                    elif 'rule="RHT"' in xodr_content:
+                        print("\033[92m[LHT-DETECT] ✓ RHT detected (fallback method)\033[0m")
+                        break
+                        
+                except Exception as e:
+                    print(f"\033[93m[LHT-DETECT] Warning: Could not parse XODR file: {e}\033[0m")
+                break
+        
+        if not is_lht:
+            print("\033[94m[LHT-DETECT] Assuming RHT (default) - no LHT indicators found\033[0m")
+        
+        # ==================== LOAD WORLD ====================
+        print(f"\033[94m[WORLD] Loading map: {town}\033[0m")
         self.world = self.client.load_world(town, reset_settings=False)
 
         # Large Map settings are always reset, for some reason
@@ -216,6 +309,53 @@ class LeaderboardEvaluator(object):
         settings.actor_active_distance = 650
         self.world.apply_settings(settings)
 
+        # ==================== POST-LOAD: LHT CONFIGURATION ====================
+        if is_lht:
+            print("\033[92m" + "="*70)
+            print("[LHT-CONFIG] Configuring for Left-Hand Traffic")
+            print("="*70 + "\033[0m")
+            
+            # Store LHT status globally for agent access
+            os.environ['CARLA_MAP_IS_LHT'] = '1'
+            os.environ['CARLA_CURRENT_TOWN'] = town
+            
+            try:
+                # Verify via CARLA API (if available in 0.9.16)
+                carla_map = self.world.get_map()
+                
+                if hasattr(carla_map, 'get_driving_side'):
+                    try:
+                        import carla
+                        driving_side = carla_map.get_driving_side()
+                        if hasattr(carla, 'DrivingSide'):
+                            if driving_side == carla.DrivingSide.Left:
+                                print("\033[92m[LHT-CONFIG] ✓ API confirms: Left-Hand Traffic\033[0m")
+                            elif driving_side == carla.DrivingSide.Right:
+                                print("\033[93m[LHT-CONFIG] ⚠ API reports RHT but XODR says LHT - using XODR\033[0m")
+                        else:
+                            print(f"\033[94m[LHT-CONFIG] API driving side value: {driving_side}\033[0m")
+                    except Exception as api_err:
+                        print(f"\033[93m[LHT-CONFIG] Could not verify via API: {api_err}\033[0m")
+                
+                print(f"\033[92m[LHT-CONFIG] ✓ LHT mode configuration:")
+                print(f"  → Environment: CARLA_MAP_IS_LHT=1")
+                print(f"  → Current town: {town}")
+                print(f"  → TM Port: {args.traffic_manager_port}")
+                print(f"  → TM Seed: {args.traffic_manager_seed}")
+                print("\033[93m  → NOTE: CARLA 0.9.16 TM has limited LHT support")
+                print("  → Agents must handle LHT at waypoint/navigation level\033[0m")
+                print("="*70 + "\033[0m")
+                
+            except Exception as e:
+                print(f"\033[91m[LHT-CONFIG] ERROR during configuration: {e}\033[0m")
+                import traceback
+                print(f"\033[91m{traceback.format_exc()}\033[0m")
+        else:
+            print("\033[94m[TM-CONFIG] Using default RHT configuration\033[0m")
+            os.environ['CARLA_MAP_IS_LHT'] = '0'
+            os.environ['CARLA_CURRENT_TOWN'] = town
+
+        # ==================== STANDARD INITIALIZATION ====================
         self.world.reset_all_traffic_lights()
         CarlaDataProvider.set_client(self.client)
         CarlaDataProvider.set_traffic_manager_port(args.traffic_manager_port)
@@ -227,10 +367,20 @@ class LeaderboardEvaluator(object):
         # Wait for the world to be ready
         self.world.tick()
 
+        # ==================== VALIDATION ====================
         map_name = CarlaDataProvider.get_map().name.split("/")[-1]
         if map_name != town:
             raise Exception("The CARLA server uses the wrong map!"
                             " This scenario requires the use of map {}".format(town))
+        
+        print(f"\033[92m[WORLD] ✓ World ready: {map_name}\033[0m")
+        if is_lht:
+            print("\033[92m[WORLD] ✓ LHT mode ACTIVE - Agent-level navigation required\033[0m")
+            
+        
+        
+        
+        
 
     def _register_statistics(self, route_index, entry_status, crash_message=""):
         """

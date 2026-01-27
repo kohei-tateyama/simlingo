@@ -66,7 +66,6 @@ def get_entry_point():
 
 
 # --- LHT CRASH FIX START --- added carela 0.9.16
-
 sr_base = "/workspace/simlingo/scenario_runner21/srunner"
 
 if sr_base not in sys.path:

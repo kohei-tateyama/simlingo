@@ -74,7 +74,6 @@ PY
 # Data collection settings
 export DATAGEN=1
 export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916.py
-# export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916_back.py
 export TEAM_CONFIG="data_collection"
 # export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
