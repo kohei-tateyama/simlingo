@@ -201,14 +201,6 @@ start_carla() {
 
     docker rm -f carla-server 2>/dev/null || true
 
-#################################################################################
-
-#     # Create left-hand traffic configuration scripts for 0.9.16
-#     # I did have abandoned the following fodler:
-#     # TMP_CONFIG_DIR=${WORK_DIR}/tmp_carla_0916_config
-#     # I used - already run - the /workspace/simlingo/tmp_carla_0916_config/get_lht_carla_0916.py script.
-#     warn "Did you rn : cd /workspace/simlingo && python tmp_carla_0916_config/get_lht_carla_0916.py script ?"
-
 ##################################################################################
 
     docker run -d \
