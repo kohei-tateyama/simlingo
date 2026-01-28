@@ -5,20 +5,22 @@
 
 ---
 
-## 📅 Priorities (Must Do)
-- [ ] Task A: Review PR #42
-- [ ] Task B: Fix memory leak in worker process
-- [ ] Task C: Update environment variables
+## 📅 Priorities (Today)
+- [ ] Check the bin->csv processing logic
+- [ ] Answer Kutsuwa san
+- [ ] My time
+- [ ] Clean up repository
+- [ ] Read the alpamayo paper
+- [ ] Make a repository for paper summarization/implementation
 
 ---
 
 ## ⚡ Active Development (WIP)
-*Context for current tasks. Add branch names.*
-- [ ] **Feature:** User Authentication
-    - [x] Create JWT utility
-    - [ ] Middleware implementation
-    - [ ] *Note:* Need to decide on token expiration time.
-
+For the future
+- [ ] Infer Alpamayo
+- [ ] Run the training of simlingo on azureml
+- [ ] Summarize Alpamayo and push to github
+- [ ] Push the alpamayo inference code to github
 ---
 
 ## 🧰 Cheat Sheet / Useful Commands
@@ -31,3 +33,9 @@ docker system prune -a --volumes
 
 # Get logs from a specific pod
 kubectl logs -f -l app=backend --tail=20
+
+
+```
+
+---
+## History
