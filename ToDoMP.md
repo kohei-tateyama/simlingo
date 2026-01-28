@@ -621,6 +621,11 @@ ls -lh /workspace/carla0916/CarlaUE4/Content/Carla/Maps/Town15/OpenDrive/
 ```
 
 
+```bash
+cd /workspace
+sudo rsync -av --progress --exclude='database/' --exclude='japanese_street/' --exclude='data/' --exclude='outputs' --exclude='pretrained/'  simlingo/ simlingo-michele-backup/
+```
+
 
 
 
