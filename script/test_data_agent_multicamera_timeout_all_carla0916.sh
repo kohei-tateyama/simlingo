@@ -104,7 +104,6 @@ export TOWN="Town06"
 export FORCE_TOWN="Town06"  # FORCE this map to be loaded in agent setup
 export ROUTES_SUBSET="24367" # 24757, 25358
 
-
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
 #     # shellcheck source=/dev/null
