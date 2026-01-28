@@ -731,14 +731,6 @@ class PrivilegedRoutePlanner(object):
 
     self.compute_route_info(carla_world, carla_map)
     
-    
-    
-    
-    
-    
-    
-    
-    
 
   def compute_rotation_angles(self, route_points):
     """

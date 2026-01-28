@@ -11102,7 +11102,7 @@
          <weather cloudiness="100.0" fog_density="10.0" precipitation="100.0" precipitation_deposits="50.0" route_percentage="100" sun_altitude_angle="45.0" sun_azimuth_angle="-1.0" wetness="50.0" wind_intensity="100.0" />
       </weathers>
    </route>
-   <route id="26435" road_id="76" town="Town03">
+   <route id="26435" road_id="76" town="Town03"> 
       <waypoints>
          <position x="160.8" y="112.7" z="0.4" />
          <position x="159.7" y="114.2" z="0.4" />
@@ -11351,7 +11351,7 @@
          <weather cloudiness="100.0" fog_density="50.0" precipitation="60.0" precipitation_deposits="60.0" route_percentage="100" sun_altitude_angle="45.0" sun_azimuth_angle="-1.0" wetness="0.0" wind_intensity="60.0" />
       </weathers>
    </route>
-   <route id="26950" road_id="18" town="Town03">
+   <route id="26950" road_id="18" town="Town03"> 
       <waypoints>
          <position x="8.8" y="-93.8" z="0.0" />
          <position x="8.9" y="-95.8" z="0.0" />

@@ -82,18 +82,28 @@ export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
 export REPETITION="1" # minimum 1
 
 ## RHT and LHT
-# export TOWN="Town12"  # Will be overridden by route XM I need to figure it out if it is mandatory to get it write for importing the city, for the folder it is fine replaicing it.
+# export TOWN="Town12"  
 # export FORCE_TOWN="Town12"  # FORCE this map to be loaded in agent setup
 # export ROUTE_CONFIG="routes_training"  
 # export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
 # export ROUTES_SUBSET="0"   
 
-## TEST
-export TOWN="Town03" 
-export FORCE_TOWN="Town03"  # FORCE this map to be loaded in agent setup
+# ## TEST --> Town03, Town12, Town04 NO LHT
+# export TOWN="Town03" 
+# export FORCE_TOWN="Town03" 
 export ROUTE_CONFIG="bench2drive220"  
 export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
-export ROUTES_SUBSET="24206" 
+# export ROUTES_SUBSET="24816" 
+
+# ## TEST 2
+# export TOWN="Town04" 
+# export FORCE_TOWN="Town04"  # FORCE this map to be loaded in agent setup
+# export ROUTES_SUBSET="25951" # 25300, 24795, 24785, 28111
+
+export TOWN="Town06" 
+export FORCE_TOWN="Town06"  # FORCE this map to be loaded in agent setup
+export ROUTES_SUBSET="24367" # 24757, 25358
+
 
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then

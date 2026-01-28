@@ -26,8 +26,7 @@ RANDOM_LEFT_LANECHANGE_PERCENTAGE = 60.0
 RANDOM_RIGHT_LANECHANGE_PERCENTAGE = 40.0
 KEEP_SLOW_LANE_RULE_PERCENTAGE = 70.0
 # VEHICLE_LANE_OFFSET = -1.0
-# AUTO_LANE_CHANGE = False
-AUTO_LANE_CHANGE = True                          
+AUTO_LANE_CHANGE = False # True                       
 VEHICLE_LANE_OFFSET = 0.0                        
                             
 
@@ -668,7 +667,7 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
                         if hasattr(tm, 'keep_slow_lane_rule_percentage'):
                             tm.keep_slow_lane_rule_percentage(actor, KEEP_SLOW_LANE_RULE_PERCENTAGE)
                         
-                        print(f"[LHT] ✓ Applied LHT to {rolename} vehicle (offset: -1.0)")
+                        print(f"[LHT] ✓ Applied LHT to {rolename} vehicle (offset: {VEHICLE_LANE_OFFSET})")
                         
                     except Exception as e:
                         print(f"[WARN][LHT] Failed to apply LHT to {rolename}: {e}")

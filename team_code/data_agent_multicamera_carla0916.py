@@ -67,7 +67,7 @@ def get_entry_point():
 
 # --- LHT CRASH FIX START --- added carela 0.9.16
 sr_base = "/workspace/simlingo/scenario_runner21/srunner"
-GLOBAL_LANE_OFFSET = -0.3 # -0.5 
+GLOBAL_LANE_OFFSET = -0.5  
 RANDOM_LEFT_LANECHANGE_PERCENTAGE = 60.0
 RANDOM_RIGHT_LANECHANGE_PERCENTAGE = 40.0
 
