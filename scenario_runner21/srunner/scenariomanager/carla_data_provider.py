@@ -22,6 +22,15 @@ import carla
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 
 
+RANDOM_LEFT_LANECHANGE_PERCENTAGE = 60.0
+RANDOM_RIGHT_LANECHANGE_PERCENTAGE = 40.0
+KEEP_SLOW_LANE_RULE_PERCENTAGE = 70.0
+# VEHICLE_LANE_OFFSET = -1.0
+# AUTO_LANE_CHANGE = False
+AUTO_LANE_CHANGE = True                          
+VEHICLE_LANE_OFFSET = 0.0                        
+                            
+
 def calculate_velocity(actor):
     """
     Method to calculate the velocity of a actor
@@ -642,22 +651,22 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
                         
                         # Disable auto lane change
                         if hasattr(tm, 'auto_lane_change'):
-                            tm.auto_lane_change(actor, False)
+                            tm.auto_lane_change(actor, AUTO_LANE_CHANGE)
                         
                         # Strong left offset
                         if hasattr(tm, 'vehicle_lane_offset'):
-                            tm.vehicle_lane_offset(actor, -1.0)
+                            tm.vehicle_lane_offset(actor, VEHICLE_LANE_OFFSET)
                         
                         # Favor left lane changes
                         if hasattr(tm, 'random_left_lanechange_percentage'):
-                            tm.random_left_lanechange_percentage(actor, 95.0)
+                            tm.random_left_lanechange_percentage(actor, RANDOM_LEFT_LANECHANGE_PERCENTAGE)
                         
                         if hasattr(tm, 'random_right_lanechange_percentage'):
-                            tm.random_right_lanechange_percentage(actor, 5.0)
+                            tm.random_right_lanechange_percentage(actor, RANDOM_RIGHT_LANECHANGE_PERCENTAGE)
                         
                         # Keep to slow lane (left in LHT)
                         if hasattr(tm, 'keep_slow_lane_rule_percentage'):
-                            tm.keep_slow_lane_rule_percentage(actor, 98.0)
+                            tm.keep_slow_lane_rule_percentage(actor, KEEP_SLOW_LANE_RULE_PERCENTAGE)
                         
                         print(f"[LHT] ✓ Applied LHT to {rolename} vehicle (offset: -1.0)")
                         
@@ -773,24 +782,24 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
                         
                         # Disable auto lane change
                         if hasattr(tm, 'auto_lane_change'):
-                            tm.auto_lane_change(actor, False)
+                            tm.auto_lane_change(actor, AUTO_LANE_CHANGE)
                         
                         # Strong left offset
                         if hasattr(tm, 'vehicle_lane_offset'):
-                            tm.vehicle_lane_offset(actor, -1.0)
+                            tm.vehicle_lane_offset(actor, VEHICLE_LANE_OFFSET)
                         
                         # Favor left lane changes
                         if hasattr(tm, 'random_left_lanechange_percentage'):
-                            tm.random_left_lanechange_percentage(actor, 95.0)
+                            tm.random_left_lanechange_percentage(actor, RANDOM_LEFT_LANECHANGE_PERCENTAGE)
                         
                         if hasattr(tm, 'random_right_lanechange_percentage'):
-                            tm.random_right_lanechange_percentage(actor, 5.0)
+                            tm.random_right_lanechange_percentage(actor, RANDOM_RIGHT_LANECHANGE_PERCENTAGE)
                         
                         # Keep to slow lane (left in LHT)
                         if hasattr(tm, 'keep_slow_lane_rule_percentage'):
-                            tm.keep_slow_lane_rule_percentage(actor, 98.0)
+                            tm.keep_slow_lane_rule_percentage(actor, KEEP_SLOW_LANE_RULE_PERCENTAGE)
                         
-                        print(f"[LHT] ✓ Applied LHT to batch vehicle {actor.type_id} (offset: -1.0)")
+                        print(f"[LHT] ✓ Applied LHT to batch vehicle {actor.type_id} (offset: {VEHICLE_LANE_OFFSET})")
                         
                     except Exception as e:
                         print(f"[WARN][LHT] Failed to apply LHT to batch vehicle: {e}")
@@ -935,27 +944,27 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
                             
                             # Disable auto lane change
                             if hasattr(tm, 'auto_lane_change'):
-                                tm.auto_lane_change(actor, False)
-                                print(f"[LHT]   ✓ auto_lane_change(False)")
+                                tm.auto_lane_change(actor, AUTO_LANE_CHANGE)
+                                print(f"[LHT]   ✓ auto_lane_change({AUTO_LANE_CHANGE})")
                             
                             # Strong left offset
                             if hasattr(tm, 'vehicle_lane_offset'):
-                                tm.vehicle_lane_offset(actor, -1.0)
-                                print(f"[LHT]   ✓ vehicle_lane_offset(-1.0)")
+                                tm.vehicle_lane_offset(actor, VEHICLE_LANE_OFFSET)
+                                print(f"[LHT]   ✓ vehicle_lane_offset({VEHICLE_LANE_OFFSET})")
                             
                             # Favor left lane changes
                             if hasattr(tm, 'random_left_lanechange_percentage'):
-                                tm.random_left_lanechange_percentage(actor, 95.0)
-                                print(f"[LHT]   ✓ random_left_lanechange_percentage(95.0)")
+                                tm.random_left_lanechange_percentage(actor, RANDOM_LEFT_LANECHANGE_PERCENTAGE)
+                                print(f"[LHT]   ✓ random_left_lanechange_percentage({RANDOM_LEFT_LANECHANGE_PERCENTAGE})")
                             
                             if hasattr(tm, 'random_right_lanechange_percentage'):
-                                tm.random_right_lanechange_percentage(actor, 5.0)
-                                print(f"[LHT]   ✓ random_right_lanechange_percentage(5.0)")
+                                tm.random_right_lanechange_percentage(actor, RANDOM_RIGHT_LANECHANGE_PERCENTAGE)
+                                print(f"[LHT]   ✓ random_right_lanechange_percentage({RANDOM_RIGHT_LANECHANGE_PERCENTAGE})")
                             
                             # Keep to slow lane (left in LHT)
                             if hasattr(tm, 'keep_slow_lane_rule_percentage'):
-                                tm.keep_slow_lane_rule_percentage(actor, 98.0)
-                                print(f"[LHT]   ✓ keep_slow_lane_rule_percentage(98.0)")
+                                tm.keep_slow_lane_rule_percentage(actor, KEEP_SLOW_LANE_RULE_PERCENTAGE)
+                                print(f"[LHT]   ✓ keep_slow_lane_rule_percentage({KEEP_SLOW_LANE_RULE_PERCENTAGE})")
                             
                             print(f"[LHT] ✓✓✓ Applied LHT to batch vehicle {actor.type_id} (offset: -1.0)")
                             

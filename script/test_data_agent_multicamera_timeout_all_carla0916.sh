@@ -77,18 +77,23 @@ export TEAM_AGENT=/workspace/simlingo/team_code/data_agent_multicamera_carla0916
 export TEAM_CONFIG="data_collection"
 # export SAVE_PATH=/media/external_ssd/workspace/simlingo/database/simlingo_v4_bosch_2025_01_10/data/simlingo_carla0916_2_
 export SAVE_PATH=/workspace/simlingo/database/simlingo_carla0916_2_
-export TOWN="Town12"  # Will be overridden by route XM I need to figure it out if it is mandatory to get it write for importing the city, for the folder it is fine replaicing it.
-export FORCE_TOWN="Town12"  # FORCE this map to be loaded in agent setup
-export REPETITION="1" # minimum 1
 export SCENARIO_NAME="training_3_scenarios"
 export WEATHER_CONFIG="random_weather_seed_42_balanced_100"
+export REPETITION="1" # minimum 1
 
-## RHT
-# export ROUTE_CONFIG="routes_training"
-## LHT      
-export ROUTE_CONFIG="routes_training_LHT"      
-export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
-export ROUTES_SUBSET="0"   
+## RHT and LHT
+# export TOWN="Town12"  # Will be overridden by route XM I need to figure it out if it is mandatory to get it write for importing the city, for the folder it is fine replaicing it.
+# export FORCE_TOWN="Town12"  # FORCE this map to be loaded in agent setup
+# export ROUTE_CONFIG="routes_training"  
+# export ROUTES="/workspace/simlingo/${LEADERBOARD_VERSION}/data/${ROUTE_CONFIG}.xml"
+# export ROUTES_SUBSET="0"   
+
+## TEST
+export TOWN="Town03" 
+export FORCE_TOWN="Town03"  # FORCE this map to be loaded in agent setup
+export ROUTE_CONFIG="bench2drive220"  
+export ROUTES="/workspace/simlingo/leaderboard/data/${ROUTE_CONFIG}.xml"
+export ROUTES_SUBSET="24206" 
 
 ## Running all the routes in the ROUTES massive data collection =========================
 if [ -f "${WORK_DIR}/script/common.sh" ]; then
@@ -102,7 +107,7 @@ export SAVE_FLAT=0
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate simlingo16
 
-LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-200}"
+LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-300}"
 # LEADERBOARD_TIMEOUT="${LEADERBOARD_TIMEOUT:-0}" # no timeout - allow full route collection
 
 export PORT_CARLA=${PORT_CARLA:-2000}
@@ -207,24 +212,11 @@ start_carla() {
         --env=NVIDIA_DRIVER_CAPABILITIES=all \
         --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
         -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
+        -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content \
         carla-bench2drive:0.9.16 \
         bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log"
 
-    # docker run -d \
-    #     --rm \ ---> this would been nice to have 
-    #     --name carla-server-$(date +%s) \ ---> this would been nice to have 
-    #     --runtime=nvidia \
-    #     --gpus all \
-    #     --net=host \
-    #     --shm-size=1g \ --> hold run 8 is better 
-    #     --env=NVIDIA_VISIBLE_DEVICES=all \
-    #     --env=NVIDIA_DRIVER_CAPABILITIES=compute,graphics,utility,display,video \
-    #     --env=ENABLE_LEFT_HAND_TRAFFIC=1 \
-    #     -v ${WORK_DIR}/carla_logs:/workspace/CarlaUE4/Saved/Logs \
-    #     -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
-    #     carla-bench2drive:0.9.16 \
-    #     bash -c "cd /workspace && ./CarlaUE4.sh -opengl -RenderOffScreen -nosound -world-port=${PORT_CARLA} -carla-rpc-port=${PORT_CARLA} -log -force-opengl"
+        # -v /workspace/carla0916/CarlaUE4/Content:/workspace/CarlaUE4/Content:ro \
 
     info "Waiting 60s for CARLA to start..."
     sleep 60

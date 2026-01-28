@@ -67,7 +67,10 @@ def get_entry_point():
 
 # --- LHT CRASH FIX START --- added carela 0.9.16
 sr_base = "/workspace/simlingo/scenario_runner21/srunner"
-OFFSET_LHT_TM = -0.5
+GLOBAL_LANE_OFFSET = -0.3 # -0.5 
+RANDOM_LEFT_LANECHANGE_PERCENTAGE = 60.0
+RANDOM_RIGHT_LANECHANGE_PERCENTAGE = 40.0
+
 if sr_base not in sys.path:
     sys.path.insert(0, sr_base)
 
@@ -143,7 +146,9 @@ class DataAgentMulticamera(AutoPilot):
     def setup(self, path_to_conf_file, route_index=None, traffic_manager=None):
         """
         Precise setup for CARLA 0.9.16 with Left-Hand Traffic (LHT) support.
-        [DEBUG] Available TM Methods: ['auto_lane_change', 'force_lane_change', 'global_lane_offset', 'keep_slow_lane_rule_percentage', 'random_left_lanechange_percentage', 'random_right_lanechange_percentage', 'vehicle_lane_offset']
+        [DEBUG] Available TM Methods: ['auto_lane_change', 'force_lane_change', 'global_lane_offset', 
+                                        'keep_slow_lane_rule_percentage', 'random_left_lanechange_percentage', 
+                                        'random_right_lanechange_percentage', 'vehicle_lane_offset']
         """
         import os
         import time
@@ -349,16 +354,16 @@ class DataAgentMulticamera(AutoPilot):
                 print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
                 if hasattr(tm, 'set_global_lane_offset'):
                     try:
-                        tm.set_global_lane_offset(OFFSET_LHT_TM)
-                        print(f"\033[92m[INFO][LHT] Applied set_global_lane_offset({OFFSET_LHT_TM})\033[0m")
+                        tm.set_global_lane_offset(GLOBAL_LANE_OFFSET)
+                        print(f"\033[92m[INFO][LHT] Applied set_global_lane_offset({GLOBAL_LANE_OFFSET})\033[0m")
                     except Exception as e:
                         print(f"\033[93m[WARN][LHT] set_global_lane_offset failed: {e}\033[0m")
                 
                 # Use global_lane_offset method (alternative in 0.9.16)
                 if hasattr(tm, 'global_lane_offset'):
                     try:
-                        tm.global_lane_offset(OFFSET_LHT_TM)
-                        print(f"\033[92m[INFO][LHT] Applied global_lane_offset({OFFSET_LHT_TM})\033[0m")
+                        tm.global_lane_offset(GLOBAL_LANE_OFFSET)
+                        print(f"\033[92m[INFO][LHT] Applied global_lane_offset({GLOBAL_LANE_OFFSET})\033[0m")
                     except Exception as e:
                         print(f"\033[93m[WARN][LHT] global_lane_offset failed: {e}\033[0m")
                         tm.global_lane_offset(0.0)
@@ -374,7 +379,7 @@ class DataAgentMulticamera(AutoPilot):
                 print("\033[92m[INFO][LHT] ✓✓✓ All available LHT configurations applied\033[0m")
             else:
                 print(f"\033[93m[INFO][LHT] Map {current_map_name} is RHT - using default TM settings\033[0m")
-                # Reset to RHT defaults if needed
+                # Reset to RHT defaults
                 if hasattr(tm, 'global_lane_offset'):
                     tm.global_lane_offset(0.0)
                 if hasattr(tm, 'keep_right_rule_percentage'):
@@ -409,8 +414,8 @@ class DataAgentMulticamera(AutoPilot):
             print("\033[92m[INFO][LHT] Configuring Traffic Manager for LEFT-HAND TRAFFIC...\033[0m")
             
             if hasattr(tm, 'global_lane_offset'):
-                tm.global_lane_offset(OFFSET_LHT_TM)
-                print(f"\033[92m[INFO][LHT] ✓ Applied global_lane_offset({OFFSET_LHT_TM})\033[0m")
+                tm.global_lane_offset(GLOBAL_LANE_OFFSET)
+                print(f"\033[92m[INFO][LHT] ✓ Applied global_lane_offset({GLOBAL_LANE_OFFSET})\033[0m")
             
             # Set flag on scenario_runner21 version
             try:

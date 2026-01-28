@@ -405,77 +405,82 @@ class PrivilegedRoutePlanner(object):
 
     return shift_start_index, shift_end_index
 
-  # def setup_route(self, global_plan, carla_world, carla_map, starts_with_parking_exit, vehicle_loc):
-  ## This is the one working for the RHT
-  #   """
-  #       Set up the route for the autonomous vehicle based on the given global plan.
-
-  #       Args:
-  #           global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
-  #           carla_world (carla.World): The CARLA world object.
-  #           carla_map (carla.Map): The CARLA map object.
-  #           starts_with_parking_exit (bool): A flag indicating if the route starts with a parking exit scenario.
-  #           vehicle_location (carla.Location): The initial location of the vehicle.
-  #       """
-  #   self.route_index = self.extra_route_length * self.points_per_meter
-  #   self.last_route_index = self.route_index
-
-  #   # Get all waypoint objects of the route and add extra waypoints at the end
-  #   # to ensure the vehicle completes the route properly and avoids unexpected side effects
-  #   route_waypoints = [transform.location for transform, _ in global_plan]
-  #   route_waypoints = [carla_map.get_waypoint(loc) for loc in route_waypoints]
-  #   cmds = [cmd for _, cmd in global_plan]
-
-  #   # Handle the case where the route starts with a parking exit scenario
-  #   # In this case the first wp is on the center of the road, not the parking lot,
-  #   # where the agent starts
-  #   if starts_with_parking_exit:  # workaraound for ParkingExit scenario
-  #     self.route_index = 0
-  #     self.last_route_index = 0
-
-  #     cmds.insert(0, RoadOption.CHANGELANELEFT)
-  #     route_waypoints.insert(0, carla_map.get_waypoint(vehicle_loc))
-  #   else:
-  #     # Add extra waypoints at the beginning of the route
-  #     for _ in range(self.extra_route_length):
-  #       prev_wps = route_waypoints[0].previous(1)
-  #       if len(prev_wps) == 0:
-  #         break
-  #       route_waypoints.insert(0, prev_wps[0])
-  #       cmds.insert(0, RoadOption.LANEFOLLOW)
-  #       self.route_index += 1
-  #       self.last_route_index += 1
-
-  #   # Add extra waypoints at the end of the route
-  #   for _ in range(self.extra_route_length):
-  #     next_wps = route_waypoints[-1].next(1)
-  #     if len(next_wps) == 0:
-  #       break
-
-  #     route_waypoints.append(next_wps[0])
-  #     cmds.append(RoadOption.LANEFOLLOW)
-
-  #   # Generate a numpy array containing the route locations
-  #   route_points = [wp.transform.location for wp in route_waypoints]
-  #   route_points = np.array([[loc.x, loc.y, loc.z] for loc in route_points])
-
-  #   # Smooth and interpolate the route
-  #   self.route_points, self.commands = self.smooth_and_supersample(route_points, cmds)
-  #   self.original_route_points = np.copy(self.route_points)
-  #   self.commands_orig = self.commands.copy()
-
-  #   # Get the waypoint objects for the route points
-  #   self.route_waypoints = []
-  #   for route_loc in self.route_points:
-  #     wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
-  #     self.route_waypoints.append(wp)
-
-  #   self.compute_route_info(carla_world, carla_map)
-  
   def setup_route(self, global_plan, carla_world, carla_map, starts_with_parking_exit, vehicle_loc):
+  # This is the one working for the RHT
     """
-    This is the one working for the LHT
+        Set up the route for the autonomous vehicle based on the given global plan.
+
+        Args:
+            global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
+            carla_world (carla.World): The CARLA world object.
+            carla_map (carla.Map): The CARLA map object.
+            starts_with_parking_exit (bool): A flag indicating if the route starts with a parking exit scenario.
+            vehicle_location (carla.Location): The initial location of the vehicle.
+        """
+    self.route_index = self.extra_route_length * self.points_per_meter
+    self.last_route_index = self.route_index
+
+    # Get all waypoint objects of the route and add extra waypoints at the end
+    # to ensure the vehicle completes the route properly and avoids unexpected side effects
+    route_waypoints = [transform.location for transform, _ in global_plan]
+    route_waypoints = [carla_map.get_waypoint(loc) for loc in route_waypoints]
+    cmds = [cmd for _, cmd in global_plan]
+
+    # Handle the case where the route starts with a parking exit scenario
+    # In this case the first wp is on the center of the road, not the parking lot,
+    # where the agent starts
+    if starts_with_parking_exit:  # workaraound for ParkingExit scenario
+      self.route_index = 0
+      self.last_route_index = 0
+
+      cmds.insert(0, RoadOption.CHANGELANELEFT)
+      route_waypoints.insert(0, carla_map.get_waypoint(vehicle_loc))
+    else:
+      # Add extra waypoints at the beginning of the route
+      for _ in range(self.extra_route_length):
+        prev_wps = route_waypoints[0].previous(1)
+        if len(prev_wps) == 0:
+          break
+        route_waypoints.insert(0, prev_wps[0])
+        cmds.insert(0, RoadOption.LANEFOLLOW)
+        self.route_index += 1
+        self.last_route_index += 1
+
+    # Add extra waypoints at the end of the route
+    for _ in range(self.extra_route_length):
+      next_wps = route_waypoints[-1].next(1)
+      if len(next_wps) == 0:
+        break
+
+      route_waypoints.append(next_wps[0])
+      cmds.append(RoadOption.LANEFOLLOW)
+
+    # Generate a numpy array containing the route locations
+    route_points = [wp.transform.location for wp in route_waypoints]
+    route_points = np.array([[loc.x, loc.y, loc.z] for loc in route_points])
+
+    # Smooth and interpolate the route
+    self.route_points, self.commands = self.smooth_and_supersample(route_points, cmds)
+    self.original_route_points = np.copy(self.route_points)
+    self.commands_orig = self.commands.copy()
+
+    # Get the waypoint objects for the route points
+    self.route_waypoints = []
+    for route_loc in self.route_points:
+      wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
+      self.route_waypoints.append(wp)
+
+    self.compute_route_info(carla_world, carla_map)
+  
+  
+  
+  
+  
+  def setup_route_lht(self, global_plan, carla_world, carla_map, starts_with_parking_exit, vehicle_loc):
+    """
     Set up the route for the autonomous vehicle based on the given global plan.
+    FIXED: Now properly handles LHT maps by preserving lane sides during interpolation.
+    Uses ORIGINAL global_plan to determine correct lane side (not modified route_waypoints).
     
     Args:
         global_plan (list): A list of (carla.Transform, carla.RoadOption) tuples representing the global plan.
@@ -487,7 +492,7 @@ class PrivilegedRoutePlanner(object):
     import os
     
     is_lht = os.environ.get('CARLA_MAP_IS_LHT', '0') == '1'
-    print(f"\033[94m[ROUTE-PLANNER] setup_route called with LHT={is_lht}\033[0m")
+    print(f"\033[94m[ROUTE-PLANNER] setup_route_lht called with LHT={is_lht}\033[0m")
     print(f"[ROUTE-PLANNER] Global plan length: {len(global_plan)}\033[0m")
     
     self.route_index = self.extra_route_length * self.points_per_meter
@@ -541,6 +546,20 @@ class PrivilegedRoutePlanner(object):
             print(f"\033[92m[ROUTE-PLANNER] ✓ Emergency recovery successful: {len(route_waypoints)} waypoints\033[0m")
     
     print(f"\033[92m[ROUTE-PLANNER] Successfully converted to {len(route_waypoints)} waypoints\033[0m")
+    
+    # ========================================================================
+    # CRITICAL: Save reference to ORIGINAL first waypoint BEFORE modification
+    # ========================================================================
+    original_first_wp = None
+    if global_plan and len(global_plan) > 0:
+        first_transform = global_plan[0][0]
+        original_first_wp = carla_map.get_waypoint(
+            first_transform.location,
+            project_to_road=True,
+            lane_type=carla.LaneType.Driving
+        )
+        if original_first_wp:
+            print(f"\033[92m[ROUTE-PLANNER] ✓ Saved ORIGINAL reference waypoint: lane_id={original_first_wp.lane_id}, road_id={original_first_wp.road_id}\033[0m")
     
     cmds = [cmd for _, cmd in global_plan[:len(route_waypoints)]]  # Match length
 
@@ -603,16 +622,122 @@ class PrivilegedRoutePlanner(object):
     self.original_route_points = np.copy(self.route_points)
     self.commands_orig = self.commands.copy()
 
-    # Get the waypoint objects for the route points
+    # ========================================================================
+    # FIX: Get waypoint objects while preserving LHT lane sides
+    # Use ORIGINAL waypoint (not modified route_waypoints[0])
+    # ========================================================================
+    print(f"\033[94m[ROUTE-PLANNER] Converting {len(self.route_points)} interpolated points to waypoints...\033[0m")
+    
     self.route_waypoints = []
-    for route_loc in self.route_points:
-        wp = carla_map.get_waypoint(carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]))
-        if wp:
-            self.route_waypoints.append(wp)
+    wrong_side_count = 0
+    corrected_count = 0
+    
+    # Determine expected lane side from ORIGINAL first waypoint
+    if original_first_wp:
+        first_lane_id = original_first_wp.lane_id
+        expected_negative = first_lane_id < 0  # True for LHT (left side)
+        print(f"\033[94m[ROUTE-PLANNER] Reference lane_id from ORIGINAL route: {first_lane_id} (expect negative={expected_negative})\033[0m")
+    else:
+        expected_negative = is_lht
+        print(f"\033[93m[ROUTE-PLANNER] Using LHT flag as reference: {is_lht}\033[0m")
+    
+    for idx, route_loc in enumerate(self.route_points):
+        # Get waypoint at this location
+        wp = carla_map.get_waypoint(
+            carla.Location(x=route_loc[0], y=route_loc[1], z=route_loc[2]),
+            project_to_road=True,
+            lane_type=carla.LaneType.Driving
+        )
+        
+        if not wp:
+            if idx > 0:
+                # Use previous waypoint if current fails
+                wp = self.route_waypoints[-1]
+            else:
+                continue
+        
+        # CRITICAL FIX: Check if we're on the wrong side of the road
+        if expected_negative and wp.lane_id > 0:
+            # We're on LHT map but got positive lane (right side) - try to fix
+            wrong_side_count += 1
+            
+            # Try to get the opposite/left lane
+            left_wp = wp.get_left_lane()
+            if left_wp and left_wp.lane_id < 0 and left_wp.lane_type == carla.LaneType.Driving:
+                corrected_count += 1
+                if idx < 5:  # Debug first few
+                    print(f"\033[92m[FIX] Waypoint {idx}: Corrected lane {wp.lane_id} -> {left_wp.lane_id}\033[0m")
+                wp = left_wp
+            else:
+                # Can't fix - keep original but warn
+                if idx < 5:
+                    print(f"\033[91m[WARN] Waypoint {idx}: Stuck on wrong side (lane {wp.lane_id})\033[0m")
+        
+        elif not expected_negative and wp.lane_id < 0:
+            # We're on RHT map but got negative lane (left side) - try to fix
+            wrong_side_count += 1
+            
+            # Try to get the opposite/right lane
+            right_wp = wp.get_right_lane()
+            if right_wp and right_wp.lane_id > 0 and right_wp.lane_type == carla.LaneType.Driving:
+                corrected_count += 1
+                if idx < 5:
+                    print(f"\033[92m[FIX] Waypoint {idx}: Corrected lane {wp.lane_id} -> {right_wp.lane_id}\033[0m")
+                wp = right_wp
+        
+        self.route_waypoints.append(wp)
+    
+    if wrong_side_count > 0:
+        print(f"\033[93m[ROUTE-PLANNER] ⚠ Detected {wrong_side_count}/{len(self.route_points)} waypoints on wrong side\033[0m")
+        print(f"\033[92m[ROUTE-PLANNER] ✓ Successfully corrected {corrected_count}/{wrong_side_count} to correct side\033[0m")
+    else:
+        print(f"\033[92m[ROUTE-PLANNER] ✓ All waypoints already on correct side\033[0m")
     
     print(f"\033[92m[ROUTE-PLANNER] After interpolation: {len(self.route_waypoints)} waypoints\033[0m")
+    
+    # Debug check final route
+    if self.route_waypoints:
+        first_wp = self.route_waypoints[0]
+        last_wp = self.route_waypoints[-1]
+        print(f"\033[94m[ROUTE-PLANNER] First waypoint: road_id={first_wp.road_id}, lane_id={first_wp.lane_id}\033[0m")
+        print(f"\033[94m[ROUTE-PLANNER] Last waypoint: road_id={last_wp.road_id}, lane_id={last_wp.lane_id}\033[0m")
+        
+        # Count lane side distribution
+        negative_lanes = sum(1 for wp in self.route_waypoints if wp.lane_id < 0)
+        positive_lanes = sum(1 for wp in self.route_waypoints if wp.lane_id > 0)
+        print(f"\033[94m[ROUTE-PLANNER] Lane distribution: {negative_lanes} negative, {positive_lanes} positive\033[0m")
+        
+        # Check if route is mostly on correct side
+        if is_lht and positive_lanes > negative_lanes:
+            print(f"\033[91m[ERROR] Route is mostly on WRONG side for LHT! ({positive_lanes} positive vs {negative_lanes} negative)\033[0m")
+        elif not is_lht and negative_lanes > positive_lanes:
+            print(f"\033[91m[ERROR] Route is mostly on WRONG side for RHT! ({negative_lanes} negative vs {positive_lanes} positive)\033[0m")
+        else:
+            print(f"\033[92m[ROUTE-PLANNER] ✓ Route is on correct side of road\033[0m")
+            
+            # Additional check: warn about minority wrong-side waypoints
+            if is_lht and positive_lanes > 0:
+                percentage = (positive_lanes / len(self.route_waypoints)) * 100
+                if percentage > 20:
+                    print(f"\033[93m[WARN] {positive_lanes} ({percentage:.1f}%) waypoints on RHT side - may be unavoidable one-way roads\033[0m")
+                else:
+                    print(f"\033[94m[INFO] {positive_lanes} ({percentage:.1f}%) waypoints on one-way RHT roads (acceptable)\033[0m")
+            elif not is_lht and negative_lanes > 0:
+                percentage = (negative_lanes / len(self.route_waypoints)) * 100
+                if percentage > 20:
+                    print(f"\033[93m[WARN] {negative_lanes} ({percentage:.1f}%) waypoints on LHT side - may be unavoidable one-way roads\033[0m")
+                else:
+                    print(f"\033[94m[INFO] {negative_lanes} ({percentage:.1f}%) waypoints on one-way LHT roads (acceptable)\033[0m")
 
     self.compute_route_info(carla_world, carla_map)
+    
+    
+    
+    
+    
+    
+    
+    
     
 
   def compute_rotation_angles(self, route_points):

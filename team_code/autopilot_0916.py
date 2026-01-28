@@ -338,12 +338,11 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     else:
       starts_with_parking_exit = False
 
-    # # Set up the route planner and extrapolation
-    # self._waypoint_planner = PrivilegedRoutePlanner(self.config)
+    # Set up the route planner and extrapolation
+    self._waypoint_planner = PrivilegedRoutePlanner(self.config)
     # self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
     #                                    starts_with_parking_exit, self._vehicle.get_location())
     ## Added
-    self._waypoint_planner = PrivilegedRoutePlanner(self.config)
     if hasattr(self, '_is_lht_map'):
         self._waypoint_planner._is_lht_map = self._is_lht_map
         print(f"\033[92m[INFO][AUTOPILOT] ✓ Set PrivilegedRoutePlanner LHT mode: {self._is_lht_map}\033[0m")
@@ -354,7 +353,7 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
     if not getattr(self, 'org_dense_route_world_coord', None) or len(self.org_dense_route_world_coord) == 0:
       raise RuntimeError("Cannot setup PrivilegedRoutePlanner: org_dense_route_world_coord is empty")
 
-    self._waypoint_planner.setup_route(self.org_dense_route_world_coord, self._world, self.world_map,
+    self._waypoint_planner.setup_route_lht(self.org_dense_route_world_coord, self._world, self.world_map,
                                       starts_with_parking_exit, self._vehicle.get_location())
     
     # Add debug block:
@@ -365,10 +364,28 @@ class AutoPilot(autonomous_agent.AutonomousAgent):
 
     if len(self._waypoint_planner.route_waypoints) > 0:
         first_wp = self._waypoint_planner.route_waypoints[0]
+        
         if self._is_lht_map and first_wp.lane_id > 0:
-            print(f"\033[91m[ERROR][LHT] Route has POSITIVE lane_id {first_wp.lane_id} on LHT map! Route planner is broken!\033[0m")
+            # Check if left lane exists before declaring error
+            left_lane = first_wp.get_left_lane()
+            if left_lane and left_lane.lane_id < 0 and left_lane.lane_type == carla.LaneType.Driving:
+                print(f"\033[91m[ERROR][LHT] Route has POSITIVE lane_id {first_wp.lane_id} but LEFT lane {left_lane.lane_id} exists - planner failed!\033[0m")
+            else:
+                print(f"\033[93m[WARN][LHT] Route starts on one-way road (lane {first_wp.lane_id}) - no LHT alternative available\033[0m")
+        
         elif self._is_lht_map and first_wp.lane_id < 0:
             print(f"\033[92m[OK][LHT] Route correctly uses NEGATIVE lane_id {first_wp.lane_id}\033[0m")
+        
+        elif not self._is_lht_map and first_wp.lane_id < 0:
+            # Check if right lane exists for RHT maps
+            right_lane = first_wp.get_right_lane()
+            if right_lane and right_lane.lane_id > 0 and right_lane.lane_type == carla.LaneType.Driving:
+                print(f"\033[91m[ERROR][RHT] Route has NEGATIVE lane_id {first_wp.lane_id} but RIGHT lane {right_lane.lane_id} exists - planner failed!\033[0m")
+            else:
+                print(f"\033[93m[WARN][RHT] Route starts on one-way road (lane {first_wp.lane_id}) - no RHT alternative available\033[0m")
+        
+        elif not self._is_lht_map and first_wp.lane_id > 0:
+            print(f"\033[92m[OK][RHT] Route correctly uses POSITIVE lane_id {first_wp.lane_id}\033[0m")
     ## Added
     self._waypoint_planner.save()
 

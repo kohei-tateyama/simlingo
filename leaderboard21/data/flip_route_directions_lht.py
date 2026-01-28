@@ -5,6 +5,9 @@ Handles both simple direction flips and scenario-specific adjustments.
 Creates output file: <input>_LHT.xml
 
 If no input files specified, processes ALL .xml files in current directory.
+
+I THINK THIS IS NOT NEEDED IF THE CITY IF PROPERLY LHT CONFIGURED.
+
 """
 import xml.etree.ElementTree as ET
 import sys
@@ -12,6 +15,11 @@ import os
 import glob
 import shutil
 import argparse
+
+print("[INFO]: I THINK THIS IS NOT NEEDED IF THE CITY IF PROPERLY LHT CONFIGURED.")
+print("[INFO]: I THINK THIS IS NOT NEEDED IF THE CITY IF PROPERLY LHT CONFIGURED.")
+print("[INFO]: I THINK THIS IS NOT NEEDED IF THE CITY IF PROPERLY LHT CONFIGURED.")
+print("[INFO]: I THINK THIS IS NOT NEEDED IF THE CITY IF PROPERLY LHT CONFIGURED.")
 
 # Scenarios safe to flip directly
 SAFE_TO_FLIP = {
