@@ -6,12 +6,17 @@
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Check the bin->csv processing logic
-- [ ] Answer Kutsuwa san
-- [ ] My time
-- [ ] Clean up repository
+- [x] Check the bin->csv processing logic
+- [x] Answer Kutsuwa san
+- [x] Verify if it works with flipping
+- [x] Fix the code to Flip. use the confi is_flipped bool
+- [x] Turn it into exe and send it to yamada san and kutsuwa san
+- [🟡] My time. ask nav san or kutsuwa san
+- [ ] Clean up simlingo repository
+- [ ] Make worktree for michele
 - [ ] Read the alpamayo paper
 - [ ] Make a repository for paper summarization/implementation
+- [ ] Update daily log for yesterday
 
 ---
 
@@ -24,7 +29,6 @@ For the future
 ---
 
 ## 🧰 Cheat Sheet / Useful Commands
-*Commands I always forget and need to copy-paste.*
 
 **Docker / K8s**
 ```bash
