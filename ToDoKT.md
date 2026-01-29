@@ -6,29 +6,48 @@
 ---
 
 ## 📅 Priorities (Today)
-- [x] Check the bin->csv processing logic
-- [x] Answer Kutsuwa san
-- [x] Verify if it works with flipping
-- [x] Fix the code to Flip. use the confi is_flipped bool
-- [x] Turn it into exe and send it to yamada san and kutsuwa san
-- [🟡] My time. ask nav san or kutsuwa san
-- [ ] Clean up simlingo repository
-- [ ] Make worktree for michele
 - [ ] Read the alpamayo paper
-- [ ] Make a repository for paper summarization/implementation
-- [ ] Update daily log for yesterday
+- [ ] Summarize Alpamayo and push to github
+- [ ] Infer Alpamayo
+- [ ] Push the alpamayo inference code to github
+- [ ] Run the training of simlingo on azureml
 
 ---
 
 ## ⚡ Active Development (WIP)
 For the future
-- [ ] Infer Alpamayo
-- [ ] Run the training of simlingo on azureml
-- [ ] Summarize Alpamayo and push to github
-- [ ] Push the alpamayo inference code to github
+- [ ] Test out the Alpasim
+- [ ] Ask Nav san about side business (Friday 30/jan)
+
+
+
+### Knowledge to gain
+- [ ] Tokenization
+- [ ] Action tokenization
+- [ ] Gain knowledge on transformers
+    - [ ] Self attention
+    - [ ] Cross attention
+    - [ ] Flash attention 3
+    - [ ] Rotary Positional Embeddings (RoPE)
+- [ ] Reinforcement Learning
+- [ ] Detection-focused backbones (DETR/DINOv2)
+    - learn how to handle different input resolutions and patch embeddings
+- [ ] Finetuning techniques
+    - Parameter efficient fine tuning PEFT
+- [ ] 3D gaussian splatting
+- [ ] Basic Control Theory
+    - [ ] PID control
+    - [ ] Model predivtive control
+- [ ] Basic embeddings.
+    - [ ] How to put softwares into cars
+- [ ] C++
+- [ ] FusionNet
+    - How to implement fusionnet architectures that use cross-attention to merge RGB data with depths
+- [ ] Chain of thought
 ---
 
 ## 🧰 Cheat Sheet / Useful Commands
+ctrl+shift+'v' to preview md files
 
 **Docker / K8s**
 ```bash
@@ -43,3 +62,15 @@ kubectl logs -f -l app=backend --tail=20
 
 ---
 ## History
+
+### 0128
+- [x] Check the bin->csv processing logic
+- [x] Answer Kutsuwa san
+- [x] Verify if it works with flipping
+- [x] Fix the code to Flip. use the confi is_flipped bool
+- [x] Turn it into exe and send it to yamada san and kutsuwa san
+- [x] My time. ask yamada san or kutsuwa san
+- [x] Clean up simlingo repository
+- [x] Make worktree for michele
+- [x] Make a repository for paper summarization/implementation
+- [x] Update daily log for yesterday
