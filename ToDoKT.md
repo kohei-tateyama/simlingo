@@ -1,16 +1,16 @@
 # 🛠️ Engineering Work Log
 
-**Current Focus:** [Insert Goal, e.g., API Rate Limiting Logic]
-**Status:** 🟢 On Track / 🟡 Blocked / 🔴 Critical
+**Current Focus:** Deploying a VLA into a car and testing out my engineering skills
 
 ---
 
 ## 📅 Priorities (Today)
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
-- [ ] Infer Alpamayo
-- [ ] Push the alpamayo inference code to github
+- [x] Infer Alpamayo
+- [x] Push the alpamayo inference code to github
 - [ ] Run the training of simlingo on azureml
+- [ ] Run the simlingo inference on azureml
 
 ---
 
