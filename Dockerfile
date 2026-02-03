@@ -1,0 +1,1 @@
+docker file goes here for azure training
