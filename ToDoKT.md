@@ -6,28 +6,29 @@
 
 ## 📅 Priorities (Today)
 - [ ] Debug the network error on azure
+- [ ] Finish the OMG task
+- [ ] Talk to Shono san about the OMG task
+- [ ] Make a visual for Alpamayo inference
+
 - [ ] Run the training of simlingo on azureml
 - [ ] Run the simlingo inference on azureml
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
-- [x] Infer Alpamayo
-- [x] Push the alpamayo inference code to github
-- [ ] Finish the OMG task
-- [ ] Talk to Shono san about the OMG task
-- [ ] Make a visual for Alpamayo inference
 - [ ] Make a summary slide for what we did
 - [ ] Make a proposal slide
+
+---
+THIS WEEK
+
 
 ---
 
 NEXT WEEK
 - [ ] Discuss about the data collection for parking
 
-## ⚡ Active Development (WIP)
-For the future
-- [ ] Test out the Alpasim
-- [ ] Ask Nav san about side business (Friday 30/jan)
 
+QUEUE
+- [ ] Test out the Alpasim
 
 
 ### Knowledge to gain
@@ -60,21 +61,11 @@ For the future
 ## 🧰 Cheat Sheet / Useful Commands
 ctrl+shift+'v' to preview md files
 
-**Docker / K8s**
-```bash
-# Nuke all docker containers and images
-docker system prune -a --volumes
-
-# Get logs from a specific pod
-kubectl logs -f -l app=backend --tail=20
-
-
-```
 
 ---
 ## History
 
-### 0128
+### WEEK1 0126-0130
 - [x] Check the bin->csv processing logic
 - [x] Answer Kutsuwa san
 - [x] Verify if it works with flipping
@@ -85,3 +76,17 @@ kubectl logs -f -l app=backend --tail=20
 - [x] Make worktree for michele
 - [x] Make a repository for paper summarization/implementation
 - [x] Update daily log for yesterday
+- [x] Infer Alpamayo
+- [x] Push the alpamayo inference code to github
+
+
+### WEEK2 0202-0206
+
+
+### WEEK3
+
+
+### WEEK4
+
+
+### WEEK5
