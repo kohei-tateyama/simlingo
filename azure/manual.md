@@ -144,7 +144,10 @@ Why this approach: - Smaller container images - Only dependencies, not code (~2G
 
 ## 🐳 Step 4: Build and Push Docker Images
 Login to Container Registry
-az acr login --name daip5d5219fe9583105d6a83
+```bash
+# az acr login --name daip5d5219fe9583105d6a83
+az acr login --name daip5d5219fe9583105d6a83 --resource-group rg-deveco-jp-common-shared-prd
+```
 
 ### Example Dockerfile for Azure ML
 Use Azure ML curated base images for best compatibility:
