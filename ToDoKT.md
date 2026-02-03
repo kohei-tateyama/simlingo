@@ -5,14 +5,23 @@
 ---
 
 ## 📅 Priorities (Today)
+- [ ] Debug the network error on azure
+- [ ] Run the training of simlingo on azureml
+- [ ] Run the simlingo inference on azureml
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [x] Infer Alpamayo
 - [x] Push the alpamayo inference code to github
-- [ ] Run the training of simlingo on azureml
-- [ ] Run the simlingo inference on azureml
+- [ ] Finish the OMG task
+- [ ] Talk to Shono san about the OMG task
+- [ ] Make a visual for Alpamayo inference
+- [ ] Make a summary slide for what we did
+- [ ] Make a proposal slide
 
 ---
+
+NEXT WEEK
+- [ ] Discuss about the data collection for parking
 
 ## ⚡ Active Development (WIP)
 For the future
@@ -23,13 +32,15 @@ For the future
 
 ### Knowledge to gain
 - [ ] Tokenization
-- [ ] Action tokenization
+    - [ ] Action tokenization
+    - [ ] Flow matching
 - [ ] Gain knowledge on transformers
     - [ ] Self attention
     - [ ] Cross attention
     - [ ] Flash attention 3
     - [ ] Rotary Positional Embeddings (RoPE)
 - [ ] Reinforcement Learning
+    - [ ] Policy gradient (GRPO)
 - [ ] Detection-focused backbones (DETR/DINOv2)
     - learn how to handle different input resolutions and patch embeddings
 - [ ] Finetuning techniques
