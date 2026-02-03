@@ -5,21 +5,20 @@
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Debug the network error on azure
 - [ ] Finish the OMG task
 - [ ] Talk to Shono san about the OMG task
-- [ ] Make a visual for Alpamayo inference
 
+- [ ] Fix the core issue about the network with Jason san
+- [ ] Reference dataset for training on azureml
 - [ ] Run the training of simlingo on azureml
 - [ ] Run the simlingo inference on azureml
+
+---
+THIS WEEK
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [ ] Make a summary slide for what we did
 - [ ] Make a proposal slide
-
----
-THIS WEEK
-
 
 ---
 
@@ -81,6 +80,10 @@ ctrl+shift+'v' to preview md files
 
 
 ### WEEK2 0202-0206
+- [x] Debug the network error on azure
+- [x] Make a visual for Alpamayo inference
+- [x] Create a docker image for simlingo
+- [x] Push the docker image to azureml
 
 
 ### WEEK3
