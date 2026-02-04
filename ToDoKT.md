@@ -7,24 +7,23 @@
 ## 📅 Priorities (Today)
 - [ ] Finish the OMG task
 - [ ] Talk to Shono san about the OMG task
-
-- [ ] Fix the core issue about the network with Jason san
 - [ ] Reference dataset for training on azureml
 - [ ] Run the training of simlingo on azureml
 - [ ] Run the simlingo inference on azureml
 
 ---
 THIS WEEK
+- [ ] Fix the core issue about the network with Jason san
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [ ] Make a summary slide for what we did
 - [ ] Make a proposal slide
+- [ ] Read the FLEX paper
 
 ---
 
 NEXT WEEK
-- [ ] Discuss about the data collection for parking
-
+- [ ] Discuss further about parking data
 
 QUEUE
 - [ ] Test out the Alpasim
@@ -84,6 +83,7 @@ ctrl+shift+'v' to preview md files
 - [x] Make a visual for Alpamayo inference
 - [x] Create a docker image for simlingo
 - [x] Push the docker image to azureml
+- [x] Discuss about the data collection for parking
 
 
 ### WEEK3
