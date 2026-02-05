@@ -6,27 +6,31 @@
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Read the alpamayo paper
-- [ ] Summarize Alpamayo and push to github
-- [ ] Read the FLEX paper
-- [ ] Make a summary slide for what we did
-- [ ] Make a proposal slide for the parking VLA
+- [ ] Run the inference on real world image sequences
+- [ ] Run the job on azure without logs
+- [ ] Run the training locally/azure with 6 images
+
 
 
 ---
 
 THIS WEEK
+- [ ] Run the vlm auto annotation pipeline
+- [ ] Discuss further about parking data with kutsuwa san
+
 - [!] Run the training of simlingo on azureml
 - [!] Run the simlingo inference on azureml
 - [ ] Fix the core issue about the network with Jason san
+- [ ] If there is a bug with the inference code, fix 
+    -> Trajectory decoding
 
-- [ ] Send the summary of what we did to the teams chat
-- [ ] Send the proposal slide to the teams chat
 - [ ] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
+- [ ] Read the final part of the alpamayo paper
+- [ ] Summarize Alpamayo and push to github
+- [ ] Read the FLEX paper
 ---
 
 QUEUE
-- [ ] Discuss further about parking data
 - [ ] Test out the Alpasim
 - [ ] Watch lectures on ECU and embeddings
 
@@ -92,6 +96,9 @@ ctrl+shift+'v' to preview md files
 - [x] Reference dataset for training on azureml
 - [x] Check all the OMG messages
 - [x] Watch CES2026 videos
+- [x] Make a summary slide for what we did
+- [x] Make a proposal slide for the parking VLA
+
 
 ### WEEK3 0209-0213
 
