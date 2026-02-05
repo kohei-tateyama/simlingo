@@ -1,0 +1,56 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+
+# Job identification
+display_name: simlingo_vla_training
+experiment_name: data-ai-vla-experiments
+description: Train SimLingo VLA model on autonomous driving data
+
+# Code and environment
+code: ../  # Root of simlingo-kohei workspace
+environment:
+  image: daip5d5219fe9583105d6a83.azurecr.io/data-ai-vla/simlingo-training:v1
+
+# Compute configuration
+compute: azureml:gpu-cluster-t4
+resources:
+  instance_count: 2  # Distributed training across 2 nodes
+
+# Training command with environment variables
+command: >-
+  export OMP_NUM_THREADS=64 &&
+  export OPENBLAS_NUM_THREADS=1 &&
+  export MASTER_ADDR=localhost &&
+  export NCCL_DEBUG=INFO &&
+  export WANDB__SERVICE_WAIT=300 &&
+  python simlingo_training/train.py 
+  experiment=simlingo_seed1 
+  data_module.batch_size=8 
+  data_module.data_path=${{inputs.training_data}}
+  gpus=8 
+  name=simlingo_seed1
+
+# python train.py
+#   --data_path ${{inputs.training_data}}
+#   --output_path ${{outputs.model_output}}
+#   --epochs 100
+#   --batch_size 32
+#   --learning_rate 1e-4
+#   --gpus 1
+
+# Inputs and outputs
+inputs:
+  training_data:
+    type: uri_folder
+    path: azureml:simlingo_driving_v2:1
+    mode: ro_mount  # Read-only mount
+
+outputs:
+  model_output:
+    type: uri_folder
+    mode: rw_mount  # Read-write mount for checkpoints
+
+# Tags for organization
+tags:
+  project: data-ai-vla
+  model: simlingo-vla
+  framework: pytorch

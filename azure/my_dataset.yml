@@ -1,0 +1,9 @@
+$schema: https://azuremlschemas.azureedge.net/latest/data.schema.json
+name: simlingo_driving_v2
+description: SimLingo open source single camera dataset collected from CARLA
+type: uri_folder
+path: azureml://datastores/workspaceblobstore/paths/simlingo_v2_2025_01_10/
+tags:
+  project: data-ai-vla
+  version: "2.0"
+  type: driving
