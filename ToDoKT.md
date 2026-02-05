@@ -1,38 +1,41 @@
 # 🛠️ Engineering Work Log
 
-**Current Focus:** Deploying a VLA into a car and testing out my engineering skills
-
+**Current Focus:** Deploying a parking VLA into a car and testing out my engineering skills
+[x] : Done
+[!] : Blocked
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Finish the OMG task
-- [ ] Talk to Shono san about the OMG task
-- [ ] Reference dataset for training on azureml
-- [ ] Run the training of simlingo on azureml
-- [ ] Run the simlingo inference on azureml
-
----
-THIS WEEK
-- [ ] Fix the core issue about the network with Jason san
 - [ ] Read the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
-- [ ] Make a summary slide for what we did
-- [ ] Make a proposal slide
 - [ ] Read the FLEX paper
+- [ ] Make a summary slide for what we did
+- [ ] Make a proposal slide for the parking VLA
+
 
 ---
 
-NEXT WEEK
-- [ ] Discuss further about parking data
+THIS WEEK
+- [!] Run the training of simlingo on azureml
+- [!] Run the simlingo inference on azureml
+- [ ] Fix the core issue about the network with Jason san
+
+- [ ] Send the summary of what we did to the teams chat
+- [ ] Send the proposal slide to the teams chat
+- [ ] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
+---
 
 QUEUE
+- [ ] Discuss further about parking data
 - [ ] Test out the Alpasim
+- [ ] Watch lectures on ECU and embeddings
 
 
 ### Knowledge to gain
 - [ ] Tokenization
     - [ ] Action tokenization
     - [ ] Flow matching
+    - [ ] Image tokenization (vision encoders)
 - [ ] Gain knowledge on transformers
     - [ ] Self attention
     - [ ] Cross attention
@@ -67,7 +70,7 @@ ctrl+shift+'v' to preview md files
 - [x] Check the bin->csv processing logic
 - [x] Answer Kutsuwa san
 - [x] Verify if it works with flipping
-- [x] Fix the code to Flip. use the confi is_flipped bool
+- [x] Fix the code to Flip. use the config is_flipped bool
 - [x] Turn it into exe and send it to yamada san and kutsuwa san
 - [x] My time. ask yamada san or kutsuwa san
 - [x] Clean up simlingo repository
@@ -84,12 +87,16 @@ ctrl+shift+'v' to preview md files
 - [x] Create a docker image for simlingo
 - [x] Push the docker image to azureml
 - [x] Discuss about the data collection for parking
+- [x] Finish the OMG task
+- [x] Talk to Shono san about the OMG task
+- [x] Reference dataset for training on azureml
+- [x] Check all the OMG messages
+- [x] Watch CES2026 videos
+
+### WEEK3 0209-0213
 
 
-### WEEK3
+### WEEK4 0216-0220
 
 
-### WEEK4
-
-
-### WEEK5
+### WEEK5 0223-0227
