@@ -647,9 +647,9 @@ if __name__ == '__main__':
     # out_dir = 'japanese_street/japanese_street_test'
 
     ## japanse_street/testride
-    json_path = 'japanese_street/testride/testride_results.json'
-    images_dir = 'japanese_street/testride'
-    out_dir = 'japanese_street/testride/japanese_street_test'
+    json_path = 'data/output/results.json'
+    images_dir = 'data/testride'
+    out_dir = 'data/output'
 
     annotate_results(json_path, images_dir, out_dir)
 

@@ -1,6 +1,6 @@
 ## this is simlingo related wrt carla 0.9.15 export. In other word, this will NOT work for carla 0.9.16
-export CARLA_ROOT=/path/to/CARLA/root
-export WORK_DIR=/path/to/simlingo
+export CARLA_ROOT=/workspace/carla0915
+export WORK_DIR=/workspace/simlingo-kohei
 export PYTHONPATH=$PYTHONPATH:${WORK_DIR}
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
