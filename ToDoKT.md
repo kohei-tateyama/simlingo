@@ -6,29 +6,46 @@
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Run the training locally/azure with 6 images
-- [ ] Run the training locally with collected carla data (1 image)
 - [ ] Run the vlm auto annotation pipeline
-- [ ] Discuss further about parking data with kutsuwa san
-- [ ] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
+- [x] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
 - [ ] Talk to Sven san about write permission issue
+- [ ] Discuss further about parking data with kutsuwa san
+
+
+
+
+
+
+
 
 
 ---
 THIS WEEK
 - [!] Run the training of simlingo on azureml
-- [!] Run the simlingo inference on azureml
-- [ ] Fix the core issue about the network with Jason san
-- [ ] If there is a bug with the inference code, fix 
-    -> Trajectory decoding
+    -> permission issues on write
+- [!] Run the simlingo inference on azureml\
+    -> permission issues on write
+- [!] Run the training locally/azure with 6 images
+    -> no dataset available
+- [!] Run the training locally with collected carla data (1 image)
+    -> no dataset available
 
+- [ ] Fix the core issue about the network with Jason san
 - [ ] Read the final part of the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [ ] Read the FLEX paper
+
+- [ ] Visualize alpamayo inference trajectory
+- [ ] Setup alpasim
+    https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
+- [ ] Run alpamayo on alpasim
+- [ ] See if I can run simlingo on alpasim
+
+
+
 ---
 
 QUEUE
-- [ ] Test out the Alpasim
 - [ ] Watch lectures on ECU and embeddings
 
 
@@ -96,7 +113,7 @@ ctrl+shift+'v' to preview md files
 - [x] Make a summary slide for what we did
 - [x] Make a proposal slide for the parking VLA
 - [x] Run the inference on real world image sequences
-
+- [x] If there is a bug with the inference code, fix 
 
 
 ### WEEK3 0209-0213
