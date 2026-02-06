@@ -6,25 +6,22 @@
 ---
 
 ## 📅 Priorities (Today)
-- [ ] Run the inference on real world image sequences
-- [ ] Run the job on azure without logs
 - [ ] Run the training locally/azure with 6 images
-
+- [ ] Run the training locally with collected carla data (1 image)
+- [ ] Run the vlm auto annotation pipeline
+- [ ] Discuss further about parking data with kutsuwa san
+- [ ] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
+- [ ] Talk to Sven san about write permission issue
 
 
 ---
-
 THIS WEEK
-- [ ] Run the vlm auto annotation pipeline
-- [ ] Discuss further about parking data with kutsuwa san
-
 - [!] Run the training of simlingo on azureml
 - [!] Run the simlingo inference on azureml
 - [ ] Fix the core issue about the network with Jason san
 - [ ] If there is a bug with the inference code, fix 
     -> Trajectory decoding
 
-- [ ] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
 - [ ] Read the final part of the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [ ] Read the FLEX paper
@@ -98,6 +95,8 @@ ctrl+shift+'v' to preview md files
 - [x] Watch CES2026 videos
 - [x] Make a summary slide for what we did
 - [x] Make a proposal slide for the parking VLA
+- [x] Run the inference on real world image sequences
+
 
 
 ### WEEK3 0209-0213
