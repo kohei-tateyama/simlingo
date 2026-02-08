@@ -7,17 +7,11 @@
 
 ## 📅 Priorities (Today)
 - [ ] Run the vlm auto annotation pipeline
-- [x] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
-- [ ] Talk to Sven san about write permission issue
-- [ ] Discuss further about parking data with kutsuwa san
-
-
-
-
-
-
-
-
+- [ ] Visualize alpamayo inference trajectory
+- [ ] Setup alpasim
+    https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
+- [ ] Run alpamayo on alpasim
+- [ ] See if I can run simlingo on alpasim
 
 ---
 THIS WEEK
@@ -31,15 +25,14 @@ THIS WEEK
     -> no dataset available
 
 - [ ] Fix the core issue about the network with Jason san
+- [ ] Discuss further about parking data with kutsuwa san
+- [ ] Talk to Sven san about write permission issue
+
 - [ ] Read the final part of the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
 - [ ] Read the FLEX paper
 
-- [ ] Visualize alpamayo inference trajectory
-- [ ] Setup alpasim
-    https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
-- [ ] Run alpamayo on alpasim
-- [ ] See if I can run simlingo on alpasim
+
 
 
 
@@ -114,7 +107,7 @@ ctrl+shift+'v' to preview md files
 - [x] Make a proposal slide for the parking VLA
 - [x] Run the inference on real world image sequences
 - [x] If there is a bug with the inference code, fix 
-
+- [x] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
 
 ### WEEK3 0209-0213
 
