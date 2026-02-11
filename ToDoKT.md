@@ -6,7 +6,11 @@
 ---
 
 ## 📅 Priorities (Today)
+- [ ] Run the training locally with collected carla data (1 image)
+    -> Change the code to match the dataset structure
+- [ ] Run the training locally/azure with 6 images
 - [ ] Run the vlm auto annotation pipeline
+
 - [ ] Visualize alpamayo inference trajectory
 - [ ] Setup alpasim
     https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
@@ -19,10 +23,7 @@ THIS WEEK
     -> permission issues on write
 - [!] Run the simlingo inference on azureml\
     -> permission issues on write
-- [!] Run the training locally/azure with 6 images
-    -> no dataset available
-- [!] Run the training locally with collected carla data (1 image)
-    -> no dataset available
+
 
 - [ ] Fix the core issue about the network with Jason san
 - [ ] Discuss further about parking data with kutsuwa san
