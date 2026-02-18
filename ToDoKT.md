@@ -7,15 +7,16 @@
 
 ## 📅 Priorities (Today)
 - [ ] Run the training locally with collected carla data (1 image)
-    -> Change the code to match the dataset structure
 - [ ] Run the training locally/azure with 6 images
+- [ ] Read the FLEX paper
+- [ ] Visualize alpamayo inference trajectory
 - [ ] Run the vlm auto annotation pipeline
 
-- [ ] Visualize alpamayo inference trajectory
-- [ ] Setup alpasim
-    https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
-- [ ] Run alpamayo on alpasim
-- [ ] See if I can run simlingo on alpasim
+
+
+
+
+
 
 ---
 THIS WEEK
@@ -31,7 +32,10 @@ THIS WEEK
 
 - [ ] Read the final part of the alpamayo paper
 - [ ] Summarize Alpamayo and push to github
-- [ ] Read the FLEX paper
+- [ ] Setup alpasim
+    https://developer.nvidia.com/blog/building-autonomous-vehicles-that-reason-with-nvidia-alpamayo
+- [ ] Run alpamayo on alpasim
+- [ ] See if I can run simlingo on alpasim
 
 
 
@@ -111,9 +115,10 @@ ctrl+shift+'v' to preview md files
 - [x] Fully understand the simlingo training pipeline. Architecture/which parameters are being trained/tokenization methods/action tokens/trajectory decoding
 
 ### WEEK3 0209-0213
-
-
 ### WEEK4 0216-0220
+- [x] Watch recordings of OMG
+
+
 
 
 ### WEEK5 0223-0227
