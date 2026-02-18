@@ -141,7 +141,7 @@ class BaseDataset(Dataset):  # pylint: disable=locally-disabled, invalid-name
 
 
         if not self.bucket_name == "all":
-            with open(f"{repo_path}/" + self.bucket_path + '/buckets_paths.pkl', 'rb') as f:
+            with open(self.bucket_path + '/buckets_paths.pkl', 'rb') as f:
                 bucket_dict = pkl.load(f)
 
             bucket_run_ids = None
@@ -187,15 +187,22 @@ class BaseDataset(Dataset):  # pylint: disable=locally-disabled, invalid-name
                         run_id_dict[run_id_absolut].append(run_id_name)
 
 
-        route_dirs = glob.glob(f"{repo_path}/" + self.data_path + '/data/simlingo/*/*/*/Town*')
-        print(f'Found {len(route_dirs)} routes in {repo_path + self.data_path}')
+        # Handle both absolute and relative paths
+        if os.path.isabs(self.data_path):
+            data_root = self.data_path
+        else:
+            data_root = f"{repo_path}/{self.data_path}"
+        
+        # Only use main simlingo directory, not backup or other versions
+        route_dirs = glob.glob(f"{data_root}/data/simlingo/**/Town*", recursive=True)
+        print(f'Found {len(route_dirs)} routes in {data_root}/data/simlingo')
         
         if not self.use_old_towns:
             route_dirs = [route_dir for route_dir in route_dirs if 'lb1_split' not in route_dir]
-            print(f'Found {len(route_dirs)} routes in {repo_path + self.data_path} after filtering out old towns')
+            print(f'Found {len(route_dirs)} routes in {data_root} after filtering out old towns')
         elif self.use_only_old_towns or self.bucket_name == "old_towns":
             route_dirs = [route_dir for route_dir in route_dirs if 'lb1_split' in route_dir]
-            print(f'Found {len(route_dirs)} routes in {repo_path + self.data_path} after filtering out non old towns')
+            print(f'Found {len(route_dirs)} routes in {data_root} after filtering out non old towns')
         
 
         random.shuffle(route_dirs)
@@ -272,7 +279,8 @@ class BaseDataset(Dataset):  # pylint: disable=locally-disabled, invalid-name
             #         fail_reasons["no_rgb_folder"] += 1
             #     continue
 
-            num_seq = len(os.listdir(route_dir + f'/{self.rgb_folder}'))
+            # Only count .jpg files, not directories
+            num_seq = len([f for f in os.listdir(route_dir + f'/{self.rgb_folder}') if f.endswith('.jpg')])
 
             for seq in range(self.skip_first_n_frames, num_seq - self.pred_len - self.hist_len - 1):
                 image = []
@@ -448,7 +456,11 @@ class BaseDataset(Dataset):  # pylint: disable=locally-disabled, invalid-name
             images_i = None
             images_path = str(images[i], encoding='utf-8')
             if augment_sample:
-                images_path = images_path.replace('rgb', 'rgb_augmented')
+                augmented_path = images_path.replace('rgb', 'rgb_augmented')
+                # Fall back to regular rgb if rgb_augmented doesn't exist
+                if os.path.isfile(augmented_path):
+                    images_path = augmented_path
+                # else: keep using the original rgb path
 
             if not os.path.isfile(images_path):
                 print(f"File not found: {images_path}")
